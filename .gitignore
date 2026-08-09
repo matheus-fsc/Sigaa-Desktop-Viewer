@@ -1,0 +1,41 @@
+# build
+/build/
+/out/
+/install/
+CMakeUserPresets.json
+
+# vcpkg
+/vcpkg/
+/vcpkg_installed/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+
+# ------------------------------------------------------------------
+# DADOS PESSOAIS — ver docs/RECON.md §4
+# Fixtures brutos contêm CPF, matricula, nome completo, e-mail, idusuario
+# e JSESSIONID. Só entram no repo depois de passar por tools/redact.py,
+# e apenas na pasta redigida.
+# ------------------------------------------------------------------
+/tests/fixtures/raw/
+*.har
+!/tests/fixtures/har/*.redacted.har
+sigaa-viewer.db
+*.log
+relatorio.html
+relatorio.ics
+
+# grafo de conhecimento — derivado, reconstruivel com `graphify update .`
+/graphify-out/
+
+# credenciais em texto puro — jamais versionar
+.env
+.env.*
+!.env.example
+
+# AI tooling — configs locais, irrelevantes pro repo
+.claude/
+CLAUDE.md

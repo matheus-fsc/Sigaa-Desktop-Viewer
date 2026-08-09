@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Icone do app. COLORIDO de proposito: e a unica arte que nao passa pelo
+     tint de Icones.cpp, porque identidade nao deve mudar com o tema. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#1F6FB2"/>
+  <rect x="21" y="9" width="4" height="10" rx="2" fill="#0F4E80"/>
+  <rect x="39" y="9" width="4" height="10" rx="2" fill="#0F4E80"/>
+  <rect x="15" y="15" width="34" height="38" rx="4" fill="#FFFFFF"/>
+  <g stroke="#9CC4E4" stroke-width="3" stroke-linecap="round">
+    <path d="M21 26h10"/>
+    <path d="M21 34h10"/>
+  </g>
+  <path d="M31 39l5 5 10-13" fill="none" stroke="#2E9E5B" stroke-width="5"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

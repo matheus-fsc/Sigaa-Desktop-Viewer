@@ -1,0 +1,167 @@
+/* ---------------------------------------------------------------------------
+ * Folha de estilo do sigaa-ui.  Carregada em main.cpp a partir do .qrc.
+ *
+ * REGRA DESTE ARQUIVO: nenhuma cor literal.  Tudo sai de palette(...), que o
+ * Qt resolve contra a paleta viva do sistema.  E o que faz o app continuar
+ * legivel quando o Windows esta no tema escuro — um "#f5f5f5" cravado aqui
+ * viraria texto branco sobre branco na primeira vez que o usuario trocasse o
+ * tema, e ninguem testa isso.
+ *
+ * O QSS aqui mexe em ESPACAMENTO e HIERARQUIA, nao em pintura.  Estilizar
+ * demais um app de Widgets custa a aparencia nativa sem devolver nada.
+ * ------------------------------------------------------------------------- */
+
+/* --- Barra de acoes ------------------------------------------------------ */
+
+QToolBar#barraAcoes {
+    border: none;
+    border-bottom: 1px solid palette(mid);
+    padding: 4px 6px;
+    spacing: 4px;
+}
+
+QToolBar#barraAcoes QToolButton {
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 5px 10px;
+}
+
+QToolBar#barraAcoes QToolButton:hover {
+    background: palette(alternate-base);
+    border-color: palette(mid);
+}
+
+QToolBar#barraAcoes QToolButton:pressed {
+    background: palette(mid);
+}
+
+/* Ligado ("Automatico").  O icone tem uma variante On tingida com
+ * highlighted-text em Icones.cpp — sem ela o desenho sumiria contra o azul. */
+QToolBar#barraAcoes QToolButton:checked {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+    border-color: palette(highlight);
+}
+
+QToolBar#barraAcoes QToolButton:disabled {
+    color: palette(mid);
+}
+
+QToolBar#barraAcoes QToolButton::menu-indicator {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    right: 4px;
+}
+
+/* --- Abas ---------------------------------------------------------------- */
+
+QTabWidget#abas::pane {
+    border: none;
+    border-top: 1px solid palette(mid);
+}
+
+QTabWidget#abas::tab-bar {
+    left: 6px;
+}
+
+/* Sublinhado no lugar de "aba fisica": a contagem no titulo ("Prazos (12)")
+ * ja muda de largura a cada sync, e moldura sombreada so soma ruido. */
+QTabBar::tab {
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 7px 14px;
+    margin-right: 2px;
+    color: palette(window-text);
+}
+
+QTabBar::tab:hover {
+    background: palette(alternate-base);
+}
+
+QTabBar::tab:selected {
+    border-bottom-color: palette(highlight);
+}
+
+/* --- Tabelas ------------------------------------------------------------- */
+
+/* QHeaderView::section NAO e estilizado aqui, de proposito.  Qualquer regra
+ * sobre ::section faz o Qt desenhar o cabecalho inteiro pelo QSS e o
+ * indicador de ordenacao (a setinha) some — e as tres tabelas sao ordenaveis,
+ * entao perder a seta e perder a unica pista de por qual coluna a lista esta
+ * ordenada.  Padding de cabecalho nao vale esse preco. */
+QTableView {
+    border: none;
+    gridline-color: palette(alternate-base);
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+}
+
+QTableView::item {
+    padding: 3px 6px;
+}
+
+/* QCalendarWidget tem uma QTableView POR DENTRO (QCalendarView herda de
+ * QTableView), entao as duas regras acima caem nela sem ninguem pedir: o
+ * padding de ::item incha cada celula do mes e a grade fica desalinhada do
+ * cabecalho dos dias da semana.  Desfaz so para o calendario. */
+QCalendarWidget QTableView::item {
+    padding: 0;
+}
+
+/* --- Dashboard de provas ------------------------------------------------- */
+
+/* Cartao de resumo.  So chrome: fundo, borda e respiro.  O tamanho de fonte e
+ * o cinza do texto secundario ficam em JanelaPrincipal.cpp — fonte porque um
+ * "font-size: 10pt" cravado aqui ignoraria a escala de fonte do sistema, e
+ * cinza porque palette(placeholder-text) nao existe no parser de QSS (ver a
+ * nota no fim deste arquivo). */
+QFrame[classe="cartao"] {
+    background: palette(alternate-base);
+    border: 1px solid palette(mid);
+    border-radius: 6px;
+    padding: 8px 12px;
+}
+
+/* O calendario nao leva fundo de cartao: ele ja e uma grade densa, e uma
+ * moldura em volta transformaria a aba em caixa dentro de caixa. */
+QCalendarWidget QAbstractItemView {
+    outline: none;
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+}
+
+/* --- Barra de status ----------------------------------------------------- */
+
+QStatusBar {
+    border-top: 1px solid palette(mid);
+}
+
+/* Tira o entalhe que o Qt desenha em volta de cada widget da barra. */
+QStatusBar::item {
+    border: none;
+}
+
+QStatusBar QLabel {
+    padding: 2px 6px;
+}
+
+/* --- Dialogo de login ---------------------------------------------------- */
+
+QLabel[classe="titulo"] {
+    font-weight: bold;
+}
+
+/* A cor das notas (o cinza de texto secundario) NAO esta aqui: o palette() do
+ * QSS so aceita a lista fechada de papeis que o parser conhece, e
+ * placeholder-text — o unico papel que significa "cinza legivel nos dois
+ * temas" — nao esta nela.  A regra seria descartada em silencio.  Fica em
+ * DialogoLogin.cpp, via QPalette::PlaceholderText, que existe de verdade.
+ *
+ * Consequencia pratica: nao adiantar acrescentar `color:` aqui para QLabel de
+ * classe "nota" — o C++ ja resolveu, e QSS venceria a paleta. */
+QLabel[classe="recado"] {
+    background: palette(alternate-base);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    padding: 6px 8px;
+}

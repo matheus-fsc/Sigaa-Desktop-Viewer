@@ -1,0 +1,38 @@
+// Resource script do Windows. NAO e o .qrc: este arquivo e lido pelo linker e
+// gruda o icone no proprio .exe, que e de onde o Explorer, a barra de tarefas
+// e o Alt+Tab tiram a imagem — antes de existir QApplication para ler o .qrc.
+//
+// O icone que o app usa em tempo de execucao continua vindo de
+// recursos/icones/app.svg via Icones.cpp. Os dois desenhos sao o mesmo;
+// tools/gerar_icone.py regrava o .ico.
+
+// O primeiro ICON em ordem alfabetica de ID e o que o Windows mostra como
+// icone do executavel. Com um so, o ID nao importa; fica 1 por convencao.
+1 ICON "app.ico"
+
+1 VERSIONINFO
+FILEVERSION 0, 3, 0, 0
+PRODUCTVERSION 0, 3, 0, 0
+FILEOS 0x40004L         // VOS_NT_WINDOWS32
+FILETYPE 0x1L           // VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        // 0416 = pt-BR, 04b0 = Unicode. A interface e em portugues e nao ha
+        // traducao; declarar en-US aqui seria mentira para o instalador.
+        BLOCK "041604b0"
+        BEGIN
+            VALUE "CompanyName",      "sigaa-viewer"
+            VALUE "FileDescription",  "SIGAA Viewer - prazos e provas do SIGAA"
+            VALUE "FileVersion",      "0.3.0.0"
+            VALUE "InternalName",     "sigaa-ui"
+            VALUE "OriginalFilename", "sigaa-ui.exe"
+            VALUE "ProductName",      "SIGAA Viewer"
+            VALUE "ProductVersion",   "0.3.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x416, 1200
+    END
+END

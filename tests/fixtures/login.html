@@ -1,0 +1,401 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html class="background"><head>
+<meta http-equiv="content-type" content="text/html; charset=utf-8"><style>body {transition: opacity ease-in 0.2s; } 
+body[unresolved] {opacity: 0; display: block; overflow: hidden; position: relative; } 
+</style>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+
+
+
+<title>SIGAA - Sistema Integrado de Gestão de Atividades Acadêmicas</title>
+<link rel="shortcut icon" href="https://sigaa.unifei.edu.br/sigaa/img/sigaa.ico">
+
+<script async="" src="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/google-analytics_analytics_zfGZ.js"></script><script type="text/javascript" src="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/jawr_loader_zfGZ.js"></script>
+<script type="text/javascript">
+                JAWR.loader.style('/bundles/css/sigaa_base.css', 'all');
+        		JAWR.loader.style('/css/ufrn_print.css', 'print');
+        		JAWR.loader.script('/bundles/js/sigaa_base.js');
+</script> <link rel="stylesheet" type="text/css" media="all" href="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/sigaa_base_zfGZ.css">  <link rel="stylesheet" type="text/css" media="print" href="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/ufrn_print_zfGZ.css">  <script type="text/javascript" src="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/sigaa_base_zfGZ.js"> </script> 
+<link rel="stylesheet" type="text/css" media="all" href="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/sigaa_zfGZ.css">
+
+
+<link rel="alternate stylesheet" type="text/css" media="screen" title="mono" href="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/mono_zfGZ.css">
+<link rel="alternate stylesheet" type="text/css" media="screen" title="contraste" href="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/contraste_zfGZ.css">
+
+<!-- FontAwesome -->
+<link rel="stylesheet" type="text/css" href="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/font-awesome_zfGZ.css" media="screen">
+
+<!-- Painel Genérico para telas Modal -->
+<script type="text/javascript" src="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/painel_generico_zfGZ.js"></script>
+
+<script src="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/styleswitch_zfGZ.js" type="text/javascript"></script>
+
+<script src="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/prevenir-duplo-clique_zfGZ.js" type="text/javascript"></script>
+
+
+	
+	
+		<!-- Botão de informar um problema -->
+		<link rel="stylesheet" type="text/css" href="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/informar-problema_zfGZ.css" media="screen">
+		<script type="text/javascript" src="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/webcomponents.min_zfGZ.js"></script>
+		<script type="text/javascript" src="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/html2canvas_zfGZ.js"></script>
+		<script type="text/javascript" src="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/informar-problema_zfGZ.js"></script>
+		<!-- FIM botão de informar um problema -->
+	
+	
+
+
+
+<script type="text/javascript">
+		var mensagem;
+		var initMensagem = function() {
+			mensagem = new Mensagem();
+		}
+		YAHOO.util.Event.addListener(window,'load', initMensagem);
+		
+		function isIE(){
+		
+					return false;
+			
+		}
+</script>
+
+<script type="text/javascript" src="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/jsCookMenuHack_zfGZ.js"></script>
+<!-- Fim dos imports para abrir chamado -->
+
+	<script src="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/STICookieConsent_zfGZ.js"></script>
+	<script>
+	    document.addEventListener("DOMContentLoaded", () => {
+	    	generateCookieConsentModal("SIGAA", "Nós usamos cookies para melhorar sua experiência de navegação no %sitename%. Para saber como a UNIFEI trata os dados, acesse a <a href=%privacy-policy%> Política </a>.", "https://drive.unifei.edu.br/index.php/s/2rILTIldgGwR6sx", "https://drive.unifei.edu.br/index.php/s/2rILTIldgGwR6sx");
+	    })
+	</script>
+	
+</head>
+
+<body><div id="painel-mensagem-envio_mask" class="mask" style="z-index: 5; height: 913px; width: 1696px;">&nbsp;</div>
+
+
+
+
+
+
+
+	<div id="container">
+	<div id="cabecalho">
+		<div id="info-sistema">
+			<h1><span>UNIFEI - SIGAA -</span></h1>
+			<h3>Sistema Integrado de Gestão de Atividades Acadêmicas</h3>
+			<div class="dir">
+				
+			</div>
+		</div>
+	 
+
+	<div id="painel-usuario" style="height: 20px;">
+	
+	<div id="menu-principal"></div>
+	</div>
+	</div>
+	
+
+	<div id="conteudo">
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+
+<script type="text/javascript">
+//Função adicionada no cabeçalho para evitar a reescrita em cada JSP.
+function contarCaracteres(field, idMostraQuantidadeUsuario, maxlimit) {
+	
+	if (field.value.length > maxlimit){
+		field.value = field.value.substring(0, maxlimit);
+	}else{ 
+		document.getElementById(idMostraQuantidadeUsuario).innerHTML = maxlimit - field.value.length ;
+	} 
+}
+</script>
+
+<link rel="stylesheet" type="text/css" media="all" href="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/logon_zfGZ.css">
+
+
+
+	<script type="text/javascript">
+		function isMobile(){	 		
+			var a = navigator.userAgent||navigator.vendor||window.opera;
+			if (/android|blackberry|ip(hone|od|ad)|kindle|maemo|opera m(ob|in)i|palm( os)?|symbian/i.test(a)) {			
+				return true;
+			} else {
+				return false;
+			}	
+		}
+
+		if (isMobile()) {
+			window.location = "/sigaa/mobile/touch/login.jsf";
+		}
+	</script>
+
+
+
+ 
+
+
+
+
+<style type="text/css">
+.painel {  background-color: #EFF3FA; padding: 5px; width: 16%; text-align: center; }
+.sistemaAtual { background-color: #FFFFE4; } 
+</style>
+
+
+
+	<div align="center" style="margin: 0 auto; background: #EFF3FA; padding: 10px;">
+		<p style="font-weight: bold; color: #F00;">ATENÇÃO!</p>
+		<p style="width: 75%;">	O sistema diferencia letras maiúsculas de minúsculas APENAS na senha,
+		portanto ela deve ser digitada da mesma maneira que no cadastro.</p>
+	</div>
+
+
+<div align="center" style="width: 100%; margin: 0 auto; padding: 10px 0;">
+<table width="100%" align="center" style="border-collapse: separate; border-spacing: 3px">
+	<tbody><tr>
+		
+		<td class="painel sistemaAtual">
+			<a href="https://sigaa.unifei.edu.br/sigaa/?modo=classico">
+			SIGAA</a> <br> 
+			(Acadêmico)
+		</td>
+		
+		
+		<td class="painel ">
+			<a href="https://sipac.unifei.edu.br/sipac/?modo=classico">
+			SIPAC</a><br>
+			(Administrativo)
+		</td>
+		
+		
+		<td class="painel ">
+			<a href="https://sigrh.unifei.edu.br/sigrh/?modo=classico">
+			SIGRH</a><br>
+			(Recursos Humanos)
+		</td>
+		
+		
+		<td class="painel ">
+			<a href="https://sigpp.unifei.edu.br/sigpp/">
+			SIGPP</a><br>
+			(Planejamento e Projetos)
+		</td>
+		
+		
+		
+	</tr>
+	
+	<tr>
+		
+		<td class="painel ">
+			<a href="https://sigeleicao.unifei.edu.br/sigeleicao/">
+			SIGEleição</a> <br>
+			(Controle de Processos Eleitorais)			
+		</td>
+		
+		
+		
+		
+		
+		<td class="painel ">
+			<a href="https://sigadmin.unifei.edu.br/admin/">
+			SIGAdmin</a><br>
+			(Administração e Comunicação)
+		</td>
+		
+		
+	</tr>
+</tbody></table>
+</div>
+
+
+
+
+
+<br>
+
+<div style="margin: 0 auto; width: 645px; ">
+	<div class="">
+		<center>
+			Perdeu o e-mail de confirmação de cadastro? <a href="https://sigadmin.unifei.edu.br/admin/public/recuperar_codigo.jsf">Clique aqui para recuperá-lo.</a> <br>
+			Esqueceu o login? <a href="https://sigadmin.unifei.edu.br/admin/public/recuperar_login.jsf">Clique aqui para recuperá-lo.</a> <br>
+			Esqueceu a senha? <a href="https://sigadmin.unifei.edu.br/admin/public/recuperar_senha.jsf">Clique aqui para recuperá-la.</a>
+		</center>
+	</div>
+	
+</div>
+		
+
+<br clear="all">
+
+	<br>
+	<center style="color: #922; font-weight: bold;"></center>
+
+<br>
+<div class="logon" style="width:50%; margin: 0 auto;">
+<h3> Entrar no Sistema </h3> 
+<form name="loginForm" method="post" action="/sigaa/logar.do?dispatch=logOn">
+	<input type="hidden" name="width" value="2560" id="width">
+	<input type="hidden" name="height" value="1600" id="height">
+	<input type="hidden" name="urlRedirect" value="">
+	<input type="hidden" name="subsistemaRedirect" value="">
+	<input type="hidden" name="acao" value="">
+	<input type="hidden" name="acessibilidade" value="">
+
+	<script>
+		document.getElementById('width').value = screen.width;
+		document.getElementById('height').value = screen.height;
+	</script>
+
+<table align="center" width="100%" cellspacing="0" cellpadding="3">
+<tbody>
+	<tr>
+		<th width="35%">  Usuário: </th>
+		<td align="left"> <input type="text" name="user.login" size="20"></td>
+	</tr>
+	<tr>
+		<th> Senha: </th>
+		<td> <input type="password" name="user.senha" size="20" value=""> </td>
+	</tr>
+</tbody>
+<tfoot>
+	<tr>
+		<td colspan="2" align="center">
+			<input type="submit" value="Entrar" onclick="return prevenirDuploClique();">
+		</td>
+	</tr>
+</tfoot>
+</table>
+</form>
+<script type="text/javascript" language="JavaScript">
+  <!--
+  var focusControl = document.forms["loginForm"].elements["user.login"];
+
+  if (focusControl.type != "hidden" && !focusControl.disabled) {
+     focusControl.focus();
+  }
+  // -->
+</script>
+
+
+</div>
+<br>
+<table align="center" width="100%" border="0" cellspacing="0" cellpadding="0">
+	<tbody><tr>
+		<td colspan="5" align="center" width="33%">
+			<br><br>
+			<b>Professor ou Funcionário,</b> <br>
+			caso ainda não possua cadastro no SIGAA,<br>clique no link abaixo.<br>
+			<a href="https://sigadmin.unifei.edu.br/admin/auto_cadastro/form.jsf?origem=2">
+				<img src="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/novo_usuario_zfGZ.gif" height="16" width="16" border="0" alt="Novo Usuário">
+				<br>
+				Cadastre-se
+			</a>
+		</td>
+		<td colspan="5" align="center" width="33%">
+			<br><br>
+			<b>Aluno,</b><br>caso ainda não possua cadastro no SIGAA, <br>clique no link abaixo.<br>
+			<a href="https://sigaa.unifei.edu.br/sigaa/public/cadastro/discente.jsf"><img src="(%20tela%20login%20)%20SIGAA%20-%20Sistema%20Integrado%20de%20Gest%C3%A3o%20de%20Atividades%20Acad%C3%AAmicas_files/user_zfGZ.png" border="0" alt="Novo Usuário">
+				<br>
+				Cadastre-se</a>
+		</td>
+		
+	</tr>
+</tbody></table>
+<br><br>
+
+
+
+	
+	
+		
+
+
+
+<div class="clear"> </div>
+
+</div> 
+	<br>
+
+	
+
+	<div id="rodape">
+		<p>	SIGAA | DTI - Diretoria de Tecnologia da Informação - (35) 
+3629-1080 | Copyright © 2006-2026 - UFRN - sigaa09.unifei.edu.br.sigaa09
+		
+		 
+			 - <a onclick="javascript:versao();">vSIGAA 4.12.14_U.164</a>
+				
+		</p>
+	</div>
+
+
+</div>  
+
+<div class="panel-container dialog shadow" id="painel-mensagem-envio_c" style="z-index: 6; left: 928px; top: 662px;"><div id="painel-mensagem-envio" class=" module overlay panel" style="visibility: inherit; width: 700px;"><div class="hd" style="cursor: move;" id="painel-mensagem-envio_h">Mensagem</div> <div class="bd">Aguarde...<form name="frm_painel-mensagem-envio" action=""></form></div><div class="ft"><span class="button-group"><button type="button" class="default">Enviar</button><button type="button">Cancelar</button></span></div><div class=" close secure">&nbsp;</div></div><div class="underlay">&nbsp;</div></div>
+
+
+
+
+
+
+
+
+	<script>
+	  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+	  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+	  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+	  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+	
+	  ga('create', '0', 'auto');
+	  ga('send', 'pageview');
+	
+	</script>	
+
+
+
+
+
+
+ 
+	<script type="text/javascript" charset="UTF-8">
+		function versao(){
+			var msg='';
+			msg+='SIGAA SIGAA 4.12.14_U.164,  publicado em: 31/07/2026 02:24\n\n';
+			msg+='Depend\u00eancias:\n';
+			msg+='Arquitetura 4.4.0\n';
+			msg+='Entidades Comuns null\n';
+			msg+='Servicos Integrados 2.0.8\n';
+			msg+='SharedResources null\n';
+			msg+='Servicos Remoto Biblioteca 1.0.3\n';
+			msg+='SIGAA Mobile Objects 1.0.0\n\n';
+			msg+='Copyright SINFO/UFRN';
+			alert(msg);
+		}	
+	</script>
+
+
+<script language="javascript">
+Relogio.init(25);
+</script>
+
+	
+<iframe id="_yuiResizeMonitor" style="visibility: visible; width: 10em; height: 10em; position: absolute; top: -112px; left: -112px; border-style: none; border-width: 0px; opacity: 0;"></iframe></body></html>

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "sigaa-viewer",
+  "version-string": "0.1.0",
+  "description": "Cliente desktop multiplataforma para o SIGAA (UNIFEI)",
+  "dependencies": [
+    {
+      "name": "curl",
+      "default-features": false,
+      "features": [ "ssl" ]
+    },
+    "lexbor",
+    "sqlite3",
+    "nlohmann-json",
+    "spdlog",
+    "catch2"
+  ]
+}

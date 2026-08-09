@@ -1,0 +1,637 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>JanelaPrincipal</class>
+ <widget class="QMainWindow" name="JanelaPrincipal">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1000</width>
+    <height>620</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string notr="true">SIGAA Viewer</string>
+  </property>
+  <widget class="QWidget" name="central">
+   <layout class="QVBoxLayout" name="layoutCentral">
+    <property name="spacing">
+     <number>0</number>
+    </property>
+    <property name="leftMargin">
+     <number>0</number>
+    </property>
+    <property name="topMargin">
+     <number>0</number>
+    </property>
+    <property name="rightMargin">
+     <number>0</number>
+    </property>
+    <property name="bottomMargin">
+     <number>0</number>
+    </property>
+    <item>
+     <widget class="QTabWidget" name="abas">
+      <property name="documentMode">
+       <bool>true</bool>
+      </property>
+      <property name="currentIndex">
+       <number>0</number>
+      </property>
+      <widget class="QWidget" name="abaPrazos">
+       <attribute name="title">
+        <string>Prazos</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="layoutPrazos">
+        <property name="spacing">
+         <number>0</number>
+        </property>
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QTableView" name="tvPrazos">
+          <property name="alternatingRowColors">
+           <bool>true</bool>
+          </property>
+          <property name="selectionBehavior">
+           <enum>QAbstractItemView::SelectRows</enum>
+          </property>
+          <property name="sortingEnabled">
+           <bool>true</bool>
+          </property>
+          <property name="wordWrap">
+           <bool>false</bool>
+          </property>
+          <attribute name="horizontalHeaderHighlightSections">
+           <bool>false</bool>
+          </attribute>
+          <attribute name="horizontalHeaderStretchLastSection">
+           <bool>true</bool>
+          </attribute>
+          <attribute name="verticalHeaderVisible">
+           <bool>false</bool>
+          </attribute>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="abaProvas">
+       <attribute name="title">
+        <string>Provas</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="layoutProvas">
+        <property name="spacing">
+         <number>10</number>
+        </property>
+        <property name="leftMargin">
+         <number>12</number>
+        </property>
+        <property name="topMargin">
+         <number>12</number>
+        </property>
+        <property name="rightMargin">
+         <number>12</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <layout class="QHBoxLayout" name="layoutCartoes">
+          <property name="spacing">
+           <number>10</number>
+          </property>
+          <item>
+           <widget class="QFrame" name="cartaoProxima">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="classe" stdset="0">
+             <string>cartao</string>
+            </property>
+            <layout class="QVBoxLayout" name="layoutCartaoProxima">
+             <property name="spacing">
+              <number>2</number>
+             </property>
+             <item>
+              <widget class="QLabel" name="tituloCartaoProxima">
+               <property name="classe" stdset="0">
+                <string>cartaoTitulo</string>
+               </property>
+               <property name="text">
+                <string>PRÓXIMA PROVA</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="valorCartaoProxima">
+               <property name="classe" stdset="0">
+                <string>cartaoValor</string>
+               </property>
+               <property name="text">
+                <string>—</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="detalheCartaoProxima">
+               <property name="classe" stdset="0">
+                <string>cartaoDetalhe</string>
+               </property>
+               <property name="text">
+                <string/>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QFrame" name="cartaoTrinta">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="classe" stdset="0">
+             <string>cartao</string>
+            </property>
+            <layout class="QVBoxLayout" name="layoutCartaoTrinta">
+             <property name="spacing">
+              <number>2</number>
+             </property>
+             <item>
+              <widget class="QLabel" name="tituloCartaoTrinta">
+               <property name="classe" stdset="0">
+                <string>cartaoTitulo</string>
+               </property>
+               <property name="text">
+                <string>PRÓXIMOS 30 DIAS</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="valorCartaoTrinta">
+               <property name="classe" stdset="0">
+                <string>cartaoValor</string>
+               </property>
+               <property name="text">
+                <string>—</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="detalheCartaoTrinta">
+               <property name="classe" stdset="0">
+                <string>cartaoDetalhe</string>
+               </property>
+               <property name="text">
+                <string/>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QFrame" name="cartaoConfirmar">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="classe" stdset="0">
+             <string>cartao</string>
+            </property>
+            <layout class="QVBoxLayout" name="layoutCartaoConfirmar">
+             <property name="spacing">
+              <number>2</number>
+             </property>
+             <item>
+              <widget class="QLabel" name="tituloCartaoConfirmar">
+               <property name="classe" stdset="0">
+                <string>cartaoTitulo</string>
+               </property>
+               <property name="text">
+                <string>A CONFIRMAR</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="valorCartaoConfirmar">
+               <property name="classe" stdset="0">
+                <string>cartaoValor</string>
+               </property>
+               <property name="text">
+                <string>—</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="detalheCartaoConfirmar">
+               <property name="classe" stdset="0">
+                <string>cartaoDetalhe</string>
+               </property>
+               <property name="text">
+                <string/>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QSplitter" name="divisorProvas">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="childrenCollapsible">
+           <bool>false</bool>
+          </property>
+          <widget class="QWidget" name="painelCalendario">
+           <layout class="QVBoxLayout" name="layoutPainelCalendario">
+            <property name="spacing">
+             <number>6</number>
+            </property>
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>10</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="sigaa::ui::CalendarioProvas" name="calProvas"/>
+            </item>
+            <item>
+             <widget class="QLabel" name="legendaCalendario">
+              <property name="classe" stdset="0">
+               <string>cartaoDetalhe</string>
+              </property>
+              <property name="text">
+               <string>&lt;b&gt;•&lt;/b&gt; cadastrada pelo professor&amp;nbsp;&amp;nbsp;&amp;nbsp;&lt;b&gt;◦&lt;/b&gt; deduzida de tópico de aula</string>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="espacoCalendario">
+              <property name="orientation">
+               <enum>Qt::Vertical</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>20</width>
+                <height>0</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="painelLista">
+           <layout class="QVBoxLayout" name="layoutPainelLista">
+            <property name="spacing">
+             <number>6</number>
+            </property>
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <layout class="QHBoxLayout" name="layoutFiltro">
+              <item>
+               <widget class="QLabel" name="rotuloFiltro">
+                <property name="classe" stdset="0">
+                 <string>cartaoDetalhe</string>
+                </property>
+                <property name="text">
+                 <string/>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="espacoFiltro">
+                <property name="orientation">
+                 <enum>Qt::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>0</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+              <item>
+               <widget class="QToolButton" name="botaoTodasProvas">
+                <property name="enabled">
+                 <bool>false</bool>
+                </property>
+                <property name="text">
+                 <string>Mostrar todas</string>
+                </property>
+                <property name="toolTip">
+                 <string>Remove o filtro por dia e volta a listar o semestre inteiro.</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QTableView" name="tvProvas">
+              <property name="alternatingRowColors">
+               <bool>true</bool>
+              </property>
+              <property name="selectionBehavior">
+               <enum>QAbstractItemView::SelectRows</enum>
+              </property>
+              <property name="sortingEnabled">
+               <bool>true</bool>
+              </property>
+              <property name="wordWrap">
+               <bool>false</bool>
+              </property>
+              <attribute name="horizontalHeaderHighlightSections">
+               <bool>false</bool>
+              </attribute>
+              <attribute name="horizontalHeaderStretchLastSection">
+               <bool>true</bool>
+              </attribute>
+              <attribute name="verticalHeaderVisible">
+               <bool>false</bool>
+              </attribute>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="abaTurmas">
+       <attribute name="title">
+        <string>Turmas</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="layoutTurmas">
+        <property name="spacing">
+         <number>6</number>
+        </property>
+        <property name="leftMargin">
+         <number>12</number>
+        </property>
+        <property name="topMargin">
+         <number>12</number>
+        </property>
+        <property name="rightMargin">
+         <number>12</number>
+        </property>
+        <property name="bottomMargin">
+         <number>10</number>
+        </property>
+        <item>
+         <widget class="QTableView" name="tvTurmas">
+          <property name="alternatingRowColors">
+           <bool>true</bool>
+          </property>
+          <property name="selectionBehavior">
+           <enum>QAbstractItemView::SelectRows</enum>
+          </property>
+          <property name="selectionMode">
+           <enum>QAbstractItemView::SingleSelection</enum>
+          </property>
+          <property name="sortingEnabled">
+           <bool>true</bool>
+          </property>
+          <property name="wordWrap">
+           <bool>false</bool>
+          </property>
+          <attribute name="horizontalHeaderHighlightSections">
+           <bool>false</bool>
+          </attribute>
+          <attribute name="horizontalHeaderStretchLastSection">
+           <bool>true</bool>
+          </attribute>
+          <attribute name="verticalHeaderVisible">
+           <bool>false</bool>
+          </attribute>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="layoutRodapeTurmas">
+          <item>
+           <widget class="QLabel" name="rotuloTurmas">
+            <property name="classe" stdset="0">
+             <string>cartaoDetalhe</string>
+            </property>
+            <property name="text">
+             <string>Abra uma turma para ver e baixar os arquivos do professor.</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="espacoTurmas">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>0</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="botaoEntrarTurma">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="text">
+             <string>Entrar na turma</string>
+            </property>
+            <property name="toolTip">
+             <string>Abre a turma no SIGAA e lista os arquivos publicados pelo professor.</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="abaAtualizacoes">
+       <attribute name="title">
+        <string>Atualizações</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="layoutAtualizacoes">
+        <property name="spacing">
+         <number>0</number>
+        </property>
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QTableView" name="tvAtualizacoes">
+          <property name="alternatingRowColors">
+           <bool>true</bool>
+          </property>
+          <property name="selectionBehavior">
+           <enum>QAbstractItemView::SelectRows</enum>
+          </property>
+          <property name="sortingEnabled">
+           <bool>true</bool>
+          </property>
+          <property name="wordWrap">
+           <bool>false</bool>
+          </property>
+          <attribute name="horizontalHeaderHighlightSections">
+           <bool>false</bool>
+          </attribute>
+          <attribute name="horizontalHeaderStretchLastSection">
+           <bool>true</bool>
+          </attribute>
+          <attribute name="verticalHeaderVisible">
+           <bool>false</bool>
+          </attribute>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+  <widget class="QToolBar" name="barraAcoes">
+   <property name="windowTitle">
+    <string>Ações</string>
+   </property>
+   <property name="movable">
+    <bool>false</bool>
+   </property>
+   <property name="toolButtonStyle">
+    <enum>Qt::ToolButtonTextBesideIcon</enum>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>TopToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>false</bool>
+   </attribute>
+   <addaction name="acAtualizar"/>
+   <addaction name="acAtualizarTudo"/>
+   <addaction name="separator"/>
+   <addaction name="acRelatorio"/>
+   <addaction name="acAuto"/>
+   <addaction name="acConta"/>
+  </widget>
+  <action name="acAtualizar">
+   <property name="text">
+    <string>Atualizar</string>
+   </property>
+   <property name="toolTip">
+    <string>Consulta o portal: atividades e avisos. Uma requisição, poucos segundos.</string>
+   </property>
+  </action>
+  <action name="acAtualizarTudo">
+   <property name="text">
+    <string>Atualizar tudo</string>
+   </property>
+   <property name="toolTip">
+    <string>Entra em cada turma para buscar provas e tópicos. ~15 requisições, cerca de meio minuto.</string>
+   </property>
+  </action>
+  <action name="acRelatorio">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>Abrir relatório</string>
+   </property>
+   <property name="toolTip">
+    <string>Abre no navegador o relatório HTML gerado no último sync.</string>
+   </property>
+  </action>
+  <action name="acAuto">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Automático</string>
+   </property>
+  </action>
+  <action name="acConta">
+   <property name="text">
+    <string>Conta</string>
+   </property>
+  </action>
+  <action name="acTrocarConta">
+   <property name="text">
+    <string>Entrar com outra conta…</string>
+   </property>
+  </action>
+  <action name="acEsquecerConta">
+   <property name="text">
+    <string>Esquecer credenciais deste computador</string>
+   </property>
+  </action>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>sigaa::ui::CalendarioProvas</class>
+   <extends>QCalendarWidget</extends>
+   <header location="global">ui/CalendarioProvas.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>

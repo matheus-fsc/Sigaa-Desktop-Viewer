@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>DialogoLogin</class>
+ <widget class="QDialog" name="DialogoLogin">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>480</width>
+    <height>430</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>460</width>
+    <height>0</height>
+   </size>
+  </property>
+  <property name="windowTitle">
+   <string>Entrar no SIGAA</string>
+  </property>
+  <property name="modal">
+   <bool>true</bool>
+  </property>
+  <layout class="QVBoxLayout" name="raiz">
+   <item>
+    <widget class="QLabel" name="titulo">
+     <property name="classe" stdset="0">
+      <string>titulo</string>
+     </property>
+     <property name="text">
+      <string>Conectar sua conta do SIGAA</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="intro">
+     <property name="classe" stdset="0">
+      <string>nota</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="text">
+      <string>O app entra no SIGAA como você entraria no navegador, lê seus prazos e guarda uma cópia local. Ele não envia nada para lugar nenhum além do próprio SIGAA.</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QFormLayout" name="form">
+     <property name="topMargin">
+      <number>12</number>
+     </property>
+     <property name="bottomMargin">
+      <number>4</number>
+     </property>
+     <item row="0" column="0">
+      <widget class="QLabel" name="rotuloLogin">
+       <property name="text">
+        <string>CPF</string>
+       </property>
+       <property name="buddy">
+        <cstring>campoLogin</cstring>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="1">
+      <widget class="QLineEdit" name="campoLogin">
+       <property name="placeholderText">
+        <string>apenas números</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="0">
+      <widget class="QLabel" name="rotuloSenha">
+       <property name="text">
+        <string>Senha</string>
+       </property>
+       <property name="buddy">
+        <cstring>campoSenha</cstring>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <widget class="QLineEdit" name="campoSenha">
+       <property name="echoMode">
+        <enum>QLineEdit::Password</enum>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="guardar">
+     <property name="text">
+      <string>Guardar neste computador</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="notaCofre">
+     <property name="classe" stdset="0">
+      <string>nota</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="text">
+      <string notr="true"/>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <spacer name="folga">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>0</width>
+       <height>8</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+   <item>
+    <widget class="Line" name="linha">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="recado">
+     <property name="classe" stdset="0">
+      <string>recado</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="textFormat">
+      <enum>Qt::RichText</enum>
+     </property>
+     <property name="visible">
+      <bool>false</bool>
+     </property>
+     <property name="text">
+      <string notr="true"/>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QDialogButtonBox" name="botoes">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+     <property name="standardButtons">
+      <set>QDialogButtonBox::Cancel</set>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <tabstops>
+  <tabstop>campoLogin</tabstop>
+  <tabstop>campoSenha</tabstop>
+  <tabstop>guardar</tabstop>
+ </tabstops>
+ <resources/>
+ <connections/>
+</ui>

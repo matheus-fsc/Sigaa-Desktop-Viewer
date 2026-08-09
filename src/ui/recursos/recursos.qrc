@@ -1,0 +1,19 @@
+<!DOCTYPE RCC>
+<!-- Recursos compilados para dentro do executavel (AUTORCC no CMakeLists).
+     Ficarem embutidos e o ponto: o app roda de qualquer pasta, e nao existe
+     estado em que o icone da bandeja some porque alguem moveu o .exe. -->
+<RCC version="1.0">
+  <qresource prefix="/icones">
+    <file alias="app.svg">icones/app.svg</file>
+    <file alias="atualizar.svg">icones/atualizar.svg</file>
+    <file alias="atualizar-tudo.svg">icones/atualizar-tudo.svg</file>
+    <file alias="relatorio.svg">icones/relatorio.svg</file>
+    <file alias="automatico.svg">icones/automatico.svg</file>
+    <file alias="conta.svg">icones/conta.svg</file>
+    <file alias="olho.svg">icones/olho.svg</file>
+    <file alias="olho-fechado.svg">icones/olho-fechado.svg</file>
+  </qresource>
+  <qresource prefix="/estilo">
+    <file alias="estilo.qss">estilo.qss</file>
+  </qresource>
+</RCC>
