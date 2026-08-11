@@ -4,6 +4,20 @@ Cliente desktop multiplataforma para o **SIGAA da UNIFEI** — agrega prazos,
 atualizações das turmas e calendário de provas num só lugar, com notificações
 nativas.
 
+### [Leia a Wiki](https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/wiki)
+
+**Quer contribuir?** A wiki tem tudo que você precisa para começar:
+[Arquitetura](https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/wiki/Arquitetura) ·
+[Referência da API](https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/wiki/Referencia-da-API) ·
+[Configuração e Build](https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/wiki/Configuracao-e-Build) ·
+[Protocolo SIGAA](https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/wiki/Protocolo-SIGAA) ·
+[Guia de contribuição](https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/wiki/Contribuindo) ·
+[Roadmap](https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/wiki/Roadmap)
+
+Boa porta de entrada: o [Roadmap](https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/wiki/Roadmap)
+lista parsers que ainda não existem (Notas, Faltas), trabalho bem delimitado e
+que não exige conhecer Qt. A interface é opcional no build.
+
 > **Escopo atual: UNIFEI.** O SIGAA é um sistema compartilhado por dezenas de
 > universidades federais, mas cada instituição opera uma instância própria com
 > URLs, rotas JSF e, em muitos casos, customizações de layout diferentes. Toda a

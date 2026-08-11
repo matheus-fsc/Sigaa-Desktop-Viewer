@@ -1,124 +1,153 @@
-# Guia de Contribuição
+# Guia de contribuição
 
-Bem-vindo(a) ao SIGAA Desktop Viewer! Agradecemos o seu interesse em contribuir para o projeto. Este guia fornecerá as diretrizes para que você possa começar a ajudar, garantindo a organização e a qualidade do código.
+Obrigado pelo interesse no SIGAA Desktop Viewer. Este guia reúne as convenções
+do projeto e, principalmente, as regras que não são óbvias: quase todas nasceram
+de um bug real.
 
 ## Índice
 
 - [Começando](#começando)
-- [Padrões de Commit (Conventional Commits)](#padrões-de-commit-conventional-commits)
-- [Estilo de Código](#estilo-de-código)
+- [Padrões de commit](#padrões-de-commit)
+- [Estilo de código](#estilo-de-código)
 - [Testes](#testes)
-- [Diretrizes para Pull Requests (PRs)](#diretrizes-para-pull-requests-prs)
-- [Regras de Segurança](#regras-de-segurança)
-- [Etiqueta no Servidor SIGAA](#etiqueta-no-servidor-sigaa)
+- [Pull requests](#pull-requests)
+- [Regras de segurança](#regras-de-segurança)
+- [Etiqueta com o servidor do SIGAA](#etiqueta-com-o-servidor-do-sigaa)
 
 ## Começando
 
-O fluxo de trabalho principal baseia-se em _fork_ e _pull request_:
+O fluxo é fork e pull request:
 
-1. **Fork** este repositório para a sua conta do GitHub.
-2. **Clone** o repositório forkado para a sua máquina local.
-3. Crie uma **Branch** a partir da branch principal (`main` ou `master`):
-   - Nomenclatura da branch: `feat/<nome>`, `fix/<nome>`, `docs/<nome>`, `refactor/<nome>`
-   - Exemplo: `feat/download-paralelo`
-4. **Codifique** suas alterações, seguindo as diretrizes deste guia.
-5. Escreva e rode os **Testes**.
-6. Faça o **Pull Request (PR)** de volta para o repositório original.
+1. **Fork** deste repositório.
+2. **Clone** o seu fork.
+3. Crie uma **branch** a partir de `main`:
+   - Nomenclatura: `feat/<nome>`, `fix/<nome>`, `docs/<nome>`, `refactor/<nome>`
+   - Exemplo: `feat/parser-de-notas`
+4. **Compile e rode os testes** antes de começar, para separar o que você
+   quebrou do que já estava quebrado.
+5. **Codifique**, seguindo as convenções abaixo.
+6. Abra o **pull request** contra `main`.
 
-## Padrões de Commit (Conventional Commits)
+Se for mexer em parser ou em qualquer coisa que fale com o SIGAA, leia
+`docs/RECON.md` antes. É o registro de engenharia reversa verificado contra o
+site real, e a wiki não substitui os detalhes de protocolo que estão lá.
 
-Nós utilizamos a convenção de [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) para manter o histórico de alterações limpo e legível.
+## Padrões de commit
+
+Usamos [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 **Formato:** `tipo(escopo): descrição`
 
-**Tipos permitidos:**
-- `feat`: Uma nova funcionalidade.
-- `fix`: Correção de um bug.
-- `docs`: Alteração exclusiva em documentação.
-- `refactor`: Refatoração de código sem mudança de comportamento.
-- `test`: Adição ou correção de testes.
-- `chore`: Tarefas de manutenção, ferramentas, atualizações de dependências.
-- `perf`: Melhoria de performance.
-- `style`: Formatação, ponto e vírgula faltando, etc. (sem mudança lógica).
+**Tipos:** `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`, `style`.
 
-**Escopos permitidos:**
-- `model`, `http`, `parse`, `store`, `sync`, `calendar`, `config`, `servico`, `notify`, `ui`, `platform`, `app`, `build`
+**Escopos:** `model`, `http`, `jsf`, `parse`, `store`, `sync`, `calendar`,
+`config`, `servico`, `notify`, `report`, `util`, `ui`, `platform`, `app`,
+`build`.
 
 **Exemplos:**
 ```
 feat(sync): adiciona download paralelo de materiais com retry
-fix(parse): trata lista de tópicos vazia na página da turma
-docs(wiki): adiciona diagramas de arquitetura
-test(store): adiciona asserções de idempotência no UPSERT
+fix(parse): trata lista de topicos vazia na pagina da turma
+docs(wiki): adiciona referencia da API do core
+test(store): adiciona assercoes de idempotencia no UPSERT
 refactor(http): extrai parser do Content-Disposition
 ```
 
 **Regras:**
-- O tamanho do _subject_ (a primeira linha) não deve passar de 72 caracteres.
-- Use o modo imperativo (ex: "adiciona", não "adicionado").
-- No **Body** (corpo do commit opcional), explique o **PORQUÊ** da alteração, não apenas o QUE foi feito.
+- O assunto (primeira linha) não passa de 72 caracteres.
+- Modo imperativo: "adiciona", não "adicionado".
+- No corpo, explique o **porquê**. O que foi feito o diff já mostra.
 
-## Estilo de Código
+## Estilo de código
 
-Estamos utilizando **C++20**. Siga as diretrizes abaixo:
+O projeto é **C++20**. Comentários e nomes em português, como o resto da base.
 
-- **Features C++20:** Encorajamos o uso de `std::string_view`, _structured bindings_, e `std::ranges`.
-- **Idioma:** 
-  - Nomes de conceitos do domínio SIGAA em **Português** (`Turma`, `Avaliacao`, `Atividade`, `Topico`).
-  - Nomes de utilitários genéricos e padrões de software em **Inglês** (ex: `HttpManager`, `StoreFactory`).
-- **Nomenclatura:**
-  - Classes: `PascalCase`
-  - Funções/Métodos: `camelCase`
-  - Constantes: `SCREAMING_SNAKE_CASE`
-- **Arquivos:**
-  - Classes: `PascalCase` (ex: `TurmaParser.cpp`).
-  - Testes: `snake_case` (ex: `turma_parser_test.cpp`).
-- **Headers:** Utilize `#pragma once` em todos os headers.
-- **Passagem de parâmetros:** Prefira `const&`. Utilize `std::string_view` para strings de somente leitura.
-- **Gerenciamento de recursos:** Utilize **RAII** rigorosamente. Evite ponteiros puros para controle de ciclo de vida.
+- **Recursos de C++20**: `std::string_view`, structured bindings e `std::ranges`
+  são bem-vindos.
+- **Idioma dos nomes**: conceitos do domínio SIGAA em português (`Turma`,
+  `Avaliacao`, `TopicoAula`, `ArquivoTurma`); o vocabulário técnico segue o que
+  já existe no módulo (`SigaaSession`, `DiffEngine`, `Baixador`, `CacheLocal`).
+  Consistência com o arquivo vizinho vale mais que a regra.
+- **Nomenclatura**: classes em `PascalCase`, funções e métodos em `camelCase`,
+  membros com sufixo `_`, constantes de arquivo com prefixo `k`
+  (`kMinutosPortal`).
+- **Arquivos**: classes em `PascalCase.cpp`, testes em `snake_case_test.cpp`.
+- **Headers**: `#pragma once` em todos.
+- **Parâmetros**: prefira `const&`; use `std::string_view` para strings só de
+  leitura.
+- **Recursos**: RAII sempre. Evite ponteiro cru para controlar tempo de vida.
+- **Erros**: o padrão do core é devolver `bool`/`optional` com um
+  `std::string* erro` opcional, não lançar exceção. Siga isso em código novo.
+
+### A regra de ouro
+
+`src/core/` **não conhece framework de interface nenhum**. Integração com o
+sistema operacional vai em `src/platform/`; Qt fica confinado em `src/ui/`. Um
+`#include <Q...>` dentro de `core/` quebra o build sem Qt e tira o módulo do CI
+headless. Detalhes das camadas em [[Arquitetura]], e das assinaturas em
+[[Referencia-da-API]].
 
 ## Testes
 
-Testar o código é fundamental.
+- **Framework:** [Catch2 v3](https://github.com/catchorg/Catch2)
+  (`#include <catch2/catch_test_macros.hpp>`).
+- **Arquivos:** `tests/<modulo>_test.cpp`.
+- **Como rodar:** `ctest --preset windows` (ou `linux`, `macos`).
+- **Nomes de `TEST_CASE` em ASCII puro.** O CTest passa o nome como filtro, e a
+  code page do console do Windows corrompe acento: o teste **some em silêncio**
+  ("No tests ran") em vez de falhar. Essa é a pegadinha que mais custa tempo
+  aqui.
+- **Nunca bata no servidor real do SIGAA em teste automatizado.** Injete o que
+  fala com a rede. O `Baixador`, por exemplo, recebe uma fábrica de canal, e o
+  teste passa um canal falso.
+- **Fixtures vêm do HTML cru da rede**, capturado com `sigaa-cli explorar` ou
+  `SIGAA_DUMP=...`, nunca de Ctrl+S no browser: o DOM pós-JavaScript é 2,7 vezes
+  maior e tem markup que o servidor nunca envia (`docs/RECON.md` §1.7). Fixture
+  assim mente para o parser.
+- **Todo HTML capturado passa por `tools/redact.py`** antes de virar fixture. A
+  redação é idempotente, e `--check` serve como hook de pre-commit.
 
-- **Framework:** Utilizamos [Google Test](https://google.github.io/googletest/).
-- **Nomenclatura dos arquivos:** `tests/<module>_test.cpp`.
-- **Como rodar:** `ctest --test-dir build -C Release`
-- **Mock de rede:** Mock as chamadas de rede. **NUNCA bata no servidor real do SIGAA nos testes automatizados.**
-- **Fixtures (Mocks HTML):** Utilize HTML limpo. **NUNCA commite HTML bruto do SIGAA**, pois ele contém informações sensíveis (PII).
-- **Sanitização:** Use o script `tools/redact.py` para sanitizar fixtures antes de usar.
+## Pull requests
 
-## Diretrizes para Pull Requests (PRs)
+- Uma mudança lógica por PR.
+- Todos os testes passando.
+- Descreva o **porquê** na descrição do PR.
+- Para mudança de interface, inclua captura de tela.
+- Se você adicionou módulo ou conceito novo, atualize a wiki (inclusive
+  [[Referencia-da-API]], se mexeu em header público).
+- Depois de mexer no código, rode `graphify update .` para manter o grafo de
+  conhecimento em dia.
 
-- Faça apenas **uma mudança lógica por PR**.
-- Garanta que **todos os testes** estejam passando.
-- Se você adicionar um novo módulo ou conceito, atualize a documentação na wiki.
-- Descreva o **PORQUÊ** na descrição do PR. O que motivou a mudança?
-- Para mudanças na interface (UI), inclua capturas de tela (Screenshots).
-
-## Regras de Segurança
+## Regras de segurança
 
 > [!CAUTION]
-> Lidar com credenciais dos usuários exige o máximo de cuidado. O não cumprimento destas regras resultará em rejeição imediata do PR.
+> Este app lida com a credencial da conta acadêmica de alguém. Descumprir
+> qualquer regra abaixo é motivo de rejeição imediata do PR.
 
-- **NUNCA** commite arquivos `.env`, HTML bruto (fixtures) ou arquivos `.har`.
-- **NUNCA** aceite senhas via linha de comando (`argv`).
-- **NUNCA** registre (log) senhas ou tokens de credenciais.
-- O **CPF** deve ficar dentro do _blob_ criptografado do Vault (cofre), não no campo de nome de usuário normal.
-- Limpe a memória após o uso de senhas usando `SecureZeroMemory` (Windows) ou `explicit_bzero` (Linux).
-- Limite as tentativas de login (máximo 3).
-- Valide as respostas do SIGAA antes de armazenar e confirmar as credenciais.
+- **NUNCA** commite `.env`, HTML cru do SIGAA ou arquivos `.har`. O `.gitignore`
+  bloqueia `tests/fixtures/raw/` e `*.har`; mantenha assim.
+- **NUNCA** aceite senha por `argv`: fica no histórico do shell.
+- **NUNCA** registre senha ou token em log.
+- **NUNCA** grave credencial no cofre sem validar no SIGAA antes. Senha errada
+  guardada é tentada de novo a cada ciclo, o SIGAA bloqueia a conta, e o usuário
+  não liga o bloqueio a este app.
+- O CPF vai cifrado dentro do blob do cofre, não no campo de usuário.
+- Limpe segredo da memória depois do uso (`plat::limparSegredo`).
+- Limite rígido de tentativas de login.
+- O host do SIGAA entra na chave do cofre. Não crave `sigaa.unifei.edu.br` em
+  lugar nenhum novo.
 
-## Etiqueta no Servidor SIGAA
+## Etiqueta com o servidor do SIGAA
 
 > [!WARNING]
-> Abusar da infraestrutura da universidade nos prejudica a todos. Siga estas regras rigorosamente!
+> A infraestrutura é da universidade e é compartilhada com todo mundo.
 
-- **Intervalo de polling:** Entre 15 a 30 minutos. **NUNCA menor que 5 minutos.**
-- Envie apenas **uma requisição por vez** na mesma sessão. Nada de flood no SIGAA.
-- Utilize *exponential backoff* com *jitter* caso encontre erros de conexão.
-- Respeite os códigos HTTP `429`, `503` e páginas de manutenção do sistema.
-- Envie um **User-Agent identificável** do aplicativo.
-- Crie um limite estrito nas tentativas de repetição de login (evite bloquear a conta do usuário por tentativas erradas).
-
-Agradecemos imensamente a sua contribuição. Mãos à obra!
+- **Intervalo de polling** entre 15 e 30 minutos. Nunca menos que 5.
+- **Uma requisição por vez na mesma sessão.** Não é só educação: a view mora no
+  servidor, e duas navegações simultâneas no mesmo `JSESSIONID` invalidam o
+  estado. Para paralelizar, abra uma sessão por canal, com teto de 3.
+- Use backoff exponencial com jitter em erro de conexão.
+- Respeite `429`, `503` e páginas de manutenção.
+- Envie User-Agent identificável.
+- Limite as tentativas de repetição de login, para não bloquear a conta do
+  usuário.

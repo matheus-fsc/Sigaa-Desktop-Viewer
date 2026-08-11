@@ -1,17 +1,20 @@
-# 📚 Wiki — SIGAA Desktop Viewer
+### Wiki
 
-### 🏠 Início
 * [[Home]]
 
-### 🏗️ Desenvolvimento
+### Desenvolvimento
+
 * [[Arquitetura]]
+* [[Referencia-da-API]]
 * [[Configuracao-e-Build]]
 * [[Protocolo-SIGAA]]
 
-### 🤝 Comunidade
+### Comunidade
+
 * [[Contribuindo]]
 * [[Roadmap]]
 
-### 📖 Referências
+### Referências
+
 * [README](https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/blob/main/README.md)
 * [RECON.md](https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/blob/main/docs/RECON.md)

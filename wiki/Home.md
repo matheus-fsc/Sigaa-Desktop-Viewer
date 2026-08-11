@@ -1,45 +1,74 @@
 # SIGAA Desktop Viewer
 
-Bem-vindo à wiki do projeto **SIGAA Desktop Viewer**!
+Wiki do projeto **SIGAA Desktop Viewer**.
 
-## Visão Geral do Projeto
+## Visão geral
 
-O **SIGAA Desktop Viewer** é um aplicativo desktop (escrito em C++20 com Qt6) projetado para alunos da UNIFEI. Ele funciona como um **painel acadêmico offline-first**, permitindo visualizar dados do SIGAA sem depender constantemente da instabilidade ou indisponibilidade do sistema web.
+O **SIGAA Desktop Viewer** é um cliente desktop em C++20 que lê o SIGAA e guarda
+o resultado num banco local. Ele nasceu para a UNIFEI, mas o host do SIGAA é
+parâmetro (`--url`), então outras instituições podem ser apontadas por conta e
+risco: só a UNIFEI foi verificada contra o site real.
 
-### Principais Funcionalidades
+A ideia central é **offline-first**: a tela lê do SQLite, não da rede. Uma
+sincronização só vai ao SIGAA para atualizar o banco, e o app continua útil
+quando o portal está fora do ar.
 
-*   **Dashboard Offline-First**: Acesse suas notas, frequências e avisos a qualquer momento.
-*   **Rastreamento de Avaliações**: Acompanhe provas e trabalhos em um só lugar.
-*   **Download Automático de Materiais**: Baixe materiais de aula sincronizados localmente.
-*   **Notificações Desktop**: Receba alertas consolidados sobre novos materiais e avisos.
+### Principais funcionalidades
 
-## Tecnologias e Construção
+*   **Painel offline**: turmas, provas, tópicos de aula e atualizações lidos do banco.
+*   **Rastreamento de avaliações**: provas do painel de avaliações e as inferidas dos tópicos de aula, com exportação em iCal.
+*   **Download de materiais**: baixa o material publicado pelo professor, com cache por id do SIGAA.
+*   **Notificações do sistema**: avisos agrupados e priorizados sobre material e prazos novos.
+*   **CLI completa**: tudo que a interface faz, mais os subcomandos de engenharia reversa.
+
+## Tecnologias
 
 ![C++20](https://img.shields.io/badge/Language-C++20-blue)
-![Qt6](https://img.shields.io/badge/Framework-Qt6-green)
-![CMake](https://img.shields.io/badge/Build-CMake-red)
+![Qt6](https://img.shields.io/badge/GUI-Qt6%20Widgets-green)
+![CMake](https://img.shields.io/badge/Build-CMake%203.24-red)
 ![SQLite](https://img.shields.io/badge/DB-SQLite-yellow)
-![MIT License](https://img.shields.io/badge/License-MIT-lightgrey)
 
-## Fluxo de Dados
+HTTP com libcurl, parsing de HTML com lexbor, testes com Catch2 v3.
 
-Abaixo está o diagrama de fluxo de dados de alto nível da aplicação, mostrando como as informações saem do portal web e chegam na interface do usuário:
+## Fluxo de dados
+
+O diagrama abaixo mostra o caminho da informação e, principalmente, os **dois
+pontos de entrada**: a interface gráfica e a CLI. Os dois chamam o mesmo
+`servico::executar`, e a GUI é opcional no build (`-DSIGAA_UI=OFF` compila só o
+`sigaa-cli`).
 
 ```mermaid
-flowchart LR
-    A[SIGAA Web Portal] -->|Rede| B(HTTP Session)
-    B --> C(Parsers Gumbo)
-    C --> D{Diff Engine}
-    D -->|Novos Dados| E[(SQLite)]
-    E --> F[UI Qt6]
+flowchart TD
+    CLI["sigaa-cli sync"] --> SRV["servico::executar"]
+    GUI["sigaa-ui (QTimer: portal 20 min, turmas 6 h)"] --> SRV
+
+    SRV --> SES["SigaaSession: login, ViewState, JSESSIONID"]
+    SES <--> POR["Portal SIGAA"]
+    SES --> PAR["Parsers (lexbor)"]
+    PAR --> DIF{"DiffEngine"}
+    DIF --> DB[("SQLite local")]
+    DIF --> AVI["Avisos do sistema operacional"]
+
+    DB --> GUI
+    SRV --> REL["relatorio.html + agenda .ics"]
+
+    CLI -. "modo offline: forms, links, parse, report sobre HTML salvo" .-> PAR
 ```
 
-## Navegação Rápida
+Duas leituras valem a pena:
 
-Explore as páginas da wiki para entender mais sobre o funcionamento interno e como contribuir:
+*   **Só CLI**: `sigaa-cli sync` faz o ciclo inteiro e entrega relatório HTML e
+    `.ics` sem nunca abrir a interface. Serve para quem prefere terminal e para
+    execução agendada (`--quiet`).
+*   **Só banco**: a seta que chega na GUI parte do SQLite, não da rede. A tela
+    nunca pinta o snapshot da coleta direto, porque uma coleta parcial não traz
+    tudo; quem acumula as coletas numa foto completa é o banco.
 
-*   [[Arquitetura]] — Estrutura de diretórios, diagramas de camadas, pipeline de sync e decisões de design.
-*   [[Configuracao-e-Build]] — Pré-requisitos, compilação (Windows/Linux), configuração de ambiente e empacotamento.
-*   [[Contribuindo]] — Guia para contribuidores: workflow, commits, estilo de código, testes, segurança e etiqueta com o servidor.
-*   [[Protocolo-SIGAA]] — Referência técnica do protocolo JSF/RichFaces, ViewState, fluxo de login e download.
-*   [[Roadmap]] — Funcionalidades implementadas, planejadas e como contribuir com cada uma.
+## Navegação
+
+*   [[Arquitetura]]: estrutura de diretórios, camadas, pipeline de sync, modelo de domínio e decisões de projeto.
+*   [[Referencia-da-API]]: assinaturas públicas do core, módulo por módulo, para quem quer reaproveitar as peças.
+*   [[Configuracao-e-Build]]: pré-requisitos, compilação no Windows e no Linux, credenciais e empacotamento.
+*   [[Contribuindo]]: workflow de PR, commits, estilo de código, testes, segurança e etiqueta com o servidor.
+*   [[Protocolo-SIGAA]]: referência de JSF/RichFaces, ViewState, login, download e as armadilhas conhecidas.
+*   [[Roadmap]]: o que já existe, o que falta e por onde começar a contribuir.

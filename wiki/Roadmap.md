@@ -1,56 +1,78 @@
-# Roadmap do SIGAA Desktop Viewer
+# Roadmap
 
-Este documento lista o status atual do projeto e mapeia o que planejamos implementar no futuro.
+Status atual do projeto e o que está em aberto.
 
-## Atualmente Implementado (✅)
+## Implementado
 
-Aqui está tudo que nosso cliente já suporta:
+- Suporte a múltiplas instituições. Só a UNIFEI está marcada como verificada;
+  outras instâncias do SIGAA podem ser apontadas com `--url`, por conta e risco.
+- Autenticação com cofre nativo do sistema (Credential Manager no Windows,
+  Secret Service via libsecret no Linux), com login e senha num blob cifrado.
+- Sincronização das turmas do período, atividades e atualizações do portal.
+- Tópicos de aula, com o material publicado dentro de cada um.
+- Provas: extraídas do painel de avaliações e inferidas do título dos tópicos de
+  aula, com merge que sabe em qual fonte confiar.
+- Download de materiais com cache por id do SIGAA e paralelismo por sessão
+  (teto de 3 canais, cada um com login próprio).
+- Notificações do sistema, agrupadas e priorizadas.
+- Relatório HTML do snapshot e exportação da agenda de provas em iCal (`.ics`).
+- Banco SQLite local, com migração de schema e UPSERT que nunca apaga o que a
+  coleta parcial não trouxe.
+- Motor de diff que detecta o que mudou entre sincronizações, incluindo prova
+  remarcada e coleta suspeita.
+- CLI completa:
+  - Rede: `sync`, `login`, `logout`, `doctor`, `arquivos`, `baixar`, `explorar`.
+  - Offline, sobre HTML salvo: `forms`, `links`, `post`, `parse`, `report`.
+  - Opções globais de instituição: `--instituicao`, `--url`.
+- Interface Qt 6 Widgets, opcional no build, com as abas **Hoje**, **Provas**,
+  **Turmas** e **Atualizações**, mais a janela da turma com tópicos, arquivos e
+  download sob demanda.
+- Tema claro e escuro acompanhando o sistema, sem cor literal no stylesheet.
+- Empacotamento em `dist/` pelo `tools/empacotar.ps1`, que roda os testes antes
+  e recusa embarcar banco, relatório ou `.env` de quem compilou.
 
-- Suporte a múltiplas instituições (UNIFEI verificado, outras instituições usando SIGAA básico não testadas)
-- Autenticação e cofre de senhas local criptografado (Integrações com Credential Manager do Windows e Libsecret no Linux)
-- Sincronização e listagem das turmas matriculadas no semestre
-- Rastreamento e painel de Provas (extraídas do painel de avaliações e inferidas do HTML de tópicos de aula)
-- Download paralelo de arquivos e materiais de aula (com cache)
-- Sistema unificado de notificações na área de trabalho (Agrupadas e com níveis de prioridade)
-- Exportação de agenda de exames no formato iCal `.ics`
-- CLI completo (Comandos: `sync`, `login`, `logout`, `doctor`, `arquivos`, `baixar`)
-- Interface Gráfica de Usuário (GUI) Qt6 incluindo abas:
-  - **Hoje** (Visão do dia)
-  - **Provas** (Próximas avaliações)
-  - **Turmas** (Disciplinas e detalhes)
-  - **Atualizações** (Notificações, notas novas, etc.)
-- Temas Escuro e Claro no Qt.
-- Cache offline veloz em banco SQLite.
-- _Diff engine_: Mecanismo para detectar o que mudou entre sincronizações para emitir notificações granulares.
+## Planejado
 
-## Planejado / Ainda Não Implementado (🔲)
+Boa parte disto é trabalho bem delimitado, e serve como porta de entrada.
 
-Ainda há muitas fronteiras para explorar. Eis a lista do que **não** temos e que pode ser adicionado em breve:
+- **Notas**: o parser não existe. É o item mais pedido.
+- **Faltas e frequência**: idem, parser não escrito.
+- **Tarefas e envios**: aba de upload de atividade.
+- **Fóruns da turma**.
+- **Notícias da instituição**.
+- **Diálogo de preferências**: hoje o intervalo do ciclo é fixo no código, 20
+  minutos para o portal e 6 horas para entrar nas turmas
+  (`kMinutosPortal` e `kMinutosTurmas`, em `src/ui/JanelaPrincipal.cpp`).
+- **Bandeja do sistema**: minimizar em vez de fechar.
+- **Cofre no macOS**, com `Security.framework`. Existe preset de build para
+  macOS, mas o cofre ainda não tem implementação lá.
+- **Material de tópico que não é arquivo** (link externo, vídeo): hoje é
+  ignorado. O certo é mostrar desabilitado ou abrir no navegador, em vez de
+  oferecer um download que falha.
+- **Download com streaming**: hoje o arquivo inteiro passa pela memória antes de
+  ir para o disco. Um vídeo grande publicado pelo professor pode derrubar o app
+  por falta de memória.
+- **Verificar outras instituições**: acrescentar entrada ao catálogo sem
+  conferir contra o site real é pior que não ter, porque o usuário culpa a
+  própria senha quando o parser é que não entende a página.
+- **Internacionalização**: as strings estão fixadas em português.
+- **Atualização automática** do aplicativo.
 
-- Extração e aba de **Notas** (Parser não escrito ainda)
-- Extração e aba de **Faltas/Presença** (Parser não escrito ainda)
-- Aba de **Tarefas e Envios** (Upload de atividades)
-- Aba de **Fóruns da Turma**
-- Aba de **Notícias da Instituição**
-- Diálogo de Preferências e Configurações no App (atualmente o intervalo de sync é cravado em 20 minutos no código)
-- Minimizar o App para a bandeja de sistema (System Tray) ao fechar a janela
-- Integração de Cofre no macOS (usando `Security.framework`)
-- Materiais nos Tópicos de Aula que não são arquivos (Links externos, vídeos). Hoje são ignorados ou não baixam. (Devem ficar em "cinza" ou abrirem no navegador).
-- **Downloads com Streaming:** Atualmente o aplicativo baixa e armazena todo o payload de rede na memória RAM antes de escrever no disco. Se o professor colocar um vídeo pesado, o aplicativo vai engolir a memória do computador até fechar (OOM).
-- Testar e refinar a compatibilidade para instituições além da UNIFEI.
-- Internacionalização (i18n): Todas as strings, atualmente, estão _hardcoded_ em Português-BR.
-- Mecanismo de Atualização Automática (_Auto-update_).
+Fora de escopo por decisão de projeto: **nada roda com o app fechado**. Sem
+serviço, sem tarefa agendada por padrão. O ciclo periódico é um `QTimer` na
+janela. O `tools/agendar.ps1` continua no repositório como opção desligada.
 
-## Como Contribuir para o Roadmap
+## Como pegar um item
 
-> [!NOTE]
-> Você quer matar um item dessa lista? Siga os passos:
+1. Procure ou abra uma issue para o item.
+2. Comente que você quer assumir, para ninguém duplicar trabalho.
+3. Olhe as labels:
+   - **`good first issue`**: normalmente parser (Notas, Faltas). Ótimo se você
+     quer treinar C++ e HTML sem precisar conhecer Qt.
+   - **`help wanted`**: integração com sistema operacional (cofre no macOS,
+     bandeja) ou problema mais espinhoso.
+4. Antes de escrever parser, leia `docs/RECON.md` e capture o HTML com
+   `sigaa-cli explorar`. Detalhes em [[Protocolo-SIGAA]] e
+   [[Referencia-da-API]].
 
-1. Acesse a aba **Issues** deste repositório e crie uma ou encontre a já existente para sua feature.
-2. Comente que você tem interesse em assumir o trabalho.
-3. Fique de olho nas labels do Issue:
-   - **`good first issue`**: Geralmente marca o trabalho de fazer parsers (ex: Aba de Notas, Faltas). É excelente se você só quer treinar C++, mexer com HTML, RegEx e não tem muito domínio do framework gráfico (Qt).
-   - **`help wanted`**: Marcado para integrações difíceis no sistema operacional (ex: Keychain de macOS, System Tray) ou problemas cabeludos.
-4. Consulte os documentos técnicos do protocolo para ajudar no desenvolvimento (`wiki/Protocolo-SIGAA.md`).
-
-Toda e qualquer contribuição é muito bem vinda!
+Toda contribuição é bem-vinda.

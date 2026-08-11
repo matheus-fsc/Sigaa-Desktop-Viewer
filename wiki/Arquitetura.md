@@ -1,142 +1,242 @@
 # Arquitetura
 
-O **SIGAA Desktop Viewer** é estruturado com uma separação clara de responsabilidades, visando robustez, manutenção simplificada e resiliência a mudanças no HTML do SIGAA web.
+O **SIGAA Desktop Viewer** separa responsabilidades em camadas com uma regra de
+ouro: `src/core/` não conhece framework de interface nenhum. É isso que mantém o
+núcleo testável sem display, e o que permite compilar só a CLI
+(`-DSIGAA_UI=OFF`) sem tocar em nada do core.
 
-## Estrutura de Diretórios
-
-Abaixo está o mapeamento dos principais módulos dentro do projeto:
+## Estrutura de diretórios
 
 ```text
 src/
-  app/         → Ponto de entrada da CLI (main.cpp com subcomandos: sync, login, logout, doctor, arquivos, baixar, explorar)
+  app/         Ponto de entrada da CLI (main.cpp com os subcomandos)
   core/
-    calendar/  → Detecção de semestre, feriados, exportação iCal (Calendario)
-    config/    → Suporte a múltiplas instituições (Instituicao - UNIFEI padrão)
-    http/      → Sessão HTTP com o SIGAA (SigaaSession - URL base dinâmica, download de arquivos, ViewState)
-    jsf/       → Tratamento de protocolo JSF/RichFaces
-    model/     → Structs de domínio (Turma, Snapshot, ArquivoTurma, Avaliacao, Atividade)
-    notify/    → Notificações desktop (Aviso - agrupadas, priorizadas)
-    parse/     → Parsing HTML via Gumbo (Html, TurmaParser - tópicos, materiais, notas)
-    report/    → Geração de relatórios HTML/iCal
-    servico/   → Orquestração de serviços (Servico - fluxo completo de sincronização)
-    store/     → Persistência em SQLite (Database - migração de schema, UPSERT)
-    sync/      → Crawling e detecção de diferenças (Crawler, DiffEngine, Materiais, Baixador)
-    util/      → Utilitários cross-platform para caminhos UTF-8 (Caminho)
-  platform/    → Cofres de credenciais nativos do SO (Windows Credential Manager, libsecret)
-  ui/          → Interface GUI Qt Widgets (JanelaPrincipal, JanelaTurma, DialogoLogin, Modelos)
-    forms/     → Arquivos .ui criados no Qt Designer
-    recursos/  → Stylesheet QSS e ícones (SVG monocromáticos, tingidos em runtime)
-tests/         → Suítes de teste baseadas em Google Test
-tools/         → Scripts de build/empacotamento (empacotar.ps1)
-docs/          → RECON.md (engenharia reversa), PLANO.md
+    calendar/  Aulas do dia, merge de avaliações, geração de iCal (Calendario)
+    config/    Catálogo de instituições e host selecionado (Instituicao)
+    http/      Sessão HTTP com o SIGAA via libcurl (SigaaSession, Response)
+    jsf/       Motor JSF/RichFaces: formulários, ViewState, comandos (JsfForm)
+    model/     Structs de domínio (Models.h)
+    notify/    Política de aviso: agrupa e prioriza eventos do diff (Aviso)
+    parse/     Parsing de HTML com lexbor (Html, PortalParser, TurmaParser)
+    report/    Relatório HTML do snapshot (HtmlReport)
+    servico/   Orquestração do ciclo completo (Servico)
+    store/     Persistência em SQLite, migração e UPSERT (Database)
+    sync/      Coleta e diff (Crawler, DiffEngine, Materiais, Baixador)
+    util/      Caminhos UTF-8 seguros no Windows (Caminho)
+  platform/    Cofre de credenciais e notificação nativa (Credenciais, Notify)
+  ui/          Interface Qt Widgets (JanelaPrincipal, JanelaTurma, Modelos, ...)
+    forms/     Arquivos .ui do Qt Designer, consumidos via AUTOUIC
+    recursos/  Stylesheet QSS e ícones SVG monocromáticos
+tests/         Suíte Catch2 v3 (tests/<modulo>_test.cpp)
+tools/         redact.py, empacotar.ps1, agendar.ps1, gerar_icone.py
+docs/          RECON.md (engenharia reversa verificada), PLANO.md
 ```
 
-## Diagramas Arquiteturais
+Para as assinaturas públicas de cada módulo, veja [[Referencia-da-API]].
 
-### 1. Arquitetura em Camadas
+## Diagramas
+
+### 1. Camadas
 
 ```mermaid
 flowchart TD
-    subgraph UI ["Camada de Interface (UI)"]
-        CLI[Subcomandos CLI]
-        GUI[Interface Qt Widgets]
+    subgraph UI ["Interface (opcional no build)"]
+        CLI["sigaa-cli (src/app)"]
+        GUI["sigaa-ui (src/ui, Qt Widgets)"]
     end
 
-    subgraph Service ["Camada de Serviço"]
-        Orchestrator[Orquestrador de Sincronização]
+    subgraph Service ["Serviço"]
+        Orq["servico::executar"]
     end
 
-    subgraph Core ["Camada Central (Core)"]
-        HTTP[HTTP Client & Sessão]
-        Parsers[Gumbo HTML Parsers]
-        Domain[Modelos de Domínio]
-        Diff[Motor de Diff]
-        Store[(Banco Local SQLite)]
+    subgraph Core ["Core (sem Qt)"]
+        HTTP["http::SigaaSession (libcurl)"]
+        Jsf["jsf: ViewState e comandos"]
+        Parsers["parse: lexbor"]
+        Domain["model: structs de domínio"]
+        Diff["sync::DiffEngine"]
+        Store[("store::Database, SQLite")]
     end
 
-    subgraph Platform ["Camada de Plataforma"]
-        Vault[Cofre Nativos do OS]
-        Notif[Notificações de SO]
+    subgraph Platform ["Plataforma"]
+        Vault["plat: cofre do sistema"]
+        Notif["plat: notificação nativa"]
     end
 
-    UI --> Service
-    Service --> Core
-    Core --> Platform
+    CLI --> Orq
+    GUI --> Orq
+    Orq --> Core
+    CLI --> Vault
+    GUI --> Vault
+    CLI --> Notif
+    GUI --> Notif
 ```
 
-### 2. Pipeline de Sincronização
+Repare que `plat::` é chamado pela interface, não pelo serviço: o serviço não
+pergunta credenciais e não notifica. Ele devolve o aviso pronto e quem chamou
+decide o que fazer com ele.
+
+### 2. Pipeline de sincronização
 
 ```mermaid
 flowchart LR
-    A[Login] --> B[Obter Turmas]
-    B --> C[Analisar Tópicos]
-    C --> D[Analisar Materiais]
-    D --> E{Diff Engine}
-    E -->|Alterações| F[(Persistir no SQLite)]
-    F --> G[Gerar Notificações]
+    A["login (cofre, ambiente ou prompt)"] --> B["portal: turmas, atividades, atualizações"]
+    B --> C{"incluirTurmas?"}
+    C -->|"não: sync rápido"| E
+    C -->|sim| D["por turma: tópicos, avaliações, aba Arquivos"]
+    D --> D2["download do material que falta"]
+    D2 --> E{"DiffEngine contra o último snapshot"}
+    E --> F[("gravar no SQLite")]
+    E --> G["montarAviso: notificação agrupada"]
+    F --> H["relatorio.html + agenda .ics"]
 ```
 
-### 3. Grafo de Dependência de Módulos (Simplificado)
+O sync rápido (só portal) é o ciclo de 20 minutos; o completo, com turmas, roda
+a cada 6 horas na interface. Por isso a coleta é **parcial por natureza**, e daí
+vem a regra mais importante do banco: coleta parcial nunca apaga o que ela não
+trouxe.
+
+### 3. Dependência entre módulos
 
 ```mermaid
 flowchart TD
-    UI_Module --> Core_Service
-    CLI_Module --> Core_Service
-    Core_Service --> Core_Sync
-    Core_Service --> Core_Store
-    Core_Sync --> Core_HTTP
-    Core_Sync --> Core_Parse
-    Core_Parse --> Core_Model
-    Core_Store --> Core_Model
-    Platform_Layer --> Core_HTTP
+    ui --> servico
+    app --> servico
+    ui --> platform
+    app --> platform
+    servico --> sync
+    servico --> store
+    servico --> report
+    servico --> calendar
+    servico --> notify
+    sync --> http
+    sync --> parse
+    notify --> sync
+    parse --> model
+    parse --> jsf
+    store --> model
+    http --> config
+    sync --> util
 ```
 
-### 4. Diagrama de Classes do Domínio (Chave)
+### 4. Modelo de domínio
+
+Todas as structs vivem em `src/core/model/Models.h` e são agregadas por
+`Snapshot`, que é a unidade de um ciclo de coleta.
 
 ```mermaid
 classDiagram
-    class Turma {
-        +String id
-        +String nome
-        +String codigo
-        +String semestre
-    }
     class Snapshot {
-        +Turma turma
-        +List avaliacoes
-        +List atividades
-        +List arquivos
+        +vector~Turma~ turmas
+        +vector~Atividade~ atividades
+        +vector~Atualizacao~ atualizacoes
+        +vector~TopicoAula~ topicos
+        +vector~Avaliacao~ avaliacoes
+        +vector~ArquivoTurma~ arquivos
+        +optional~int~ minutosSessaoRestantes
     }
-    class ArquivoTurma {
-        +String id
-        +String nome
-        +String hash_local
-        +DateTime data_disponibilizacao
+    class Turma {
+        +string idTurma
+        +string frontEndId
+        +string codigo
+        +string nome
+        +string periodo
+        +int cargaHoraria
+        +string local
+        +string horario
+    }
+    class TopicoAula {
+        +string idTurma
+        +string titulo
+        +DateTime inicio
+        +DateTime fim
+        +string conteudo
+        +vector~MaterialTopico~ materiais
+    }
+    class MaterialTopico {
+        +string id
+        +string tipo
+        +string titulo
+        +string descricao
     }
     class Avaliacao {
-        +String id
-        +String descricao
-        +DateTime data
-        +Float nota
+        +string idTurma
+        +string descricao
+        +DateTime quando
+        +string horarioBruto
+        +FonteAvaliacao fonte
+    }
+    class ArquivoTurma {
+        +string idTurma
+        +string idArquivo
+        +string titulo
+        +string descricao
+        +string topico
     }
     class Atividade {
-        +String id
-        +String descricao
-        +String status
+        +string atividadeId
+        +string idTurma
+        +string tipo
+        +string titulo
+        +DateTime prazo
+        +StatusAtividade status
+    }
+    class Atualizacao {
+        +string hash
+        +string idTurma
+        +DateTime data
+        +string texto
     }
 
-    Snapshot "1" *-- "1" Turma
-    Snapshot "1" *-- "*" ArquivoTurma
+    Snapshot "1" *-- "*" Turma
+    Snapshot "1" *-- "*" TopicoAula
     Snapshot "1" *-- "*" Avaliacao
+    Snapshot "1" *-- "*" ArquivoTurma
     Snapshot "1" *-- "*" Atividade
+    Snapshot "1" *-- "*" Atualizacao
+    TopicoAula "1" *-- "*" MaterialTopico
 ```
 
-## Decisões de Design (ADRs)
+Dois detalhes que economizam depuração:
 
-*   **Offline-first**: O aplicativo carrega primeiramente do cache SQLite antes de tentar requisições na rede.
-*   **Sessões HTTP Isoladas**: As instâncias de `JanelaTurma` usam `SigaaSession` de forma independente. Isso previne o notório conflito de *ViewState* no protocolo JSF.
-*   **Design Responsivo e Temas**: Nenhum literal de cor no QSS; utiliza-se exclusivamente os objetos da `palette()` do Qt, permitindo um suporte fluido a temas Dark/Light nativos.
-*   **Gestão de Ícones**: Todos os ícones são em SVG monocromático e manipulados (re-tinted) em tempo de execução para acompanhar mudanças no tema atual.
-*   **Segurança de Credenciais**: O CPF e a senha não ficam salvos em plain-text. O CPF é criptografado juntamente em um blob, sem popular os campos de usuário para leitura direta. Senhas *nunca* são aceitas pela `argv` da CLI.
-*   **Proteção de Infraestrutura**: O limite de concorrência em downloads simultâneos é *fixado* em 3, balanceando a memória e evitando punições pelo WAF. O protocolo do SIGAA permite apenas 1 requisição em andamento por `JSESSIONID`.
-*   **Internacionalização (i18n)**: Hard-coded string bindings restritos a Português (público alvo é single-university).
+*   `frontEndId` (hash de 40 hex) é o **único** jeito de entrar na turma
+    virtual. `idTurma` serve para atualizações e chat, e não substitui o outro.
+*   `MaterialTopico::id` e `ArquivoTurma::idArquivo` são a mesma chave: o
+    parâmetro `id` avulso do `jsfcljs`. É o que permite saber que um material de
+    tópico é baixável, em vez de adivinhar pelo ícone.
+
+## Decisões de projeto
+
+*   **Core sem framework de interface.** `src/core/` não inclui Qt. Integração
+    com o sistema operacional fica em `src/platform/`; Qt fica confinado em
+    `src/ui/`. A interface é opcional no build, e o core roda em CI sem display.
+*   **Offline-first de verdade.** A tela lê do SQLite. Depois de um sync só de
+    portal, o app relê do banco antes de pintar: o snapshot da coleta não tem
+    avaliações, e mostrá-lo direto apagaria as provas do aluno.
+*   **Coleta parcial nunca apaga.** O `Database` faz UPSERT e não deleta o que a
+    coleta não trouxe. Pela mesma razão, o `DiffEngine` ignora avaliações,
+    arquivos e tópicos quando o vetor correspondente vem vazio.
+*   **Paralelismo por sessão, nunca dentro de uma.** O SIGAA guarda a view no
+    servidor: duas navegações simultâneas no mesmo `JSESSIONID` invalidam o
+    estado, e o download volta como página de erro salva com extensão `.pdf`. O
+    `Baixador` paraleliza abrindo uma sessão por canal, com login próprio, com
+    teto de 3.
+*   **Navegação por rótulo, não por id de componente.** Ids como
+    `formMenu:j_id_jsp_719010821_123` são posicionais e mudam quando a
+    instituição recompila o JSP. O SIGAA responde 200 com a aba errada, sem erro
+    nenhum. `jsf::findCommandByLabel` existe para isso.
+*   **Host do SIGAA é parâmetro e entra na chave do cofre.** Cravar
+    `sigaa.unifei.edu.br` faz trocar de instituição tentar a senha de uma
+    universidade na outra, e algumas tentativas erradas bloqueiam a conta.
+*   **Credenciais.** Login e senha vão juntos num blob cifrado do cofre do
+    sistema; o CPF não fica no campo de usuário, que é legível. Senha nunca em
+    `argv`, porque fica no histórico do shell. Nada é gravado no cofre antes de
+    validar no SIGAA.
+*   **Tema sem cor literal.** O `estilo.qss` só usa `palette(...)`, e os ícones
+    são SVG monocromático repintado em runtime. Um `#f5f5f5` cravado vira texto
+    branco sobre branco quando o Windows entra no tema escuro.
+*   **Layout no Qt Designer.** Os `.ui` em `src/ui/forms/` são a fonte do
+    layout, consumidos por AUTOUIC. Fica em código só o que o Designer não
+    alcança.
+*   **Idioma único.** As strings estão fixadas em português: o público-alvo é
+    uma universidade. Internacionalização está no [[Roadmap]].
