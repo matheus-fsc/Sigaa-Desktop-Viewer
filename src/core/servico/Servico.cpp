@@ -8,7 +8,9 @@
 #include "core/http/SigaaSession.h"
 #include "core/report/HtmlReport.h"
 #include "core/store/Database.h"
+#include "core/sync/Baixador.h"
 #include "core/sync/Crawler.h"
+#include "core/sync/Materiais.h"
 
 namespace sigaa::servico {
 namespace {
@@ -52,6 +54,61 @@ Resultado falhar(Falha f, std::string erro) {
     return r;
 }
 
+// Baixa o material que ainda não está no disco, turma por turma.
+//
+// POR QUE AQUI, e não dentro do Crawler: a sessão que o crawler usou já saiu da
+// turma quando ele terminou, mas re-entrar custa 2 requisições — e só pagamos
+// isso nas turmas que TÊM algo pendente. Em regime, isso é quase sempre zero ou
+// uma turma; a checagem do que falta é local e não custa rede nenhuma. Misturar
+// download no meio da coleta pouparia essas 2 requisições e faria o crawler
+// deixar de ser "ler o SIGAA" para virar "ler e escrever no disco".
+//
+// SEQUENCIAL, uma sessão só: aqui já estamos autenticados e o `Baixador`
+// paralelo custaria um login por canal. Ninguém está olhando a tela durante um
+// sync — o que importa é não parecer um ataque, não terminar rápido.
+void baixarPendentes(http::SigaaSession& sess, const Snapshot& snap,
+                     const std::string& base, Resultado& r, const Log& log) {
+    for (const auto& turma : snap.turmas) {
+        std::vector<sync::PedidoDownload> faltando;
+
+        const std::string pasta = sync::pastaDaTurma(base, turma.nome);
+        sync::CacheLocal cache(pasta);
+        for (const auto& a : snap.arquivos) {
+            if (a.idTurma != turma.idTurma || a.idArquivo.empty()) continue;
+            if (cache.temNoDisco(a.idArquivo)) continue;
+            faltando.push_back({a.idArquivo, a.titulo});
+        }
+        if (faltando.empty()) continue;
+
+        r.materiaisPendentes += static_cast<int>(faltando.size());
+        diz(log, Nivel::Passo, "baixando " + std::to_string(faltando.size()) +
+                                   " arquivo(s) de " + turma.nome);
+
+        // Falha aqui NÃO derruba o ciclo: o relatório e o banco já valem, e um
+        // professor que removeu um material não pode fazer o sync inteiro
+        // parecer quebrado.
+        sync::SessaoTurma st(sess);
+        std::string erro;
+        if (!st.entrar(turma, &erro) || !st.abrirArquivos(&erro)) {
+            diz(log, Nivel::Aviso, "nao consegui abrir " + turma.nome + ": " + erro);
+            continue;
+        }
+        for (const auto& p : faltando) {
+            std::string e;
+            if (const auto caminho = st.baixar(p.idArquivo, pasta, &e)) {
+                // O manifesto é o que faz a janela da turma mostrar "✓ offline"
+                // sem ir à rede, e o que impede o próximo ciclo de baixar tudo
+                // outra vez. Gravar a cada arquivo, e não no fim: um sync
+                // interrompido no meio não pode perder o que já veio.
+                cache.registrar(p.idArquivo, *caminho);
+                ++r.materiaisBaixados;
+            } else {
+                diz(log, Nivel::Aviso, "falhou: " + p.nome + " (" + e + ")");
+            }
+        }
+    }
+}
+
 } // namespace
 
 Resultado executar(Opcoes op, const Log& log) {
@@ -73,6 +130,7 @@ Resultado executar(Opcoes op, const Log& log) {
     // --- coleta --------------------------------------------------------------
     sync::OpcoesColeta oc;
     oc.incluirTurmas = op.incluirTurmas;
+    oc.incluirArquivos = op.incluirArquivos;
     if (log) {
         oc.progresso = [&log](const std::string& m) { diz(log, Nivel::Passo, m); };
     }
@@ -136,6 +194,14 @@ Resultado executar(Opcoes op, const Log& log) {
         } else {
             diz(log, Nivel::Aviso, "falha ao gravar (" + db.erro() + ")");
         }
+    }
+
+    // --- material offline ----------------------------------------------------
+    // Depois de gravar, e nunca antes: baixar arquivo de uma coleta que o diff
+    // classificou como suspeita encheria o disco com material de uma leitura
+    // em que nem nós confiamos (o `return` do ramo suspeito já saiu acima).
+    if (!op.pastaMateriais.empty() && !r.snapshot.arquivos.empty()) {
+        baixarPendentes(sess, r.snapshot, op.pastaMateriais, r, log);
     }
 
     // --- relatório -----------------------------------------------------------

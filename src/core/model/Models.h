@@ -82,12 +82,29 @@ struct Atualizacao {
     std::string texto;          // "Nova tarefa: ...", "Novo Arquivo: ..."
 };
 
+// Um item publicado DENTRO de um tópico de aula (docs/RECON.md §1.6.2).
+//
+// A chave é o mesmo `id` avulso do jsfcljs que a aba Arquivos usa (§1.6.1).
+// É isso que permite casar um material de tópico com o `ArquivoTurma` da aba e
+// saber que ele é baixável — em vez de adivinhar pelo id do componente, que é
+// posicional e muda quando a instituição recompila o JSP.
+struct MaterialTopico {
+    std::string id;          // "130160443" — parâmetro `id` avulso do jsfcljs
+    // Nome do ícone que o SIGAA desenha ao lado: "tarefa", "arquivo",
+    // "video"... É o único sinal de tipo que a página oferece de forma estável.
+    // Vazio quando não há ícone; não inventamos um padrão.
+    std::string tipo;
+    std::string titulo;
+    std::string descricao;   // "Inicia em 04/08/2026 às 0h 0 e finaliza em ..."
+};
+
 struct TopicoAula {
     std::string idTurma;
     std::string titulo;
     DateTime inicio;
     DateTime fim;
     std::string conteudo;
+    std::vector<MaterialTopico> materiais;
 };
 
 // Origem da avaliação — importa porque as duas fontes divergem por professor
@@ -129,6 +146,9 @@ struct Snapshot {
     std::vector<Atualizacao> atualizacoes;
     std::vector<TopicoAula> topicos;
     std::vector<Avaliacao> avaliacoes;
+    // Material publicado nas turmas. Só é preenchido quando a coleta entra nas
+    // turmas (`incluirTurmas`): o portal não sabe que estes arquivos existem.
+    std::vector<ArquivoTurma> arquivos;
     std::optional<int> minutosSessaoRestantes;  // lido do header do SIGAA
 };
 

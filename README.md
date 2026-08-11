@@ -11,6 +11,13 @@ nativas.
 > da UNIFEI (`sigaa.unifei.edu.br`). Outras instâncias **provavelmente** vão
 > precisar de ajustes nos endpoints, nos nomes de formulário e nos seletores
 > HTML — veja *Adaptando para outra universidade* abaixo.
+>
+> O **endereço já é escolhível** na primeira tela (e por `--url` no CLI), e o
+> catálogo embutido tem só a UNIFEI, marcada como verificada. Isso é de
+> propósito: uma lista de vinte universidades onde dezenove falham no primeiro
+> login é pior do que uma lista de uma e um campo de endereço, porque no
+> primeiro caso o usuário culpa a própria senha — e tenta de novo, que é o
+> caminho para o SIGAA bloquear a conta dele.
 
 **Estado: Fase 3 (interface).** O núcleo headless e o modo agendado estão prontos;
 a janela Qt mostra prazos, provas e atualizações e dispara sync em segundo plano.
@@ -22,8 +29,21 @@ a janela Qt mostra prazos, provas e atualizações e dispara sync em segundo pla
 
 ## Adaptando para outra universidade
 
-Se a sua instituição usa SIGAA e você quer portar o sigaa-viewer para ela, o
-caminho mais curto é:
+Comece pelo mais barato: **aponte o app para o seu SIGAA e veja o que quebra.**
+
+```sh
+sigaa-cli --url sigaa.suafaculdade.edu.br doctor    # confirma rede/TLS e o alvo
+sigaa-cli --url sigaa.suafaculdade.edu.br sync
+```
+
+Na interface, o endereço é o primeiro campo da tela de login ("Outra instituição
+→ informar endereço"), e fica guardado para as próximas aberturas. O host também
+entra na chave do cofre de credenciais, então cada instituição tem a sua senha
+guardada em separado — trocar de faculdade não faz o app tentar a senha de uma
+na outra, o que gastaria tentativa e aproxima o bloqueio da conta.
+
+Se o login funcionar mas a leitura falhar (é o desfecho provável), aí sim vale o
+recon:
 
 1. **Faça o recon da sua instância.** Abra o DevTools, logue no seu SIGAA e
    compare os requests com o que está documentado em `docs/RECON.md`. As
@@ -33,7 +53,10 @@ caminho mais curto é:
 
 2. **Ajuste os arquivos certos.** A arquitetura separa deliberadamente *o que
    se pede* de *como se interpreta a resposta*:
-   - `src/core/http/SigaaSession` — URLs base, rotas de login e navegação.
+   - `src/core/config/Instituicao` — o catálogo. Acrescentar a sua é uma linha,
+     depois de conferir contra o site; marque `verificada=true` só aí, e anote
+     em `docs/RECON.md` qual versão do SIGAA você testou.
+   - `src/core/http/SigaaSession` — rotas de login e navegação.
    - `src/core/jsf/JsfForm` — campos e `javax.faces.ViewState`.
    - `src/core/parse/PortalParser` e `TurmaParser` — seletores CSS/XPath.
    - As fixtures em `tests/fixtures/` precisarão de HTML da sua instância
@@ -69,6 +92,34 @@ ctest --preset windows
 ```
 
 As dependências vêm do manifesto `vcpkg.json` — não é preciso instalar nada à mão.
+
+### Onde fica o release
+
+**`dist/`.** Um comando, um caminho:
+
+```powershell
+pwsh -File tools/empacotar.ps1
+# -> dist/SIGAA-Desktop-Viewer-v<versão>-windows-x64/  (e o .zip ao lado)
+```
+
+O script compila em Release, **roda os testes antes de empacotar** e monta a
+pasta com os dois executáveis, as DLLs do Qt e do vcpkg, os plugins que o
+`windeployqt` escolheu, o README e o `.env.example`. É o que o usuário final
+recebe: descompactar e abrir o `sigaa-ui.exe`, sem Qt instalado.
+
+Nada dentro de `build/` é o release, e vale saber por quê antes de procurar lá:
+
+| Caminho | O que é |
+|---|---|
+| `build/<preset>/Release/` | binários otimizados, **sem** as DLLs de terceiros arrumadas para distribuir |
+| `build/<preset>/Debug/` | binários de depuração; exigem `Qt6*d.dll` e não rodam fora da máquina de build |
+| `build/<preset>/*.dir/` | andaime do gerador do Visual Studio — `ALL_BUILD`, `ZERO_CHECK`, `Continuous`, `Nightly`, `RUN_TESTS`. Cada um com quatro subpastas **vazias** (uma por configuração). Não é código, não é saída, é ruído do MSBuild |
+
+Duas coisas que o script se recusa a fazer, e o motivo: empacotar com teste
+falhando, e copiar `sigaa-viewer.db` ou `relatorio.*`. Esses dois aparecem
+dentro do diretório de build sempre que alguém roda o app pela IDE — e contêm
+os dados reais de quem compilou (ver *Dados pessoais* abaixo). Se algum escapar
+para a pasta montada, o script apaga o pacote e falha alto.
 
 ---
 
@@ -185,17 +236,38 @@ Com a janela aberta e o botão **Automático** ligado (padrão):
 | Ciclo | Quando | Custo | O que traz |
 |---|---|---|---|
 | portal | a cada 20 min | 1 requisição | atividades e avisos |
-| turmas | a cada 6 h | ~15 requisições | provas e tópicos |
+| turmas | a cada 6 h | ~22 requisições | provas, aulas e material publicado |
+
+O ciclo de turmas **também baixa o material que falta**, para
+`Documentos/SIGAA/<turma>/`. É o que faz a janela da turma abrir offline depois:
+quando você entra nela, tudo já está no disco. O cache é por `idArquivo`, então
+a primeira execução baixa o semestre inteiro e as seguintes baixam só o PDF da
+aula da semana — e turma sem nada pendente não custa requisição nenhuma, porque
+a verificação é local.
+
+No CLI isso é opt-in (`--materiais <dir>`): uma tarefa agendada que enche o
+disco sem perguntar é diferente de um app que você abriu para ver a turma.
+
+O ciclo de turmas entra em cada turma e, dentro dela, abre a aba **Arquivos**.
+É o que faz o app perceber que o professor subiu o PDF da aula de hoje — a
+novidade mais frequente do semestre, e a única que o portal nunca mostra: as
+"Atualizações das Turmas" trazem um texto solto ("Novo Arquivo: …"), sem id,
+sem título confiável e sem o material. O evento aparece como *material novo* na
+lista de novidades e alimenta a contagem de arquivos na aba Hoje. Custa uma
+requisição por turma; `--sem-arquivos` desliga no CLI.
 
 As frequências são diferentes de propósito. Prazo de atividade muda a qualquer
-hora e sai do portal com **uma** requisição; entrar nas 7 turmas custa ~15
+hora e sai do portal com **uma** requisição; entrar nas 7 turmas custa ~22
 requisições e meio minuto, e prova quase nunca muda. Rodar o ciclo caro a cada
 20 min seriam centenas de visitas diárias ao servidor da universidade para
 descobrir quase sempre a mesma coisa (ver *Etiqueta*).
 
 Isso só é seguro porque o banco faz *upsert*: um ciclo só-portal **não apaga**
-as provas já conhecidas, e o DiffEngine ignora avaliações quando a coleta veio
-sem turmas. Travado em `tests/database_test.cpp`.
+as provas, as aulas nem os arquivos já conhecidos, e o DiffEngine ignora essas
+três categorias quando a coleta veio sem turmas. Sem isso a aba Hoje ficaria
+vazia a cada 20 minutos, e a primeira coleta completa seguinte anunciaria o
+acervo inteiro de cada turma como "material novo". Travado em
+`tests/database_test.cpp` e `tests/diff_engine_test.cpp`.
 
 **O preço dessa escolha, explícito:** com o app fechado você não recebe aviso
 nenhum. Se ficar dias sem abrir, um prazo pode vencer sem ninguém te cutucar. O
@@ -286,9 +358,24 @@ continuam compilando. Quem só quer mexer no parser não precisa baixar 1,5 GB.
 
 ### O que a janela faz
 
-Quatro abas, na ordem das perguntas que o aluno faz: **Prazos** (o que vence
-agora, com "em 2 dias" em laranja e atrasado em vermelho), **Provas**, **Turmas**
-e **Atualizações**.
+Quatro abas, na ordem das perguntas que o aluno faz: **Hoje**, **Provas**,
+**Turmas** e **Atualizações**.
+
+**Hoje** é a tela inicial: em cima, as aulas de hoje e de amanhã — o tópico que
+o professor registrou, a turma e quantos arquivos ele pendurou naquela aula;
+embaixo, a lista de prazos, com "em 2 dias" em laranja e atrasado em vermelho.
+Duplo clique numa aula entra na turma.
+
+Os prazos desceram para o rodapé de propósito. Prazo é o que *vence*; aula é o
+que *acontece hoje* — e era justamente essa a pergunta que o app não respondia,
+apesar de já ter o dado no banco. O divisor é arrastável, então quem prefere a
+lista de prazos grande a puxa para cima.
+
+Amanhã aparece junto de hoje porque quem abre o app às 22h está se preparando
+para o dia seguinte: uma tela que diz "nenhuma aula hoje" àquela hora está certa
+e é inútil. E "ainda não coletei as aulas" é uma mensagem diferente de "não há
+aula hoje" — a primeira é a tela admitindo que não sabe, e confundir as duas
+faria o aluno concluir que está livre.
 
 Duas decisões que valem mais que o layout:
 
@@ -333,15 +420,73 @@ porque uma tabela em branco depois de um clique parece defeito, não resposta.
 ### Turmas: entrar e baixar o material
 
 A aba **Turmas** lista as disciplinas com horário, local e período. Duplo clique
-(ou *Entrar na turma*) abre a turma como no SIGAA web e mostra **os arquivos que
-o professor publicou** — com download de verdade, para
-`Documentos/SIGAA/<turma>/`.
+(ou *Entrar na turma*) abre a turma como no SIGAA web, em duas abas.
+
+**A janela abre offline, pintada.** As aulas e os arquivos vêm do banco, onde o
+último ciclo com turmas já os depositou — nada de rede, nada de espera. Antes
+ela fazia login e três requisições toda vez que era aberta para mostrar dados
+que já estavam guardados; o "Entrando na turma…" era o app buscando o que já
+tinha. A sessão com o SIGAA só nasce quando alguém pede um arquivo que não está
+no disco, ou clica em **Atualizar** — que relê a turma na hora, para o caso de o
+professor ter publicado algo nos últimos minutos.
+
+Sem internet, a janela continua abrindo e o material baixado continua abrindo
+junto. Se o *Atualizar* falhar, ele diz o que falhou e mantém na tela o que está
+guardado, em vez de esvaziar a janela.
+
+As duas abas:
+
+**Aulas** é a linha do tempo que o professor registrou — uma árvore de tópicos,
+cada um com o intervalo de datas e os materiais pendurados nele. É a tela por
+onde se entra na Turma Virtual do SIGAA, e é a pergunta que o aluno realmente
+tem: uma lista plana de PDFs responde *o que existe*; a árvore responde *o que
+caiu na aula do dia 18*. Os arquivos da aba Arquivos entram na aula certa porque
+a coluna "Tópico de Aula" casa com o título do tópico (`docs/RECON.md` §1.6.1);
+o que não casar com aula nenhuma vai para um grupo no fim, porque sumir seria
+pior que desarrumado.
+
+Material em cinza é o que existe na aula mas não se baixa por aqui — tarefa,
+fórum, vídeo. Um item só é oferecido para download quando o `id` dele aparece na
+aba Arquivos; deduzir pelo ícone seria chute, e daria erro na cara do aluno.
+
+**Arquivos** é a lista completa do que o professor publicou, com download de
+verdade para `Documentos/SIGAA/<turma>/`.
 
 O nome do arquivo salvo vem do `Content-Disposition`, não do título da tabela: o
 título é texto livre do professor ("Notas de Aula - Aula 01") e não tem extensão,
 então salvar com ele daria um arquivo que o Windows não sabe abrir. Arquivo que
 já existe ganha sufixo `(2)` em vez de sobrescrever — o SIGAA reaproveita nome
 entre semestres.
+
+#### Baixar tudo, e ficar offline
+
+*Abrir* faz a coisa óbvia: se o material já está no seu computador, abre direto,
+sem tocar na rede; se não está, baixa antes. Baixar de novo o que a pessoa já
+tem produziria um arquivo idêntico e a faria esperar por isso.
+
+*Baixar tudo* pega o material que ainda não está no disco. O que já está não vai
+para a rede de novo: um manifesto (`.sigaa-offline.tsv`) mora na pasta da turma
+e o ✓ da árvore sai dele. O manifesto fica na pasta, e não no banco, porque a
+pasta é o que o aluno mexe — ele copia para o pendrive, renomeia, apaga. Por isso
+toda leitura confere se o arquivo ainda existe: "offline ✓" mentiroso faria a
+pessoa fechar o app achando que tem o material.
+
+A chave do cache é o `id` do SIGAA, não o nome do arquivo. O nome é texto livre
+do professor e muda sem que o conteúdo mude — usá-lo faria cada renomeação
+disparar um download inútil. A brecha é o caso oposto: se o professor trocar o
+conteúdo mantendo o mesmo id, o app não percebe. Daí o botão **Baixar de novo**,
+que ignora o cache para a seleção. Um botão resolve isso; desligar o cache para
+todo mundo faria cada abertura puxar a turma inteira de novo.
+
+**Paralelismo, e onde ele para.** O invariante nº 1 do `SigaaSession` continua
+valendo: **uma requisição por vez dentro de uma sessão** — o SIGAA guarda a view
+no servidor e duas navegações simultâneas no mesmo `JSESSIONID` a invalidam, o
+que faria o segundo download chegar como página de erro salva com extensão
+`.pdf`. O que dá para paralelizar é a *sessão*: cada canal do
+`core/sync/Baixador` tem o próprio login e a própria view. O preço é um login por
+canal, então o app usa 1 canal até 2 arquivos, 2 até 6 e no máximo 3 — para dois
+PDFs de 200 KB abrir sessão extra é perda pura, e o teto existe porque são logins
+simultâneos na conta do aluno.
 
 Três coisas que essa janela faz de propósito:
 
@@ -360,8 +505,9 @@ de procurar o material no site.
 
 O rodapé lista as outras abas que a turma tem no SIGAA (Notas, Frequência,
 Tarefas, Fóruns…) e diz que este app ainda não as abre — melhor do que deixar o
-aluno concluir que a turma só tem arquivos. O protocolo da aba Arquivos está em
-`docs/RECON.md` §1.6.1; as demais continuam por mapear.
+aluno concluir que a turma só tem arquivos. O protocolo está em `docs/RECON.md`
+§1.6.1 (aba Arquivos) e §1.6.2 (materiais do tópico); as demais abas continuam
+por mapear.
 
 Pelo terminal, sem UI:
 
@@ -370,6 +516,9 @@ sigaa-cli arquivos "PROJETO"              # lista, com o id de cada arquivo
 sigaa-cli baixar   "PROJETO" 1538653      # baixa para ./materiais
 sigaa-cli explorar "PROJETO" Arquivos rec # recon: grava o HTML cru de cada passo
 ```
+
+`--url <endereço>` e `--instituicao <id>` valem para qualquer subcomando e podem
+vir antes ou depois dele; `SIGAA_URL` no ambiente ou no `.env` faz o mesmo.
 
 ### Mexer no visual
 
@@ -412,9 +561,14 @@ está duplicado em `app.svg`, então mexeu num, mexa no outro.
 Preferências (o intervalo de 20 min é fixo), minimizar para a bandeja ao fechar,
 e cofre no macOS. Das abas da Turma Virtual só **Arquivos** está implementada —
 Notas, Frequência, Tarefas, Fóruns e Notícias continuam sem parser (a janela da
-turma lista os nomes delas para deixar isso explícito). O download passa inteiro
-pela memória antes de ir ao disco, o que serve para PDF de aula mas incharia com
-um vídeo de 1 GB. O ícone da bandeja já existe e mostra o aviso agregado quando
+turma lista os nomes delas para deixar isso explícito). Materiais de tópico que
+não são arquivo aparecem na árvore de aulas, mas em cinza: sabemos listá-los,
+não abri-los. O download passa inteiro pela memória antes de ir ao disco, o que
+serve para PDF de aula mas incharia com um vídeo de 1 GB — e com N canais são N
+arquivos na memória ao mesmo tempo, que é mais uma razão para o teto ser 3.
+Fora a UNIFEI, nenhuma instituição foi testada contra o site real. A aba Hoje
+depende de um ciclo com turmas ter rodado ao menos uma vez: antes disso ela diz
+que não sabe, em vez de afirmar que não há aula. O ícone da bandeja já existe e mostra o aviso agregado quando
 a janela não está em foco. As strings estão fixas em português, sem `tr()` nem
 `.ts` — o app tem um público de uma universidade brasileira e traduzir custaria
 tocar cada linha da UI para nada.

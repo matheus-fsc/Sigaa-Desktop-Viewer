@@ -11,6 +11,7 @@
 
 #include <QColor>
 #include <QDate>
+#include <QHash>
 #include <QMap>
 #include <QString>
 #include <Qt>
@@ -24,6 +25,7 @@ namespace sigaa {
 struct ArquivoTurma;
 struct DateTime;
 struct Snapshot;
+struct TopicoAula;
 }
 
 namespace sigaa::ui {
@@ -104,6 +106,36 @@ struct ResumoProvas {
 
 ResumoProvas resumoProvas(const Snapshot& s);
 
+// --- o dia -----------------------------------------------------------------
+
+// As aulas de hoje e de amanhã, com o material pendurado em cada uma.
+//
+// É a pergunta que o aluno tem ao abrir o app de manhã, e a que o SIGAA
+// responde pior: lá é preciso entrar em cada turma para descobrir o que caiu na
+// aula de hoje. Aqui as duas fontes já estão no banco.
+//
+// Amanhã junto de hoje, e não só hoje: quem abre o app à noite está se
+// preparando para o dia seguinte, e uma tela que diz "nenhuma aula hoje" às
+// 22h é tecnicamente correta e inútil.
+//
+// Colunas: Aula | Turma | Material
+// A linha da aula guarda o `idTurma` em PapelIdTurma, para o duplo clique
+// abrir a turma certa.
+inline constexpr int PapelIdTurma = Qt::UserRole + 4;
+
+struct ResumoDia {
+    int aulasHoje{0};
+    int aulasAmanha{0};
+    // Nenhum tópico no banco — provável que nunca tenha rodado um sync com
+    // `--turmas`. É diferente de "não há aula hoje", e a tela precisa saber
+    // distinguir para não afirmar o que não sabe.
+    bool semDados{true};
+};
+
+ResumoDia resumoDia(const Snapshot& s, QDate hoje);
+
+QStandardItemModel* modeloDia(const Snapshot& s, QDate hoje, QObject* pai);
+
 // --- turma -----------------------------------------------------------------
 
 // Colunas: Turma | Horário | Local | Período
@@ -114,5 +146,38 @@ QStandardItemModel* modeloTurmas(const Snapshot& s, QObject* pai);
 // não informação para o aluno — mostrá-la só ocuparia largura.
 inline constexpr int PapelIdArquivo = Qt::UserRole + 2;
 QStandardItemModel* modeloArquivos(const std::vector<ArquivoTurma>& arquivos, QObject* pai);
+
+// A árvore de aulas: cada tópico com os materiais pendurados nele.
+//
+// É a tela que o aluno abre no SIGAA — a Turma Virtual entra pela linha do
+// tempo das aulas, não por uma lista de arquivos. Uma lista plana de PDFs
+// responde "o que existe"; a árvore responde "o que caiu na aula do dia 18",
+// que é a pergunta que ele tinha.
+//
+// Duas fontes se encontram aqui, e o casamento é por `id`:
+//   - `topicos[].materiais` — o que está pendurado na aula (RECON §1.6.2)
+//   - `arquivos`            — a aba Arquivos, cuja coluna "Tópico de Aula"
+//                             casa com o título do tópico (§1.6.1)
+//
+// Um material só é BAIXÁVEL se o id dele aparece na aba Arquivos. Deduzir pelo
+// tipo do ícone seria chutar: uma tarefa e um fórum também são materiais de
+// tópico, e oferecer download deles daria erro na cara do aluno.
+//
+// Arquivo cujo tópico não casa com nenhuma aula não some — vai para um grupo
+// no fim. Sumir seria pior que qualquer desarrumação: é material que existe.
+//
+// Colunas: Aula / material | Quando | Offline
+//
+// Linha de aula não tem PapelIdArquivo; linha de material tem. É assim que a
+// janela sabe o que fazer quando alguém seleciona uma aula inteira e clica em
+// Baixar: pega os filhos baixáveis, em vez de reclamar da seleção.
+inline constexpr int PapelBaixavel = Qt::UserRole + 3;
+
+// `offline` mapeia idArquivo -> caminho local do que já está no disco. É um
+// mapa, e não um conjunto, porque a mesma informação responde às duas
+// perguntas da tela: "mostrar ✓?" e "abrir qual arquivo?".
+QStandardItemModel* modeloAulas(const std::vector<TopicoAula>& topicos,
+                                const std::vector<ArquivoTurma>& arquivos,
+                                const QHash<QString, QString>& offline, QObject* pai);
 
 } // namespace sigaa::ui

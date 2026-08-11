@@ -2,7 +2,11 @@
 /build/
 /out/
 /install/
+# pacote gerado por tools/empacotar.ps1 — derivado, some a cada release
+/dist/
 CMakeUserPresets.json
+# CTest cria isto na raiz quando alguem roda `ctest` de fora do build/
+/Testing/
 
 # vcpkg
 /vcpkg/
@@ -23,6 +27,15 @@ CMakeUserPresets.json
 /tests/fixtures/raw/
 *.har
 !/tests/fixtures/har/*.redacted.har
+
+# "Salvar como" do navegador. Não serve de fixture (o DOM pós-JS é 2,7x maior
+# que o HTML da rede — RECON §1.7) e vem cru, com e-mail, idusuario e token de
+# chat. A pasta `*_files` que o Chrome cria junto tem 78 arquivos de tema.
+# Ignorado por padrão para que um `git add .` distraído não publique a conta
+# de alguém; fixture de verdade nasce de `sigaa-cli explorar` + tools/redact.py.
+/tests/fixtures/*_files/
+/tests/fixtures/*_arquivos/
+/tests/fixtures/turma_.html
 sigaa-viewer.db
 *.log
 relatorio.html

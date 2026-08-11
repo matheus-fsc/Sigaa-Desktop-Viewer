@@ -66,7 +66,9 @@ std::string infoBackend();
 
 class SigaaSession {
 public:
-    explicit SigaaSession(std::string baseUrl = "https://sigaa.unifei.edu.br");
+    // Vazio = a instituição selecionada (core/config/Instituicao.h). Não é um
+    // literal aqui porque este app deixou de ser só da UNIFEI.
+    explicit SigaaSession(std::string baseUrl = {});
     ~SigaaSession();
     SigaaSession(const SigaaSession&) = delete;
     SigaaSession& operator=(const SigaaSession&) = delete;

@@ -20,6 +20,18 @@ namespace sigaa::sync {
 
 struct OpcoesColeta {
     bool incluirTurmas{false};
+
+    // Abre também a aba Arquivos de cada turma visitada.
+    //
+    // É o que faz o app perceber que o professor publicou o PDF da aula de
+    // hoje — a novidade mais frequente do semestre, e a única que o portal
+    // NUNCA mostra: "Atualizações das Turmas" traz um texto solto ("Novo
+    // Arquivo: ..."), sem id, sem título confiável e sem o material.
+    //
+    // Custa uma requisição a mais por turma (~1,5 s cada, pelo intervalo
+    // mínimo). Só tem efeito com `incluirTurmas`.
+    bool incluirArquivos{true};
+
     // Chamado a cada passo, para o CLI mostrar progresso.
     std::function<void(const std::string&)> progresso;
 };

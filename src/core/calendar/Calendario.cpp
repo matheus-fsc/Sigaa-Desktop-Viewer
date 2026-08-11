@@ -87,6 +87,32 @@ std::string dobrarLinha(std::string_view linhaLogica) {
 
 // ---------------------------------------------------------------------------
 
+bool aulaOcorreEm(const TopicoAula& t, const DateTime& d) {
+    if (!d.valid() || !t.inicio.valid()) return false;
+
+    auto soData = [](const DateTime& x) {
+        return x.year * 10000 + x.month * 100 + x.day;
+    };
+    const int dia = soData(d);
+    const int ini = soData(t.inicio);
+
+    // Fim ausente ou anterior ao início: tópico de um dia só. Um `fim` que veio
+    // quebrado do parser não pode alargar o intervalo — alargar faria a aula
+    // aparecer em dias em que ela não acontece, que é o erro que o aluno
+    // levaria a sério.
+    if (!t.fim.valid() || soData(t.fim) < ini) return dia == ini;
+    return dia >= ini && dia <= soData(t.fim);
+}
+
+std::vector<TopicoAula> aulasDoDia(const std::vector<TopicoAula>& topicos,
+                                   const DateTime& d) {
+    std::vector<TopicoAula> out;
+    for (const auto& t : topicos) {
+        if (aulaOcorreEm(t, d)) out.push_back(t);
+    }
+    return out;
+}
+
 std::vector<Avaliacao> mesclarAvaliacoes(std::vector<Avaliacao> todas) {
     // Painel antes de tópico: assim o primeiro a ocupar a chave é o confiável.
     std::stable_sort(todas.begin(), todas.end(),

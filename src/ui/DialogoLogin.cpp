@@ -2,14 +2,17 @@
 
 #include <QAction>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFont>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPalette>
 #include <QPushButton>
+#include <QSettings>
 #include <QThread>
 
+#include "core/config/Instituicao.h"
 #include "core/http/SigaaSession.h"
 #include "platform/Credenciais.h"
 #include "ui/Icones.h"
@@ -59,6 +62,7 @@ DialogoLogin::DialogoLogin(QWidget* pai)
         l->setPalette(p);
     }
 
+    montarInstituicoes();
     montarCampoSenha();
     montarTextosDoCofre();
 
@@ -70,6 +74,73 @@ DialogoLogin::DialogoLogin(QWidget* pai)
 }
 
 DialogoLogin::~DialogoLogin() = default;
+
+void DialogoLogin::montarInstituicoes() {
+    auto* combo = formulario_->campoInstituicao;
+    for (const auto& i : config::catalogo()) {
+        combo->addItem(QString::fromStdString(i.nome), QString::fromStdString(i.id));
+    }
+    combo->addItem(QStringLiteral("Outra instituição (informar endereço)…"),
+                   QStringLiteral("__outra__"));
+
+    // A escolha da execução passada. Não é preferência de enfeite: entrar com
+    // a instituição errada gasta uma tentativa de senha, e tentativa errada
+    // conta para o bloqueio da conta.
+    QSettings cfg;
+    const QString idSalvo = cfg.value(QStringLiteral("instituicao/id")).toString();
+    const QString urlSalva = cfg.value(QStringLiteral("instituicao/url")).toString();
+
+    int idx = combo->findData(idSalvo);
+    if (!urlSalva.isEmpty() && idx < 0) {
+        idx = combo->findData(QStringLiteral("__outra__"));
+        formulario_->campoUrl->setText(urlSalva);
+    }
+    combo->setCurrentIndex(idx >= 0 ? idx : 0);
+
+    connect(combo, &QComboBox::currentIndexChanged, this,
+            [this] { aoTrocarInstituicao(); });
+    connect(formulario_->campoUrl, &QLineEdit::textChanged, this,
+            [this] { aoTrocarInstituicao(); });
+    aoTrocarInstituicao();
+}
+
+config::Instituicao DialogoLogin::instituicaoEscolhida() const {
+    const QString id = formulario_->campoInstituicao->currentData().toString();
+    if (id != QLatin1String("__outra__")) {
+        if (auto i = config::porId(id.toStdString())) return *i;
+        return config::catalogo().front();
+    }
+    return config::personalizada(formulario_->campoUrl->text().trimmed().toStdString());
+}
+
+void DialogoLogin::aoTrocarInstituicao() {
+    const bool outra = formulario_->campoInstituicao->currentData().toString() ==
+                       QLatin1String("__outra__");
+    formulario_->campoUrl->setVisible(outra);
+
+    const config::Instituicao i = instituicaoEscolhida();
+
+    if (outra && !i.valida()) {
+        formulario_->notaInstituicao->setText(QStringLiteral(
+            "Digite o endereço do SIGAA da sua instituição — o mesmo que você "
+            "usa no navegador, por exemplo <b>sigaa.suafaculdade.edu.br</b>."));
+        return;
+    }
+    if (i.verificada) {
+        formulario_->notaInstituicao->setText(QString());
+        return;
+    }
+    // O aviso é o ponto. Sem ele, um parser que não entende a página desta
+    // instância vira "minha senha não funciona" na cabeça do usuário — e ele
+    // vai tentar de novo, e de novo, até o SIGAA bloquear a conta.
+    formulario_->notaInstituicao->setText(
+        QStringLiteral(
+            "<b>%1 ainda não foi testada.</b> Toda a engenharia reversa deste app "
+            "foi feita contra o SIGAA da UNIFEI; outras instituições rodam versões "
+            "diferentes e podem falhar na leitura das páginas. Se falhar, o "
+            "problema é do app, não da sua senha — não fique tentando de novo.")
+            .arg(QString::fromStdString(i.host()).toHtmlEscaped()));
+}
 
 void DialogoLogin::montarCampoSenha() {
     // Olhinho de revelar: sem ele o usuário com senha longa erra, não sabe que
@@ -131,6 +202,17 @@ void DialogoLogin::dizer(const QString& html) {
 }
 
 void DialogoLogin::tentar() {
+    const config::Instituicao inst = instituicaoEscolhida();
+    if (!inst.valida()) {
+        dizer(QStringLiteral("Informe o endereço do SIGAA da sua instituição."));
+        formulario_->campoUrl->setFocus();
+        return;
+    }
+    // Antes do login, não depois: a chave do cofre sai do host, e um `login`
+    // feito contra uma instituição e guardado sob outra faria o ciclo seguinte
+    // tentar a senha no lugar errado.
+    config::selecionar(inst);
+
     const QString login = soDigitos(formulario_->campoLogin->text());
     const QString senha = formulario_->campoSenha->text();
 
@@ -192,6 +274,17 @@ void DialogoLogin::aoVerificar() {
         formulario_->campoSenha->selectAll();
         formulario_->campoSenha->setFocus();
         return;
+    }
+
+    // A instituição só é gravada depois que o SIGAA confirmou que ela responde
+    // um login de verdade. Guardar antes deixaria a próxima abertura do app
+    // apontando para um endereço que nunca funcionou.
+    {
+        const config::Instituicao inst = instituicaoEscolhida();
+        QSettings cfg;
+        cfg.setValue(QStringLiteral("instituicao/id"), QString::fromStdString(inst.id));
+        cfg.setValue(QStringLiteral("instituicao/url"),
+                     QString::fromStdString(inst.baseUrl));
     }
 
     // Só agora, com o "ok" do servidor na mão.

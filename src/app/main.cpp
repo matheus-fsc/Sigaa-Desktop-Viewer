@@ -26,6 +26,7 @@
 #endif
 
 #include "core/config/DotEnv.h"
+#include "core/config/Instituicao.h"
 #include "app/Prompt.h"
 #include "core/http/SigaaSession.h"
 #include "core/jsf/JsfForm.h"
@@ -46,7 +47,14 @@ namespace {
 struct OpcoesSync {
     std::string saida = "relatorio.html";
     bool comTurmas = false;
+    // Dentro da turma, tambem abre a aba Arquivos. Ligado por padrao: material
+    // novo e a novidade mais frequente do semestre. Custa ~1,5 s por turma.
+    bool comArquivos = true;
     bool quieto = false;
+    // Vazio = nao baixa. Opt-in no CLI, e ligado por padrao na UI: um agendado
+    // que enche o disco sem pedir e um app que abre a turma offline sao
+    // decisoes diferentes, e quem roda no terminal merece escolher.
+    std::string pastaMateriais;
     // nullopt = decide pelo modo: notifica em --quiet, cala em interativo.
     std::optional<bool> notificar;
     std::string log;
@@ -108,6 +116,8 @@ int cmdSync(const OpcoesSync& op) {
 
     servico::Opcoes so;
     so.incluirTurmas = op.comTurmas;
+    so.incluirArquivos = op.comArquivos;
+    so.pastaMateriais = op.pastaMateriais;
     so.caminhoRelatorio = op.saida;
     so.dumpHtml = config::credencial("SIGAA_DUMP", config::carregarDotEnv());
     so.login = std::move(res.cred.login);
@@ -196,6 +206,13 @@ int cmdSync(const OpcoesSync& op) {
     if (!snap.avaliacoes.empty()) {
         std::cerr << ", " << calendario::mesclarAvaliacoes(snap.avaliacoes).size()
                   << " avaliacoes";
+    }
+    if (!snap.arquivos.empty()) {
+        std::cerr << ", " << snap.arquivos.size() << " arquivos";
+    }
+    if (r.materiaisPendentes > 0) {
+        std::cerr << " (" << r.materiaisBaixados << "/" << r.materiaisPendentes
+                  << " baixados para " << op.pastaMateriais << ")";
     }
     if (snap.minutosSessaoRestantes) {
         std::cerr << " (sessao expira em " << *snap.minutosSessaoRestantes << " min)";
@@ -296,12 +313,25 @@ int usage() {
         "                                               HTML cru da aba (padrao dir=recon)\n"
         "\n"
         "opcoes do sync:\n"
-        "  --turmas          entra em cada turma (mais lento, traz provas e topicos)\n"
+        "  --turmas          entra em cada turma (mais lento, traz provas, topicos e\n"
+        "                    o material publicado pelo professor)\n"
+        "  --sem-arquivos    com --turmas, pula a aba Arquivos: 1 requisicao a menos\n"
+        "                    por turma, mas deixa de avisar sobre material novo\n"
+        "  --materiais <dir> com --turmas, baixa o material que falta para\n"
+        "                    <dir>/<turma>. So o que ainda nao esta no disco (cache\n"
+        "                    por id do SIGAA); a 1a execucao baixa o semestre inteiro\n"
         "  --quiet           modo agendado: sem prompt, console oculto, log em arquivo,\n"
         "                    notificacao ligada. Exige credenciais no ambiente/.env.\n"
         "  --log <arquivo>   para onde vai o log em --quiet (padrao sigaa-viewer.log)\n"
         "  --notificar       forca notificacao nativa mesmo em modo interativo\n"
         "  --sem-notificar   desliga a notificacao mesmo em --quiet\n"
+        "\n"
+        "instituicao (vale para qualquer subcomando):\n"
+        "  --instituicao <id>   id do catalogo embutido (hoje: unifei)\n"
+        "  --url <endereco>     outro SIGAA, ex. sigaa.suafaculdade.edu.br\n"
+        "                       tambem por SIGAA_URL no ambiente ou no .env\n"
+        "  ATENCAO: so a UNIFEI foi verificada. Outra instancia pode rodar uma\n"
+        "  versao diferente do SIGAA e falhar na leitura — nao e a sua senha.\n"
         "\n"
         "credenciais: ambiente (SIGAA_LOGIN/SIGAA_SENHA) > cofre do SO > .env > prompt.\n"
         "nunca passe a senha por argumento — ela fica no historico do shell.\n";
@@ -556,6 +586,56 @@ int cmdArquivos(const std::string& buscaTurma, const std::string& idBaixar,
     return 0;
 }
 
+// Qual SIGAA este comando vai falar. Vale para TODOS os subcomandos, então é
+// resolvido uma vez, antes do dispatch — repetir a leitura em cada um seria a
+// receita para o `sync` e o `baixar` discordarem de instituição.
+//
+// Precedência, a mesma das credenciais: argumento > ambiente > .env > padrão.
+// O endereço de uma universidade não é segredo, então aqui `argv` é aceitável
+// — ao contrário da senha, que nunca passa por lá.
+//
+// CONSOME os argumentos que reconhece, compactando `argv` no lugar. É o que
+// permite escrever a opção em qualquer posição — antes ou depois do
+// subcomando — sem que cada subcomando precise saber que ela existe. Sem isso,
+// `sigaa-cli --url x doctor` faria o dispatch procurar um comando chamado
+// "--url" e sair calado.
+void resolverInstituicao(int& argc, char** argv) {
+    std::string alvo;
+
+    int escrita = 1;
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        if ((a == "--url" || a == "--instituicao") && i + 1 < argc) {
+            alvo = argv[i + 1];
+            ++i;   // pula o valor
+            continue;
+        }
+        argv[escrita++] = argv[i];
+    }
+    argc = escrita;
+    argv[argc] = nullptr;
+
+    if (alvo.empty()) {
+        const auto env = sigaa::config::carregarDotEnv();
+        alvo = sigaa::config::credencial("SIGAA_URL", env);
+        if (alvo.empty()) alvo = sigaa::config::credencial("SIGAA_INSTITUICAO", env);
+    }
+    if (alvo.empty()) return;
+
+    if (auto i = sigaa::config::porId(alvo)) {
+        sigaa::config::selecionar(*i);
+        return;
+    }
+    const auto i = sigaa::config::personalizada(alvo);
+    if (!i.valida()) {
+        std::cerr << "instituicao invalida: " << alvo
+                  << " (use um id do catalogo ou um endereco como "
+                     "sigaa.suafaculdade.edu.br)\n";
+        return;
+    }
+    sigaa::config::selecionar(i);
+}
+
 std::optional<std::string> readFile(const std::string& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return std::nullopt;
@@ -567,6 +647,7 @@ std::optional<std::string> readFile(const std::string& path) {
 } // namespace
 
 int main(int argc, char** argv) {
+    resolverInstituicao(argc, argv);
     if (argc < 2) return usage();
 
     if (std::string(argv[1]) == "login") return cmdLogin();
@@ -610,10 +691,18 @@ int main(int argc, char** argv) {
             case sigaa::plat::Origem::DotEnv:   onde = ".env (TEXTO PURO — mova para o cofre)"; break;
             case sigaa::plat::Origem::Nenhuma:  break;
         }
+        const auto& inst = sigaa::config::selecionada();
         std::cout << sigaa::http::infoBackend() << "\n"
                   << "notificacao: " << sigaa::plat::backendNotificacao() << "\n"
                   << "cofre      : " << sigaa::plat::backendCofre() << "\n"
-                  << "credenciais: " << onde << "\n";
+                  << "credenciais: " << onde << "\n"
+                  // Qual SIGAA, e se alguem ja conferiu que ele funciona. Sem
+                  // isto, "nao consegui entrar" nao distingue senha errada de
+                  // instituicao cujo HTML este parser nunca viu.
+                  << "instituicao: " << inst.baseUrl
+                  << (inst.verificada ? "  (verificada)"
+                                      : "  (NAO verificada — pode falhar na leitura)")
+                  << "\n";
         if (argc >= 3) {
             // Teste de conectividade: isola "nossa build esta quebrada" de
             // "este servidor especifico rejeita a gente".
@@ -634,6 +723,8 @@ int main(int argc, char** argv) {
         for (int i = 2; i < argc; ++i) {
             const std::string a = argv[i];
             if (a == "--turmas")             op.comTurmas = true;
+            else if (a == "--sem-arquivos")  op.comArquivos = false;
+            else if (a == "--materiais" && i + 1 < argc) op.pastaMateriais = argv[++i];
             else if (a == "--quiet")         op.quieto = true;
             else if (a == "--notificar")     op.notificar = true;
             else if (a == "--sem-notificar") op.notificar = false;

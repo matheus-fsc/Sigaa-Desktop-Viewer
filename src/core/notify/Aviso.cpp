@@ -32,6 +32,7 @@ std::string_view rotulo(sync::TipoEvento t) {
         case sync::TipoEvento::PrazoMudou:         return "prazo alterado";
         case sync::TipoEvento::AtividadeConcluida: return "atividade concluída";
         case sync::TipoEvento::AtualizacaoNova:    return "atualização na turma";
+        case sync::TipoEvento::MaterialNovo:       return "material novo";
         case sync::TipoEvento::AvaliacaoNova:      return "prova marcada";
         case sync::TipoEvento::AvaliacaoRemarcada: return "PROVA REMARCADA";
         case sync::TipoEvento::ColetaSuspeita:     return "coleta falhou";
@@ -46,9 +47,10 @@ int prioridade(sync::TipoEvento t) {
         case sync::TipoEvento::PrazoMudou:         return 2;
         case sync::TipoEvento::AvaliacaoNova:      return 3;
         case sync::TipoEvento::AtividadeNova:      return 4;
-        case sync::TipoEvento::AtualizacaoNova:    return 5;
-        case sync::TipoEvento::TurmaNova:          return 6;
-        case sync::TipoEvento::AtividadeConcluida: return 7;
+        case sync::TipoEvento::MaterialNovo:       return 5;
+        case sync::TipoEvento::AtualizacaoNova:    return 6;
+        case sync::TipoEvento::TurmaNova:          return 7;
+        case sync::TipoEvento::AtividadeConcluida: return 8;
     }
     return 9;
 }

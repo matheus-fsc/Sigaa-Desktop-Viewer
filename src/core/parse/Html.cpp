@@ -183,6 +183,36 @@ std::string Node::rawText() const {
 
 std::string Node::text() const { return collapseWhitespace(rawText()); }
 
+std::string Node::textoVisivel() const {
+    if (!raw_) return {};
+
+    // Percurso manual em vez de lxb_dom_node_text_content: é o único jeito de
+    // pular uma subárvore inteira. Iterativo porque um tópico de aula chega a
+    // ter dezenas de níveis de <span> aninhado gerado pelo JSF.
+    std::string out;
+    std::vector<lxb_dom_node_t*> pilha;
+    for (auto* c = static_cast<lxb_dom_node_t*>(raw_)->last_child; c; c = c->prev) {
+        pilha.push_back(c);
+    }
+    while (!pilha.empty()) {
+        lxb_dom_node_t* n = pilha.back();
+        pilha.pop_back();
+
+        if (n->type == LXB_DOM_NODE_TYPE_TEXT) {
+            const lexbor_str_t& d = lxb_dom_interface_text(n)->char_data.data;
+            out += fromLx(d.data, d.length);
+            continue;
+        }
+        if (n->type != LXB_DOM_NODE_TYPE_ELEMENT) continue;
+
+        const std::string tag = Node(n).tagName();
+        if (tag == "script" || tag == "style") continue;
+
+        for (auto* c = n->last_child; c; c = c->prev) pilha.push_back(c);
+    }
+    return collapseWhitespace(out);
+}
+
 std::string Node::attr(std::string_view name) const {
     if (!raw_) return {};
     auto* node = static_cast<lxb_dom_node_t*>(raw_);

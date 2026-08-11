@@ -66,6 +66,12 @@ private:
     bool recarregarDoBanco();
     void mostrar(const Snapshot& s);
 
+    // --- o dia (aba inicial) -----------------------------------------------
+    // As aulas de hoje e de amanhã com o material de cada uma, acima da lista
+    // de prazos. O prazo continua ali, mas deixou de ser a primeira coisa que
+    // a pessoa vê: prazo é o que vence, aula é o que acontece hoje.
+    void montarDia(const Snapshot& s);
+
     // --- dashboard de provas ---------------------------------------------
     void montarProvas();
     void atualizarResumoProvas(const Snapshot& s);
@@ -74,7 +80,9 @@ private:
 
     // --- turmas ------------------------------------------------------------
     void montarTurmas();
-    void abrirTurma();
+    void abrirTurma();        // a partir da aba Turmas
+    void abrirTurmaDoDia();   // a partir de uma aula da aba Hoje
+    void abrirJanelaDaTurma(const Turma& turma);
     void sincronizar(bool comTurmas);
     void aoConcluir();
 

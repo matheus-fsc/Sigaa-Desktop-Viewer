@@ -6,11 +6,32 @@
 
 #include <QApplication>
 #include <QFile>
+#include <QSettings>
 
+#include "core/config/Instituicao.h"
 #include "ui/Icones.h"
 #include "ui/JanelaPrincipal.h"
 
 namespace {
+
+// Antes de qualquer coisa que fale com o SIGAA — e antes de ler o cofre, cuja
+// chave sai do host da instituição. Ler isto tarde faria a primeira execução
+// procurar a senha no lugar errado e abrir o diálogo de login sem motivo.
+void restaurarInstituicao() {
+    const QSettings cfg;
+    const QString id = cfg.value(QStringLiteral("instituicao/id")).toString();
+    const QString url = cfg.value(QStringLiteral("instituicao/url")).toString();
+
+    if (auto i = sigaa::config::porId(id.toStdString())) {
+        sigaa::config::selecionar(*i);
+        return;
+    }
+    if (!url.isEmpty()) {
+        sigaa::config::selecionar(sigaa::config::personalizada(url.toStdString()));
+    }
+    // Sem nada guardado: fica o padrão do catálogo (UNIFEI), que é o que este
+    // app sempre fez.
+}
 
 // A folha de estilo vem do .qrc, não do disco: um arquivo solto ao lado do .exe
 // seria mais fácil de ajustar, mas viraria "o app abriu sem estilo" na primeira
@@ -28,6 +49,10 @@ int main(int argc, char** argv) {
     QApplication::setApplicationName(QStringLiteral("SIGAA Viewer"));
     QApplication::setOrganizationName(QStringLiteral("sigaa-viewer"));
     QApplication::setWindowIcon(sigaa::ui::iconeApp());
+
+    // Depois de setOrganizationName/setApplicationName: sem eles o QSettings
+    // grava num lugar diferente do que a próxima execução leria.
+    restaurarInstituicao();
 
     aplicarEstilo(app);
 

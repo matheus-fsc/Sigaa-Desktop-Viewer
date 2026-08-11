@@ -2,9 +2,11 @@
 
 #include "core/calendar/Calendario.h"
 #include "core/jsf/JsfForm.h"
+#include "core/parse/ArquivoParser.h"
 #include "core/parse/Html.h"
 #include "core/parse/PortalParser.h"
 #include "core/parse/TurmaParser.h"
+#include "core/sync/Materiais.h"
 
 namespace sigaa::sync {
 namespace {
@@ -24,6 +26,28 @@ const jsf::Command* comandoDaTurma(const std::vector<jsf::Command>& cmds,
         }
     }
     return nullptr;
+}
+
+// Abre a aba Arquivos da turma corrente e junta o material ao snapshot.
+//
+// Falhar aqui NÃO conta como turma com falha: várias turmas simplesmente não
+// têm a aba, e inflar `turmasComFalha` faria o serviço classificar uma coleta
+// perfeitamente boa como suspeita — que é o estado em que ele se recusa a
+// gravar. O preço de errar para este lado é não ver um arquivo novo; para o
+// outro lado, é o app parar de guardar qualquer coisa.
+void coletarArquivos(http::SigaaSession& sessao, const html::Document& docTurma,
+                     const Turma& t, ResultadoColeta& res, const OpcoesColeta& op) {
+    html::Document doc;
+    if (!abrirAbaPorRotulo(sessao, docTurma, "Arquivos", &doc, nullptr)) return;
+
+    const auto lista = parse::parseArquivos(doc, t.idTurma, t.nome);
+    if (!lista.pareceAbaArquivos) return;
+
+    res.snapshot.arquivos.insert(res.snapshot.arquivos.end(), lista.arquivos.begin(),
+                                 lista.arquivos.end());
+    if (!lista.arquivos.empty()) {
+        avisar(op, "  " + std::to_string(lista.arquivos.size()) + " arquivo(s)");
+    }
 }
 
 } // namespace
@@ -95,6 +119,8 @@ ResultadoColeta coletar(http::SigaaSession& sessao, const OpcoesColeta& op) {
                                                c.avaliacoes.begin(),
                                                c.avaliacoes.end());
                 ++res.turmasVisitadas;
+
+                if (op.incluirArquivos) coletarArquivos(sessao, dt, t, res, op);
             } else {
                 ++res.turmasComFalha;
             }

@@ -21,6 +21,8 @@
 
 #include <memory>
 
+#include "core/config/Instituicao.h"
+
 class QPushButton;
 
 namespace Ui {
@@ -43,6 +45,17 @@ public:
 private:
     void montarCampoSenha();
     void montarTextosDoCofre();
+
+    // Preenche o combo e aplica a escolha guardada. A instituição é a primeira
+    // decisão da tela porque tudo o mais depende dela — inclusive a chave do
+    // cofre onde a senha vai parar.
+    void montarInstituicoes();
+    void aoTrocarInstituicao();
+
+    // A instituição que os campos descrevem agora. Inválida se o usuário
+    // escolheu "Outra" e ainda não digitou um endereço utilizável.
+    config::Instituicao instituicaoEscolhida() const;
+
     void tentar();
     void aoVerificar();
     void ocupado(bool sim);

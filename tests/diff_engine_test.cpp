@@ -184,3 +184,97 @@ TEST_CASE("atualizacao nova detectada pelo hash", "[diff]") {
     REQUIRE(contar(r, TipoEvento::AtualizacaoNova) == 1);
     CHECK(r.eventos[0].chave == "bbb");
 }
+
+// ---------------------------------------------------------------------------
+// Material publicado na turma. Este e o evento mais frequente do semestre:
+// professor sobe o PDF da aula toda semana.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+ArquivoTurma arq(const std::string& id, const std::string& turma,
+                 const std::string& titulo, const std::string& topico = "") {
+    ArquivoTurma a;
+    a.idArquivo = id;
+    a.idTurma = turma;
+    a.turmaNome = "ADM";
+    a.titulo = titulo;
+    a.topico = topico;
+    return a;
+}
+
+} // namespace
+
+TEST_CASE("material novo em turma ja conhecida vira evento", "[diff]") {
+    Snapshot antes;
+    antes.turmas = {turma("1", "ADM")};
+    antes.arquivos = {arq("100", "1", "Aula 01")};
+
+    Snapshot novo;
+    novo.turmas = {turma("1", "ADM")};
+    novo.arquivos = {arq("100", "1", "Aula 01"), arq("101", "1", "Aula 02", "Aula 2")};
+
+    const auto r = diff(antes, novo, /*primeiraExecucao=*/false);
+    REQUIRE(contar(r, TipoEvento::MaterialNovo) == 1);
+    for (const auto& e : r.eventos) {
+        if (e.tipo != TipoEvento::MaterialNovo) continue;
+        CHECK(e.chave == "101");
+        CHECK(e.titulo == "Aula 02");
+        CHECK(e.turmaNome == "ADM");
+    }
+}
+
+TEST_CASE("material que ja existia nao vira evento", "[diff]") {
+    Snapshot antes;
+    antes.turmas = {turma("1", "ADM")};
+    antes.arquivos = {arq("100", "1", "Aula 01"), arq("101", "1", "Aula 02")};
+
+    Snapshot novo = antes;
+    CHECK(contar(diff(antes, novo, false), TipoEvento::MaterialNovo) == 0);
+}
+
+TEST_CASE("renomear o arquivo no SIGAA nao e material novo", "[diff]") {
+    // O titulo e texto livre do professor; a chave e o id (RECON 1.6.1).
+    // Comparar por titulo faria cada renomeacao virar notificacao, e alarme
+    // falso recorrente e o jeito mais rapido de ensinar alguem a ignorar tudo.
+    Snapshot antes;
+    antes.turmas = {turma("1", "ADM")};
+    antes.arquivos = {arq("100", "1", "Aula 3")};
+
+    Snapshot novo;
+    novo.turmas = {turma("1", "ADM")};
+    novo.arquivos = {arq("100", "1", "Aula 03 - revisada")};
+
+    CHECK(contar(diff(antes, novo, false), TipoEvento::MaterialNovo) == 0);
+}
+
+TEST_CASE("a primeira coleta de uma turma nao anuncia o acervo inteiro", "[diff]") {
+    // A turma 2 nunca teve arquivo coletado: o que veio agora e a linha de
+    // base dela, nao seis publicacoes de hoje.
+    Snapshot antes;
+    antes.turmas = {turma("1", "ADM"), turma("2", "EDO")};
+    antes.arquivos = {arq("100", "1", "Aula 01")};
+
+    Snapshot novo;
+    novo.turmas = antes.turmas;
+    novo.arquivos = {arq("100", "1", "Aula 01"), arq("200", "2", "Apostila"),
+                     arq("201", "2", "Lista 1"), arq("202", "2", "Lista 2")};
+
+    CHECK(contar(diff(antes, novo, false), TipoEvento::MaterialNovo) == 0);
+}
+
+TEST_CASE("sync sem turmas nao apaga nem acusa material", "[diff]") {
+    // Sem --turmas a coleta nao entra em turma nenhuma e traz zero arquivos.
+    // Tratar isso como "os arquivos sumiram" seria alarme falso garantido.
+    Snapshot antes;
+    antes.turmas = {turma("1", "ADM")};
+    antes.arquivos = {arq("100", "1", "Aula 01")};
+
+    Snapshot novo;
+    novo.turmas = {turma("1", "ADM")};
+    novo.arquivos = {};
+
+    const auto r = diff(antes, novo, false);
+    CHECK(contar(r, TipoEvento::MaterialNovo) == 0);
+    CHECK_FALSE(r.suspeito);
+}

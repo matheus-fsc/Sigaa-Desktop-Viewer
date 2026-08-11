@@ -12,6 +12,7 @@
 #include <QSettings>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
+#include <QTreeView>
 #include <QStandardItemModel>
 #include <QStatusBar>
 #include <QSystemTrayIcon>
@@ -324,6 +325,15 @@ void JanelaPrincipal::montarTurmas() {
             &JanelaPrincipal::abrirTurma);
     connect(formulario_->tvTurmas, &QTableView::doubleClicked, this,
             [this] { abrirTurma(); });
+    connect(formulario_->arvoreHoje, &QTreeView::doubleClicked, this,
+            [this] { abrirTurmaDoDia(); });
+
+    // A aula é o que a pessoa veio ver; o prazo é referência. Sem os fatores,
+    // o QSplitter dividiria meio a meio e a lista de prazos empurraria as
+    // aulas para uma faixa de três linhas.
+    formulario_->divisorHoje->setStretchFactor(0, 3);
+    formulario_->divisorHoje->setStretchFactor(1, 2);
+    formulario_->divisorHoje->setSizes({420, 260});
 
     // O botão só liga quando há linha selecionada: um "Entrar na turma" sempre
     // clicável que responde com um aviso é pior do que um botão desligado, que
@@ -352,6 +362,33 @@ void JanelaPrincipal::abrirTurma() {
         status(QStringLiteral("Não encontrei a turma da linha %1.").arg(linha + 1));
         return;
     }
+    abrirJanelaDaTurma(*alvo);
+}
+
+void JanelaPrincipal::abrirTurmaDoDia() {
+    const auto sel = formulario_->arvoreHoje->selectionModel();
+    if (!sel || !sel->hasSelection()) return;
+
+    // Linha de grupo ("Hoje — quarta…") e a linha "Nenhuma aula registrada"
+    // não têm turma. Silêncio é a resposta certa: a pessoa clicou duas vezes
+    // para expandir, não para abrir nada.
+    const QString id = sel->selectedRows(0).first().data(PapelIdTurma).toString();
+    if (id.isEmpty()) return;
+
+    const Turma* alvo = nullptr;
+    for (const auto& t : snapshot_.turmas) {
+        if (QString::fromStdString(t.idTurma) == id) alvo = &t;
+    }
+    if (!alvo) {
+        status(QStringLiteral("Esta aula é de uma turma que não está mais na "
+                              "sua lista."));
+        return;
+    }
+    abrirJanelaDaTurma(*alvo);
+}
+
+void JanelaPrincipal::abrirJanelaDaTurma(const Turma& turma) {
+    const Turma* alvo = &turma;
     if (alvo->frontEndId.empty()) {
         QMessageBox::information(
             this, QStringLiteral("Turma sem endereço"),
@@ -362,15 +399,34 @@ void JanelaPrincipal::abrirTurma() {
         return;
     }
 
+    // A turma sai do snapshot que já está na memória: é o mesmo que o banco
+    // guardou no último ciclo com turmas, e é o que faz a janela abrir pintada
+    // em vez de com um "Entrando na turma…".
+    std::vector<TopicoAula> topicos;
+    for (const auto& t : snapshot_.topicos) {
+        if (t.idTurma == alvo->idTurma) topicos.push_back(t);
+    }
+    std::vector<ArquivoTurma> arquivos;
+    for (const auto& a : snapshot_.arquivos) {
+        if (a.idTurma == alvo->idTurma) arquivos.push_back(a);
+    }
+
+    // As credenciais vão junto mesmo sem uso imediato: a janela só fala com o
+    // SIGAA se a pessoa pedir um arquivo que não está no disco, e pedi-las
+    // naquele momento interromperia o clique com um diálogo de login.
     std::string login, senha;
     if (!obterCredenciais(login, senha)) return;
 
-    // Modal: a janela da turma tem sessão própria com o SIGAA, e deixar o
-    // usuário disparar um "Atualizar" por trás dela criaria duas navegações
+    // Modal: a janela da turma pode abrir sessão própria com o SIGAA, e deixar
+    // o usuário disparar um "Atualizar" por trás dela criaria duas navegações
     // concorrentes na mesma conta — que é justamente o que o SIGAA pune
     // invalidando a view (RECON §2.2).
-    JanelaTurma d(*alvo, std::move(login), std::move(senha), this);
+    JanelaTurma d(*alvo, std::move(topicos), std::move(arquivos), std::move(login),
+                  std::move(senha), this);
     d.exec();
+
+    // A janela pode ter baixado material; o ✓ da aba Hoje vem do disco.
+    montarDia(snapshot_);
 }
 
 void JanelaPrincipal::montarBandeja() {
@@ -422,8 +478,10 @@ void JanelaPrincipal::mostrar(const Snapshot& s) {
     // reaplicado sobre o modelo novo, e precisa dele no lugar.
     atualizarResumoProvas(s);
     filtrarProvasPorDia(diaFiltrado_);
+    montarDia(s);
 
-    abas->setTabText(0, QStringLiteral("Prazos (%1)").arg(s.atividades.size()));
+    abas->setTabText(0, QStringLiteral("Hoje (%1)")
+                            .arg(resumoDia(s, QDate::currentDate()).aulasHoje));
     abas->setTabText(2, QStringLiteral("Turmas (%1)").arg(s.turmas.size()));
     abas->setTabText(3, QStringLiteral("Atualizações (%1)").arg(s.atualizacoes.size()));
     // A aba de provas usa a contagem já mesclada, não o vetor cru — senão o
@@ -433,17 +491,62 @@ void JanelaPrincipal::mostrar(const Snapshot& s) {
     abas->setTabText(1, QStringLiteral("Provas (%1)").arg(resumoProvas(s).total));
 }
 
+void JanelaPrincipal::montarDia(const Snapshot& s) {
+    const QDate hoje = QDate::currentDate();
+    auto* arvore = formulario_->arvoreHoje;
+
+    auto* antigo = arvore->model();
+    arvore->setModel(modeloDia(s, hoje, arvore));
+    delete antigo;
+    arvore->expandAll();
+    arvore->resizeColumnToContents(0);
+    arvore->resizeColumnToContents(1);
+
+    // Data por extenso e com inicial maiúscula: "Quarta, 12 de agosto". O
+    // QLocale devolve o dia da semana em minúscula em pt-BR, e um título que
+    // começa minúsculo parece bug de formatação.
+    QString titulo = QLocale().toString(hoje, QStringLiteral("dddd, d 'de' MMMM"));
+    if (!titulo.isEmpty()) titulo[0] = titulo[0].toUpper();
+    formulario_->rotuloDia->setText(titulo);
+
+    const ResumoDia r = resumoDia(s, hoje);
+    if (r.semDados) {
+        // Distinguir "não há aula" de "nunca coletei aula" é o ponto: o
+        // primeiro é informação, o segundo é a tela dizendo que não sabe. Sem
+        // isso, o aluno concluiria que não tem aula nenhuma hoje.
+        formulario_->rotuloResumoDia->setText(QStringLiteral(
+            "Ainda não coletei as aulas. Use “Atualizar tudo” — só esse ciclo "
+            "entra em cada turma e lê a linha do tempo do professor."));
+    } else if (r.aulasHoje == 0 && r.aulasAmanha == 0) {
+        formulario_->rotuloResumoDia->setText(
+            QStringLiteral("Nenhuma aula registrada para hoje nem para amanhã."));
+    } else {
+        formulario_->rotuloResumoDia->setText(
+            QStringLiteral("%1 hoje · %2 amanhã")
+                .arg(r.aulasHoje == 1 ? QStringLiteral("1 aula")
+                                      : QStringLiteral("%1 aulas").arg(r.aulasHoje))
+                .arg(r.aulasAmanha == 1 ? QStringLiteral("1 aula")
+                                        : QStringLiteral("%1 aulas").arg(r.aulasAmanha)));
+    }
+}
+
 void JanelaPrincipal::sincronizar(bool comTurmas) {
     if (trabalho_) return;   // IgnoreNew: duas coletas em paralelo invalidam o
                              // ViewState do SIGAA (docs/RECON.md §2.2)
 
     servico::Opcoes op;
     op.incluirTurmas = comTurmas;
+    // O ciclo completo já está dentro de cada turma e já sabe o que falta no
+    // disco: baixar aqui é uma requisição por arquivo novo, e é o que faz a
+    // janela da turma abrir sem rede depois. O ciclo só-portal não baixa —
+    // ele nem sabe que existe arquivo.
+    if (comTurmas) op.pastaMateriais = pastaBaseMateriais().toStdString();
     if (!obterCredenciais(op.login, op.senha)) return;
 
     ocupado(true);
-    status(comTurmas ? QStringLiteral("Entrando nas turmas… isso leva ~30 s.")
-                     : QStringLiteral("Consultando o portal…"));
+    status(comTurmas
+               ? QStringLiteral("Entrando nas turmas e baixando o material novo…")
+               : QStringLiteral("Consultando o portal…"));
 
     trabalho_ = new Trabalhador(std::move(op), this);
     connect(trabalho_, &Trabalhador::passo, this, &JanelaPrincipal::status);
@@ -502,12 +605,25 @@ void JanelaPrincipal::aoConcluir() {
     relatorio_ = QString::fromStdString(r.relatorio);
     formulario_->acRelatorio->setEnabled(!relatorio_.isEmpty());
 
+    // O que foi para o disco entra no mesmo texto: "baixei 3 arquivos" é a
+    // parte que explica por que o ciclo demorou, e é o que diz ao aluno que a
+    // turma agora abre sem internet.
+    QString material;
+    if (r.materiaisBaixados > 0) {
+        material = QStringLiteral(" %1 arquivo(s) novo(s) salvo(s) para uso offline.")
+                       .arg(r.materiaisBaixados);
+    } else if (r.materiaisPendentes > 0) {
+        material = QStringLiteral(" Não consegui baixar %1 arquivo(s).")
+                       .arg(r.materiaisPendentes);
+    }
+
     if (r.diff.primeiraExecucao) {
-        status(QStringLiteral("Primeira coleta: linha de base registrada, sem alertas."));
+        status(QStringLiteral("Primeira coleta: linha de base registrada, sem alertas.") +
+               material);
     } else if (r.diff.eventos.empty()) {
-        status(QStringLiteral("Nada novo desde a última verificação."));
+        status(QStringLiteral("Nada novo desde a última verificação.") + material);
     } else {
-        status(QStringLiteral("%1 novidade(s).").arg(r.diff.eventos.size()));
+        status(QStringLiteral("%1 novidade(s).").arg(r.diff.eventos.size()) + material);
     }
 
     // Um aviso só, agregado, como no CLI — a política mora em core/notify e a

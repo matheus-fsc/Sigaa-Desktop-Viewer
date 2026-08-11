@@ -38,10 +38,28 @@ struct Opcoes {
 
     bool incluirTurmas{false};
 
+    // Dentro de cada turma visitada, abre também a aba Arquivos. É o que faz o
+    // app perceber o PDF que o professor subiu hoje — o portal não conta isso.
+    // Custa uma requisição por turma e só tem efeito com `incluirTurmas`.
+    bool incluirArquivos{true};
+
     std::string caminhoRelatorio{"relatorio.html"};
     // Vazio = deriva do relatório trocando a extensão por .ics.
     std::string caminhoIcs;
     std::string caminhoBanco{"sigaa-viewer.db"};
+
+    // Pasta raiz onde o material das turmas fica salvo (uma subpasta por
+    // turma). VAZIO = não baixa nada, que é o padrão.
+    //
+    // Quando preenchida, o ciclo baixa o que ainda não está no disco depois de
+    // coletar. Só faz sentido com `incluirTurmas`: sem entrar nas turmas, o
+    // ciclo não sabe que existe arquivo nenhum.
+    //
+    // Barato no dia a dia e caro uma vez: o cache é por `idArquivo`, então a
+    // primeira execução baixa o semestre inteiro e as seguintes baixam o PDF
+    // da aula da semana. Quem chama decide se aceita essa primeira conta — a
+    // UI liga no "Atualizar tudo", o CLI só com `--materiais`.
+    std::string pastaMateriais;
 
     // HTML cru da rede, para gerar fixture de parser (RECON §1.7). Vazio =
     // não grava. CONTÉM DADOS PESSOAIS — passar por tools/redact.py.
@@ -80,6 +98,12 @@ struct Resultado {
 
     int turmasVisitadas{0};
     int turmasComFalha{0};
+
+    // Material baixado nesta rodada (só com `pastaMateriais`). `pendentes` é o
+    // que faltava no disco quando o ciclo começou — a diferença entre os dois
+    // é o que falhou.
+    int materiaisPendentes{0};
+    int materiaisBaixados{0};
 
     // Caminhos ABSOLUTOS do que foi escrito, ou vazio. O clique na notificação
     // precisa de caminho absoluto: o shell não herda nosso diretório de

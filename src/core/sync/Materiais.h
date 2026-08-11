@@ -21,8 +21,22 @@
 #include "core/http/SigaaSession.h"
 #include "core/model/Models.h"
 #include "core/parse/Html.h"
+#include "core/parse/TurmaParser.h"
 
 namespace sigaa::sync {
+
+// Abre uma aba do menu da turma a partir de uma página de turma JÁ CARREGADA.
+//
+// Existe solta, e não só dentro da SessaoTurma, porque o Crawler chega na
+// turma por conta própria durante o sync e não deveria refazer a navegação
+// inteira só para abrir uma aba — seriam duas requisições a mais por turma.
+//
+// Pelo RÓTULO, nunca pelo id do componente: `formMenu:j_id_jsp_..._123` é
+// posicional e muda quando a instituição recompila o JSP; o SIGAA responderia
+// 200 com a aba errada, sem erro nenhum (RECON §1.6.1).
+bool abrirAbaPorRotulo(http::SigaaSession& sessao, const html::Document& docTurma,
+                       const std::string& rotulo, html::Document* saida,
+                       std::string* erro = nullptr);
 
 class SessaoTurma {
 public:
@@ -33,6 +47,12 @@ public:
 
     // Turma -> aba Arquivos. Só depois de `entrar`.
     bool abrirArquivos(std::string* erro = nullptr);
+
+    // Tópicos de aula e avaliações da turma, lidos da MESMA resposta que
+    // `entrar` já buscou — custo zero de rede. A página inicial da Turma
+    // Virtual é a linha do tempo das aulas; ignorá-la era jogar fora o que o
+    // aluno mais olha no SIGAA para ficar só com a aba de arquivos.
+    const parse::ConteudoTurma& conteudo() const { return conteudo_; }
 
     const std::vector<ArquivoTurma>& arquivos() const { return arquivos_; }
 
@@ -59,6 +79,7 @@ private:
     html::Document docTurma_;
     html::Document docArquivos_;
     Turma turma_;
+    parse::ConteudoTurma conteudo_;
     std::vector<ArquivoTurma> arquivos_;
     std::vector<std::string> menu_;
     bool vazioConfirmado_{false};

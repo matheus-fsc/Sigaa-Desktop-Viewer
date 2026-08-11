@@ -30,6 +30,16 @@ public:
     std::string text() const;
     // Texto cru, sem colapsar espaços.
     std::string rawText() const;
+
+    // Como text(), mas SEM o conteúdo de <script> e <style>.
+    //
+    // textContent do DOM inclui o corpo do <script> — é o comportamento
+    // correto do padrão, e é exatamente o errado para nós. Cada tópico de aula
+    // do SIGAA carrega um <script> de drag-and-drop do RichFaces embutido, e
+    // `text()` devolve `var elt = $("formAva:...")` grudado na descrição que o
+    // professor escreveu. Enquanto ninguém exibia esse campo, dava para não
+    // notar; ao pintá-lo na tela, vira lixo visível.
+    std::string textoVisivel() const;
     std::string attr(std::string_view name) const;
     bool hasAttr(std::string_view name) const;
     std::string tagName() const;

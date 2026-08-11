@@ -2,6 +2,8 @@
 
 #include <regex>
 
+#include "core/jsf/JsfForm.h"
+
 namespace sigaa::parse {
 namespace {
 
@@ -32,6 +34,48 @@ const std::regex& reNaoEhAvaliacao() {
 }
 
 } // namespace
+
+std::string tipoDoIcone(std::string_view src) {
+    // "/sigaa/img/porta_arquivos/icones/tarefa.png" -> "tarefa"
+    const auto fim = src.rfind(".png");
+    if (fim == std::string_view::npos) return {};
+    const auto ini = src.rfind('/', fim);
+    if (ini == std::string_view::npos) return {};
+    return std::string(src.substr(ini + 1, fim - ini - 1));
+}
+
+std::vector<MaterialTopico> parseMateriais(const html::Node& bloco) {
+    std::vector<MaterialTopico> out;
+
+    // `.item` é a linha de material dentro do tópico. Cada uma tem, nesta
+    // ordem: o ícone do tipo, o <a> que dispara o jsfcljs, e um
+    // `.descricao-item` opcional com o prazo escrito por extenso.
+    for (const auto& item : bloco.select(".item")) {
+        MaterialTopico m;
+
+        if (const auto icone = item.selectFirst("img[src*='porta_arquivos/icones']")) {
+            m.tipo = tipoDoIcone(icone.attr("src"));
+        }
+
+        // O <a> pode não existir: material que o professor removeu deixa a
+        // linha com o texto e sem link. Guardar sem id ainda vale — o aluno vê
+        // que existiu —, mas nada o torna baixável.
+        for (const auto& a : item.select("a[onclick]")) {
+            const auto params = jsf::parseJsfcljsParams(a.attr("onclick"));
+            for (const auto& [k, v] : params) {
+                if (k == "id") m.id = v;
+            }
+            m.titulo = a.text();
+            if (!m.id.empty()) break;
+        }
+        if (m.titulo.empty()) continue;
+
+        if (const auto d = item.selectFirst(".descricao-item")) m.descricao = d.textoVisivel();
+
+        out.push_back(std::move(m));
+    }
+    return out;
+}
 
 int anoDoPeriodo(std::string_view periodo) {
     static const std::regex re(R"((\d{4})\.\d)");
@@ -112,7 +156,12 @@ ConteudoTurma parseTurmaVirtual(const html::Document& doc, const std::string& id
         parseTituloTopico(tituloEl.text(), t.titulo, t.inicio, t.fim);
         if (t.titulo.empty()) continue;
 
-        if (const auto c = bloco.selectFirst(".conteudotopico")) t.conteudo = c.text();
+        if (const auto c = bloco.selectFirst(".conteudotopico")) {
+            // textoVisivel, não text: cada tópico embute o <script> do
+            // drag-and-drop do RichFaces, e textContent do DOM o incluiria.
+            t.conteudo = c.textoVisivel();
+            t.materiais = parseMateriais(c);
+        }
         out.topicos.push_back(t);
 
         // Fallback de avaliação: o título do tópico denuncia uma prova.

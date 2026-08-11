@@ -37,9 +37,12 @@ add_library(sigaa_core STATIC
   src/core/calendar/Calendario.cpp
   src/core/sync/Crawler.cpp
   src/core/sync/Materiais.cpp
+  src/core/sync/Baixador.cpp
   src/core/notify/Aviso.cpp
   src/core/servico/Servico.cpp
   src/core/config/DotEnv.cpp
+  src/core/config/Instituicao.cpp
+  src/core/util/Caminho.cpp
 )
 
 target_include_directories(sigaa_core
@@ -207,6 +210,9 @@ if(BUILD_TESTING)
     tests/aviso_test.cpp
     tests/database_test.cpp
     tests/arquivo_parser_test.cpp
+    tests/topico_parser_test.cpp
+    tests/baixador_test.cpp
+    tests/instituicao_test.cpp
   )
   target_link_libraries(sigaa_tests PRIVATE sigaa_core Catch2::Catch2WithMain)
   target_compile_definitions(sigaa_tests PRIVATE

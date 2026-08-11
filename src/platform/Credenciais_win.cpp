@@ -14,16 +14,24 @@
 
 #include <vector>
 
+#include "core/config/Instituicao.h"
+
 namespace sigaa::plat {
 namespace {
 
 // CRED_TYPE_GENERIC + este alvo. Prefixo com barra é a convenção para
 // credencial de aplicativo, e evita colidir com credencial de rede.
-const wchar_t* kAlvo = L"sigaa-viewer/sigaa.unifei.edu.br";
+// O host entra na chave para que trocar de instituição não faça o app tentar
+// a senha de uma universidade na outra: algumas tentativas erradas bloqueiam a
+// conta, e o aluno nunca ligaria o bloqueio a este app. Para quem já usa a
+// UNIFEI o alvo continua sendo exatamente o mesmo de antes — nada a migrar.
+std::wstring alvo();
 
 // Campo de usuário deliberadamente genérico: o CPF vai CIFRADO dentro do blob,
 // não aqui. `cmdkey /list` mostra UserName em claro.
 const wchar_t* kUsuarioVisivel = L"SIGAA";
+
+std::wstring paraUtf16(const std::string& s);
 
 std::string ultimoErro(const char* oque) {
     return std::string(oque) + " (erro " + std::to_string(GetLastError()) + ")";
@@ -48,6 +56,12 @@ std::string paraUtf8(const wchar_t* p, size_t len) {
     WideCharToMultiByte(CP_UTF8, 0, p, static_cast<int>(len), s.data(), n,
                         nullptr, nullptr);
     return s;
+}
+
+std::wstring alvo() {
+    // Prefixo com barra é a convenção para credencial de aplicativo, e evita
+    // colidir com credencial de rede do mesmo host.
+    return L"sigaa-viewer/" + paraUtf16(config::selecionada().host());
 }
 
 void zerar(std::wstring& w) {
@@ -75,9 +89,11 @@ bool guardarNoCofre(const std::string& login, const std::string& senha,
         return false;
     }
 
+    std::wstring nomeAlvo = alvo();
+
     CREDENTIALW c{};
     c.Type = CRED_TYPE_GENERIC;
-    c.TargetName = const_cast<wchar_t*>(kAlvo);
+    c.TargetName = nomeAlvo.data();
     c.UserName = const_cast<wchar_t*>(kUsuarioVisivel);
     c.CredentialBlob = reinterpret_cast<LPBYTE>(blob.data());
     c.CredentialBlobSize = static_cast<DWORD>(blob.size() * sizeof(wchar_t));
@@ -95,7 +111,7 @@ bool guardarNoCofre(const std::string& login, const std::string& senha,
 
 std::optional<Credenciais> lerDoCofre(std::string* erro) {
     PCREDENTIALW c = nullptr;
-    if (!CredReadW(kAlvo, CRED_TYPE_GENERIC, 0, &c)) {
+    if (!CredReadW(alvo().c_str(), CRED_TYPE_GENERIC, 0, &c)) {
         // Não encontrado não é erro: é o estado de quem ainda não fez onboarding.
         if (GetLastError() != ERROR_NOT_FOUND && erro) {
             *erro = ultimoErro("CredReadW falhou");
@@ -126,7 +142,7 @@ std::optional<Credenciais> lerDoCofre(std::string* erro) {
 }
 
 bool apagarDoCofre(std::string* erro) {
-    if (CredDeleteW(kAlvo, CRED_TYPE_GENERIC, 0)) return true;
+    if (CredDeleteW(alvo().c_str(), CRED_TYPE_GENERIC, 0)) return true;
     // Já não existir satisfaz a pós-condição.
     if (GetLastError() == ERROR_NOT_FOUND) return true;
     if (erro) *erro = ultimoErro("CredDeleteW falhou");

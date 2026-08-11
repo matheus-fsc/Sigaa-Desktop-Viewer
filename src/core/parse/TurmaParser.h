@@ -29,6 +29,13 @@ ConteudoTurma parseTurmaVirtual(const html::Document& doc,
 
 // --- expostos para teste ---------------------------------------------------
 
+// "/sigaa/img/porta_arquivos/icones/tarefa.png" -> "tarefa". "" se não casar.
+std::string tipoDoIcone(std::string_view src);
+
+// Os `.item` de um `.conteudotopico`: os materiais que o professor pendurou
+// naquela aula. Recebe o nó do conteúdo, não o do tópico.
+std::vector<MaterialTopico> parseMateriais(const html::Node& conteudo);
+
 // "Primeira avaliação (29/09/2026 - 29/09/2026)" -> título + as duas datas.
 bool parseTituloTopico(std::string_view titulo, std::string& nome,
                        DateTime& inicio, DateTime& fim);

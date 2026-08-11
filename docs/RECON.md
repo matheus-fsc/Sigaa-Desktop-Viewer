@@ -228,6 +228,43 @@ da turma. O `key` ali é token de acesso — vale a mesma regra de §4.
 **Descrição vem quase sempre vazia** (6/6 arquivos nesta turma). A coluna que realmente agrupa é
 "Tópico de Aula", que casa com os `.topico-aula` já parseados — dá para ligar arquivo ao tópico.
 
+### 1.6.2 Materiais pendurados no tópico de aula (sessão 3, 2026-08-10)
+
+A página inicial da Turma Virtual **já traz** os materiais de cada aula: não é preciso abrir aba
+nenhuma. Eles vivem dentro do `.conteudotopico` de cada `.topico-aula`, num `listaMateriais`.
+
+```html
+<div class="topico-aula">
+  <div class="titulo">Auto-avaliação ... (07/08/2026 - 07/08/2026)</div>
+  <div class="conteudotopico">
+    <script>...drag-and-drop do RichFaces...</script>
+    <div class="item">
+      <img src="/sigaa/img/porta_arquivos/icones/tarefa.png" />
+      <a id="...:idEnviarMaterialTarefa" onclick="...jsfcljs(...,{'...':'...','id':'130160443'},'')">
+         Tarefa 1: Autoavaliação Competências Transversais</a>
+      <div class="descricao-item">Inicia em 04/08/2026 às 0h 0 e finaliza em 11/08/2026 às 23h 59</div>
+    </div>
+  </div>
+</div>
+```
+
+**O tipo do material sai do ÍCONE**, `porta_arquivos/icones/<tipo>.png` — visto: `tarefa`. O id do
+componente (`idEnviarMaterialTarefa`) também sugere o tipo, mas é posicional como todo id JSF e
+muda quando a instituição recompila o JSP; o nome do ícone é o sinal estável.
+
+**A chave é o mesmo `id` avulso de §1.6.1.** Isso é o que permite dizer se um material é baixável:
+se o `id` dele aparece na aba Arquivos, é arquivo e tem download. Deduzir pelo ícone seria chutar —
+tarefa, fórum e vídeo também são "materiais de tópico" e não se baixam por essa rota.
+
+⚠️ **`textContent` não serve para ler o conteúdo do tópico.** Cada `.conteudotopico` embute um
+`<script>` de drag-and-drop do RichFaces, e o `textContent` do DOM inclui corpo de `<script>` por
+definição do padrão. O campo saía com `var elt = $("formAva:...")` grudado na descrição escrita
+pelo professor. Existe `html::Node::textoVisivel()` para isso.
+
+**Nem toda turma usa isto.** Na amostra: uma turma com 16 tópicos e 2 materiais (ambos tarefas),
+outra com 35 tópicos e nenhum material — o professor registrou só título e data de cada aula. As
+duas formas são normais, e a linha do tempo continua sendo o que o aluno lê.
+
 ### 1.7 ⚠️ Fixture do browser ≠ HTML da rede (e o contador de sessão não existe para nós)
 
 Medido no mesmo portal, mesma conta, minutos de diferença:
@@ -305,6 +342,26 @@ O `LoginFlow` é montar 8 campos e postar — não precisa de um GET prévio par
 A Caixa Postal abre em **`sigadmin.unifei.edu.br`** (`/cxpostal/caixa_postal.jsf`), host distinto
 de `sigaa.unifei.edu.br`. Se o app for cobrir mensagens/caixa postal, o cookie jar precisa lidar
 com múltiplos hosts e provavelmente com um SSO entre eles. **Fora de escopo do MVP** — anotado.
+
+### 1.9.1 Uma instância por universidade — e este recon vale para UMA
+
+Tudo neste documento foi observado em `sigaa.unifei.edu.br`, **vSIGAA 4.12.14_U.164**. O SIGAA é
+software da UFRN adotado por dezenas de instituições, cada uma hospedando e **atualizando a sua**.
+Duas coisas seguem daí:
+
+- O host não pode ser constante no código. Ele é parâmetro (`core/config/Instituicao.h`), e entra
+  também na **chave do cofre de credenciais** — senão trocar de instituição faria o app tentar a
+  senha de uma universidade na outra, e algumas tentativas erradas bloqueiam a conta (§1.8).
+- O catálogo embutido tem **só a UNIFEI**, marcada `verificada`. Encher a lista com os outros SIGAA
+  federais deixaria a tela mais bonita e o app pior: numa instância com versão diferente, o parser
+  falha e o usuário conclui que errou a senha — e tenta de novo, o que é exatamente o caminho para
+  o bloqueio. Quem tiver outra instância na mão pode acrescentar uma linha ao catálogo **depois** de
+  conferir contra o site, e anotar aqui qual versão foi testada.
+
+Sessões concorrentes: o app abre uma segunda sessão (a janela da turma) enquanto a de sincronização
+existe, e isso funciona — a invalidação de view do invariante nº 1 é **por JSESSIONID**, não por
+conta. É o que torna possível baixar vários materiais em paralelo com uma sessão por canal
+(`core/sync/Baixador.h`). Dentro de UMA sessão continua valendo uma requisição por vez.
 
 ### 1.10 O SIGAA serve **windows-1252**, não UTF-8
 
@@ -418,9 +475,15 @@ Em aberto:
 3. **Sondar camada REST/mobile** (`/sigaa/mobile/`, `/sigaa/api/`, `/sigaa/rest/`) — a sonda desta
    sessão não retornou resultado utilizável (o `fetch` assíncrono não serializou no tool).
 4. **Mapear as demais abas da Turma Virtual.** ✅ **Arquivos** fechada em §1.6.1 (listagem +
-   download, com parser e fixture de rede). Continuam abertas: Ver Notas, Frequência, Tarefas,
-   Fóruns, Notícias, Participantes, Plano de Curso. A ferramenta para capturá-las já existe:
-   `sigaa-cli explorar <turma> <rótulo da aba> <dir>` grava o HTML cru de cada passo.
+   download, com parser e fixture de rede) e ✅ **materiais do tópico** em §1.6.2 — estes vêm na
+   própria página inicial da turma, sem abrir aba. Continuam abertas: Ver Notas, Frequência,
+   Tarefas, Fóruns, Notícias, Participantes, Plano de Curso. A ferramenta para capturá-las já
+   existe: `sigaa-cli explorar <turma> <rótulo da aba> <dir>` grava o HTML cru de cada passo.
+7. **"Baixar todos os arquivos"** (§1.6.1): o comando existe na aba e provavelmente devolve um zip.
+   Não testado — o app baixa um a um, o que funciona e é verificável.
+8. **Materiais de tópico que não são arquivo** (tarefa, fórum, vídeo): sabemos listá-los e o id
+   deles, mas não o que o POST de cada tipo devolve. Hoje aparecem na árvore de aulas em cinza,
+   sem download.
 5. **Exportar um HAR completo** (DevTools → Network → exportar) cobrindo login → portal → turma →
    volta, e guardar **redigido** em `tests/fixtures/har/`.
 6. **Confirmar o timeout real de 30 min** e se `verPortalDiscente.do` sozinho o renova.

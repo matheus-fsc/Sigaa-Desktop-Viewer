@@ -63,12 +63,48 @@ CREATE TABLE IF NOT EXISTS avaliacao (
   PRIMARY KEY (id_turma, descricao)
 );
 
+-- Material publicado pelo professor. A chave e o id_arquivo do SIGAA
+-- (RECON §1.6.1) e NAO o titulo: titulo e texto livre, e o professor renomeia
+-- "Aula 3" para "Aula 03 - revisada" sem publicar nada. Comparar por titulo
+-- faria cada renomeacao virar "material novo" — o alarme falso que ensina
+-- alguem a ignorar as notificacoes.
+CREATE TABLE IF NOT EXISTS arquivo (
+  id_arquivo     TEXT PRIMARY KEY,
+  id_turma       TEXT NOT NULL,
+  turma_nome     TEXT,
+  titulo         TEXT,
+  descricao      TEXT,
+  topico         TEXT,
+  primeiro_visto INTEGER,
+  ultimo_visto   INTEGER
+);
+
+-- Topicos de aula: a linha do tempo da turma. Ficam no banco porque a tela
+-- inicial mostra "a aula de hoje" toda vez que o app abre, e coletar topico
+-- exige entrar em cada turma (~25 s). Sem persistir, a tela ficaria vazia ate
+-- o proximo ciclo completo terminar.
+--
+-- Chave (id_turma, titulo, inicio): o SIGAA nao da id para topico. Titulo
+-- sozinho colide — "Revisao" aparece varias vezes no semestre.
+CREATE TABLE IF NOT EXISTS topico (
+  id_turma       TEXT NOT NULL,
+  titulo         TEXT NOT NULL,
+  inicio         TEXT NOT NULL,   -- ISO-8601, "" quando o professor nao datou
+  fim            TEXT,
+  conteudo       TEXT,
+  primeiro_visto INTEGER,
+  ultimo_visto   INTEGER,
+  PRIMARY KEY (id_turma, titulo, inicio)
+);
+
 CREATE TABLE IF NOT EXISTS meta (
   chave TEXT PRIMARY KEY,
   valor TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_atividade_prazo ON atividade(prazo);
+CREATE INDEX IF NOT EXISTS idx_topico_inicio ON topico(inicio);
+CREATE INDEX IF NOT EXISTS idx_arquivo_turma ON arquivo(id_turma);
 )SQL";
 
 std::string txt(sqlite3_stmt* st, int col) {
@@ -224,6 +260,44 @@ Snapshot Database::carregarUltimo() {
         }
     }
     sqlite3_finalize(st);
+    st = nullptr;
+
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT id_arquivo, id_turma, turma_nome, titulo, descricao, topico"
+            " FROM arquivo", -1, &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            ArquivoTurma a;
+            a.idArquivo = txt(st, 0);
+            a.idTurma = txt(st, 1);
+            a.turmaNome = txt(st, 2);
+            a.titulo = txt(st, 3);
+            a.descricao = txt(st, 4);
+            a.topico = txt(st, 5);
+            s.arquivos.push_back(std::move(a));
+        }
+    }
+    sqlite3_finalize(st);
+    st = nullptr;
+
+    // Ordenado pela data da aula: quem le isto quer a linha do tempo, e
+    // ordenar depois em cada chamador seria repetir a mesma regra em N lugares.
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT id_turma, titulo, inicio, fim, conteudo FROM topico"
+            " ORDER BY inicio", -1, &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            TopicoAula t;
+            t.idTurma = txt(st, 0);
+            t.titulo = txt(st, 1);
+            t.inicio = deIso(txt(st, 2));
+            t.fim = deIso(txt(st, 3));
+            t.conteudo = txt(st, 4);
+            // `materiais` NAO volta do banco: o que e arquivo ja esta em
+            // `s.arquivos`, com a mesma chave, e duplicar a lista daria duas
+            // fontes para a mesma verdade.
+            s.topicos.push_back(std::move(t));
+        }
+    }
+    sqlite3_finalize(st);
 
     return s;
 }
@@ -363,6 +437,76 @@ bool Database::gravar(const Snapshot& s, std::int64_t agora) {
                           -1, SQLITE_STATIC);
         sqlite3_bind_int64(st, 7, agora);
         sqlite3_bind_int64(st, 8, agora);
+        if (sqlite3_step(st) != SQLITE_DONE) {
+            impl_->erro = sqlite3_errmsg(impl_->db);
+            sqlite3_finalize(st);
+            return rollback();
+        }
+    }
+    sqlite3_finalize(st);
+    st = nullptr;
+
+    // --- arquivos publicados nas turmas ---
+    //
+    // Só grava o que ESTA coleta trouxe, sem apagar o resto: um sync sem
+    // `--turmas` traz zero arquivos, e um DELETE aqui zeraria a memória do que
+    // já foi visto — na coleta seguinte o acervo inteiro voltaria como
+    // "material novo". A tabela acumula, como as outras.
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO arquivo (id_arquivo, id_turma, turma_nome, titulo,"
+            " descricao, topico, primeiro_visto, ultimo_visto)"
+            " VALUES (?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(id_arquivo) DO UPDATE SET"
+            "   turma_nome=excluded.turma_nome, titulo=excluded.titulo,"
+            "   descricao=excluded.descricao, topico=excluded.topico,"
+            "   ultimo_visto=excluded.ultimo_visto",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return rollback();
+    }
+    for (const auto& a : s.arquivos) {
+        if (a.idArquivo.empty()) continue;
+        sqlite3_reset(st);
+        sqlite3_bind_text(st, 1, a.idArquivo.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, a.idTurma.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 3, a.turmaNome.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 4, a.titulo.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 5, a.descricao.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 6, a.topico.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 7, agora);
+        sqlite3_bind_int64(st, 8, agora);
+        if (sqlite3_step(st) != SQLITE_DONE) {
+            impl_->erro = sqlite3_errmsg(impl_->db);
+            sqlite3_finalize(st);
+            return rollback();
+        }
+    }
+    sqlite3_finalize(st);
+    st = nullptr;
+
+    // --- tópicos de aula ---
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO topico (id_turma, titulo, inicio, fim, conteudo,"
+            " primeiro_visto, ultimo_visto) VALUES (?,?,?,?,?,?,?)"
+            " ON CONFLICT(id_turma, titulo, inicio) DO UPDATE SET"
+            "   fim=excluded.fim, conteudo=excluded.conteudo,"
+            "   ultimo_visto=excluded.ultimo_visto",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return rollback();
+    }
+    for (const auto& t : s.topicos) {
+        if (t.idTurma.empty() || t.titulo.empty()) continue;
+        const std::string inicio = t.inicio.toIso();
+        const std::string fim = t.fim.toIso();
+        sqlite3_reset(st);
+        sqlite3_bind_text(st, 1, t.idTurma.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, t.titulo.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 3, inicio.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 4, fim.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 5, t.conteudo.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 6, agora);
+        sqlite3_bind_int64(st, 7, agora);
         if (sqlite3_step(st) != SQLITE_DONE) {
             impl_->erro = sqlite3_errmsg(impl_->db);
             sqlite3_finalize(st);

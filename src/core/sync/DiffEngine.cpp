@@ -21,6 +21,7 @@ std::string_view toString(TipoEvento t) {
         case TipoEvento::AtualizacaoNova:    return "atualizacao-nova";
         case TipoEvento::AvaliacaoNova:      return "avaliacao-nova";
         case TipoEvento::AvaliacaoRemarcada: return "avaliacao-remarcada";
+        case TipoEvento::MaterialNovo:       return "material-novo";
         case TipoEvento::ColetaSuspeita:     return "coleta-suspeita";
     }
     return "?";
@@ -122,6 +123,43 @@ ResultadoDiff diff(const Snapshot& anterior, const Snapshot& novo,
                                            a.quando.toIso(),
                                        a.idTurma, a.turmaNome});
             }
+        }
+    }
+
+    // --- material publicado nas turmas ---------------------------------------
+    // Mesma cautela das avaliações: uma coleta sem `--turmas` traz zero
+    // arquivos, e comparar contra o histórico faria "nada coletado" virar
+    // silêncio quando na verdade nem olhamos.
+    //
+    // A chave é o `idArquivo` (RECON §1.6.1), não o título: o título é texto
+    // livre e o professor renomeia "Aula 3" para "Aula 03 - revisada" sem
+    // publicar nada — isso viraria um material novo por renomeação, que é
+    // exatamente o alarme falso que ensina alguém a ignorar as notificações.
+    if (!novo.arquivos.empty()) {
+        std::set<std::string> arqAntes;
+        for (const auto& a : anterior.arquivos) arqAntes.insert(a.idArquivo);
+
+        // Só compara turma a turma que ESTA rodada visitou. Se a coleta falhou
+        // ao entrar numa turma, os arquivos dela não vieram — e sem este filtro
+        // a próxima rodada bem-sucedida anunciaria o acervo inteiro dela como
+        // novidade.
+        std::set<std::string> visitadas;
+        for (const auto& a : novo.arquivos) visitadas.insert(a.idTurma);
+
+        std::set<std::string> conhecidas;
+        for (const auto& a : anterior.arquivos) {
+            if (visitadas.count(a.idTurma)) conhecidas.insert(a.idTurma);
+        }
+
+        for (const auto& a : novo.arquivos) {
+            if (arqAntes.count(a.idArquivo)) continue;
+            // Turma cujo material nunca vimos antes: é a linha de base dela,
+            // não uma publicação de hoje.
+            if (!conhecidas.count(a.idTurma)) continue;
+            res.eventos.push_back({TipoEvento::MaterialNovo, a.idArquivo, a.titulo,
+                                   a.topico.empty() ? "novo arquivo na turma"
+                                                    : "em " + a.topico,
+                                   a.idTurma, a.turmaNome});
         }
     }
 

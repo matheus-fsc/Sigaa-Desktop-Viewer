@@ -235,3 +235,76 @@ TEST_CASE("avaliacao inferida avisa que e heuristica", "[calendario]") {
     CHECK(ics.find("DTSTART;VALUE=DATE:20260929") != std::string::npos);
     CHECK(ics.find("inferido") != std::string::npos);
 }
+
+// ---------------------------------------------------------------------------
+// "Esta aula acontece hoje?" — a regra por tras da tela inicial.
+//
+// Vive em core/ e nao na UI justamente para poder ser testada headless: quando
+// erra, a tela nao quebra, so fica mais vazia do que deveria — e ninguem nota.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+TopicoAula aula(const std::string& titulo, int diaInicio, int diaFim = 0) {
+    TopicoAula t;
+    t.idTurma = "88094";
+    t.titulo = titulo;
+    t.inicio = DateTime{2026, 8, diaInicio, 0, 0, false};
+    if (diaFim > 0) t.fim = DateTime{2026, 8, diaFim, 0, 0, false};
+    return t;
+}
+
+DateTime dia(int d) { return DateTime{2026, 8, d, 0, 0, false}; }
+
+} // namespace
+
+TEST_CASE("aula de um dia so aparece no proprio dia", "[calendario]") {
+    const auto t = aula("Apresentacao", 12, 12);
+    CHECK(calendario::aulaOcorreEm(t, dia(12)));
+    CHECK_FALSE(calendario::aulaOcorreEm(t, dia(11)));
+    CHECK_FALSE(calendario::aulaOcorreEm(t, dia(13)));
+}
+
+TEST_CASE("topico que cobre um bloco vale para todos os dias do bloco",
+          "[calendario]") {
+    // "Semana 3 (10/08 - 14/08)". Comparar so com o inicio faria a aula de
+    // quarta sumir do dia em que ela acontece.
+    const auto t = aula("Semana 3", 10, 14);
+    CHECK(calendario::aulaOcorreEm(t, dia(10)));
+    CHECK(calendario::aulaOcorreEm(t, dia(12)));
+    CHECK(calendario::aulaOcorreEm(t, dia(14)));
+    CHECK_FALSE(calendario::aulaOcorreEm(t, dia(9)));
+    CHECK_FALSE(calendario::aulaOcorreEm(t, dia(15)));
+}
+
+TEST_CASE("fim ausente ou quebrado nao alarga o intervalo", "[calendario]") {
+    // Alargar por causa de um `fim` invalido faria a aula aparecer em dias em
+    // que ela nao acontece — e o aluno levaria isso a serio.
+    const auto semFim = aula("Sem fim", 12);
+    CHECK(calendario::aulaOcorreEm(semFim, dia(12)));
+    CHECK_FALSE(calendario::aulaOcorreEm(semFim, dia(13)));
+
+    auto invertido = aula("Invertido", 12);
+    invertido.fim = DateTime{2026, 8, 5, 0, 0, false};   // fim antes do inicio
+    CHECK(calendario::aulaOcorreEm(invertido, dia(12)));
+    CHECK_FALSE(calendario::aulaOcorreEm(invertido, dia(5)));
+}
+
+TEST_CASE("topico sem data nunca cai num dia", "[calendario]") {
+    // Professor que nao datou o topico: ele existe na turma, mas nao pode
+    // aparecer como "aula de hoje" — inventar um dia e pior que omitir.
+    TopicoAula t;
+    t.titulo = "Sem data";
+    CHECK_FALSE(calendario::aulaOcorreEm(t, dia(12)));
+    CHECK_FALSE(calendario::aulaOcorreEm(aula("x", 12), DateTime{}));
+}
+
+TEST_CASE("aulasDoDia filtra e preserva a ordem", "[calendario]") {
+    const std::vector<TopicoAula> todos = {aula("Primeira", 12, 12),
+                                           aula("Outra", 13, 13),
+                                           aula("Segunda", 12, 12)};
+    const auto hoje = calendario::aulasDoDia(todos, dia(12));
+    REQUIRE(hoje.size() == 2);
+    CHECK(hoje[0].titulo == "Primeira");
+    CHECK(hoje[1].titulo == "Segunda");
+}

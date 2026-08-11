@@ -6,6 +6,7 @@
 #include <regex>
 #include <thread>
 
+#include "core/config/Instituicao.h"
 #include "core/jsf/JsfForm.h"
 #include "core/parse/Html.h"   // toUtf8: o SIGAA serve cp1252 (RECON §1.10)
 
@@ -288,7 +289,10 @@ CURLcode SigaaSession::Impl::executar(const std::string& url, const std::string*
 
 SigaaSession::SigaaSession(std::string baseUrl) : impl_(std::make_unique<Impl>()) {
     curlGlobal();
-    impl_->baseUrl = std::move(baseUrl);
+    // Vazio = a instituição escolhida no onboarding. Resolver aqui, e não num
+    // argumento padrão do cabeçalho, é o que faz a escolha valer para os cinco
+    // pontos do app que abrem sessão sem saber que existe instituição.
+    impl_->baseUrl = baseUrl.empty() ? config::selecionada().baseUrl : std::move(baseUrl);
     impl_->curl = curl_easy_init();
     if (impl_->curl) {
         // Cookie engine em memória: "" liga o parsing sem ler de arquivo.

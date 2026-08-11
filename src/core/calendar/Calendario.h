@@ -18,6 +18,20 @@ namespace sigaa::calendario {
 // é inferência por regex sobre um título livre.
 std::vector<Avaliacao> mesclarAvaliacoes(std::vector<Avaliacao> todas);
 
+// A aula do tópico `t` acontece no dia `d`?
+//
+// Mora em core/, e não na camada de UI que desenha a tela "Hoje", porque é
+// regra de domínio: o professor registra um INTERVALO, quase sempre com início
+// == fim, mas às vezes um bloco ("Semana 3 (10/08 - 14/08)"). Comparar só com
+// o início faria a aula de quarta dentro de um bloco nunca aparecer no dia em
+// que ela acontece — e ninguém notaria, porque a tela ficaria só um pouco mais
+// vazia do que deveria.
+bool aulaOcorreEm(const TopicoAula& t, const DateTime& d);
+
+// As aulas de um dia, na ordem em que estão no snapshot.
+std::vector<TopicoAula> aulasDoDia(const std::vector<TopicoAula>& topicos,
+                                   const DateTime& d);
+
 struct OpcoesIcs {
     // Lembrete antes do evento, em minutos. 0 desliga.
     int lembreteMinutos{24 * 60};

@@ -6,6 +6,8 @@
 #include "core/jsf/JsfForm.h"
 #include "core/parse/ArquivoParser.h"
 #include "core/parse/Html.h"
+#include "core/parse/TurmaParser.h"
+#include "core/util/Caminho.h"
 
 namespace sigaa::sync {
 namespace {
@@ -14,51 +16,9 @@ void falhar(std::string* erro, std::string msg) {
     if (erro) *erro = std::move(msg);
 }
 
-// Todo std::string neste projeto é UTF-8. std::filesystem::path, porém,
-// interpreta um `char*` na code page ANSI do sistema quando construído no
-// Windows — e "PROJETO E ANÁLISE" (C3 81 em UTF-8) vira "PROJETO E ANÃLISE"
-// no disco, uma segunda pasta ao lado da certa. O construtor de char8_t é o
-// que diz ao path "estes bytes são UTF-8".
-//
-// Tolera receber cp1252 em vez de UTF-8: no Windows o `argv` do CLI chega na
-// code page ANSI, e o construtor de char8_t com bytes inválidos ABORTA o
-// processo. `toUtf8` devolve a entrada intacta quando ela já é UTF-8, então o
-// caminho normal (a UI, que manda UTF-8) não paga nada por isto.
-std::filesystem::path deUtf8(std::string_view s) {
-    const std::string u = html::toUtf8(s);
-    return std::filesystem::path(
-        std::u8string(reinterpret_cast<const char8_t*>(u.data()), u.size()));
-}
-
-// E a volta: `path::string()` no Windows converte para a code page ANSI e
-// perde o acento que não couber nela. Quem recebe o caminho de volta é a UI,
-// que espera UTF-8 como todo std::string daqui.
-std::string paraUtf8(const std::filesystem::path& p) {
-    const std::u8string u = p.u8string();
-    return std::string(reinterpret_cast<const char*>(u.data()), u.size());
-}
-
-// Nome de arquivo que não existe ainda: "apostila.pdf", "apostila (2).pdf"...
-// Sobrescrever silenciosamente seria perder a versão que o aluno já tinha
-// anotado — e o SIGAA reaproveita nome entre semestres.
-std::filesystem::path caminhoLivre(const std::filesystem::path& dir,
-                                   const std::string& nome) {
-    const std::filesystem::path p = dir / deUtf8(nome);
-    if (!std::filesystem::exists(p)) return p;
-
-    // Concatenar como `path`, não como string: `p.stem().string()` já teria
-    // achatado o acento na code page ANSI, e o sufixo (2) recriaria o mojibake
-    // que `deUtf8` acabou de evitar.
-    const std::filesystem::path base = p.stem();
-    const std::filesystem::path ext = p.extension();
-    for (int i = 2; i < 1000; ++i) {
-        std::filesystem::path cand = dir / base;
-        cand += deUtf8(" (" + std::to_string(i) + ")");
-        cand += ext;
-        if (!std::filesystem::exists(cand)) return cand;
-    }
-    return p;
-}
+using util::caminhoLivre;
+using util::deUtf8;
+using util::paraUtf8;
 
 } // namespace
 
@@ -119,31 +79,43 @@ bool SessaoTurma::entrar(const Turma& turma, std::string* erro) {
     for (const auto& c : jsf::findCommands(docTurma_)) {
         if (c.formId == "formMenu" && !c.label.empty()) menu_.push_back(c.label);
     }
+
+    // A resposta que acabou de chegar É a linha do tempo das aulas. Parsear
+    // aqui não custa requisição nenhuma; deixar para depois custaria uma.
+    conteudo_ = parse::parseTurmaVirtual(docTurma_, turma_.idTurma, turma_.nome,
+                                         turma_.periodo);
+
     naTurma_ = true;
     return true;
 }
 
-bool SessaoTurma::recarregarAbaArquivos(std::string* erro) {
-    // Pelo RÓTULO, nunca pelo id do componente: `formMenu:j_id_jsp_..._123` é
-    // posicional e muda quando a instituição recompila o JSP — e o SIGAA
-    // responderia 200 com a aba errada, sem erro nenhum (RECON §1.6.1).
-    auto cmd = jsf::findCommandByLabel(docTurma_, "Arquivos");
+bool abrirAbaPorRotulo(http::SigaaSession& sessao, const html::Document& docTurma,
+                       const std::string& rotulo, html::Document* saida,
+                       std::string* erro) {
+    auto cmd = jsf::findCommandByLabel(docTurma, rotulo);
     if (!cmd) {
-        falhar(erro, "esta turma nao tem a aba Arquivos no menu");
+        falhar(erro, "esta turma nao tem a aba " + rotulo + " no menu");
         return false;
     }
-    const auto form = jsf::parseForm(docTurma_, cmd->formId);
+    const auto form = jsf::parseForm(docTurma, cmd->formId);
     if (!form) {
         falhar(erro, "form " + cmd->formId + " nao encontrado");
         return false;
     }
-    auto ra = sessao_.postForm(form->action, form->buildPostBody(cmd->params));
+    auto ra = sessao.postForm(form->action, form->buildPostBody(cmd->params));
     if (!ra.ok()) {
         falhar(erro, ra.error.empty() ? "HTTP " + std::to_string(ra.status) : ra.error);
         return false;
     }
-    if (!docArquivos_.parse(ra.body)) {
-        falhar(erro, "parse da aba Arquivos falhou");
+    if (!saida || !saida->parse(ra.body)) {
+        falhar(erro, "parse da aba " + rotulo + " falhou");
+        return false;
+    }
+    return true;
+}
+
+bool SessaoTurma::recarregarAbaArquivos(std::string* erro) {
+    if (!abrirAbaPorRotulo(sessao_, docTurma_, "Arquivos", &docArquivos_, erro)) {
         return false;
     }
 

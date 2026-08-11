@@ -13,6 +13,8 @@
 
 #include "platform/Credenciais.h"
 
+#include "core/config/Instituicao.h"
+
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -33,7 +35,12 @@ constexpr bool kTemBackend = false;
 // Atributos que identificam a entrada. Fixos: o login vai DENTRO do segredo,
 // junto da senha, porque CPF é dado pessoal e atributo de chaveiro é legível.
 const char* kServico = "sigaa-viewer";
-const char* kConta = "sigaa.unifei.edu.br";
+
+// A conta é o HOST da instituição escolhida, não uma constante: trocar de
+// universidade não pode fazer o app tentar a senha de uma na outra — algumas
+// tentativas erradas bloqueiam a conta no SIGAA. Para quem usa a UNIFEI o
+// valor continua sendo "sigaa.unifei.edu.br", então nada precisa migrar.
+std::string conta() { return config::selecionada().host(); }
 
 bool existeNoPath(const char* prog) {
     // Sem shell: monta o teste em cima do próprio execvp, num filho descartável.
@@ -143,7 +150,7 @@ bool guardarNoCofre(const std::string& login, const std::string& senha,
     }
     std::string segredo = login + "\n" + senha;
     const bool ok = rodar({"secret-tool", "store", "--label=SIGAA (sigaa-viewer)",
-                           "service", kServico, "account", kConta},
+                           "service", kServico, "account", conta()},
                           segredo, nullptr, erro);
     limparSegredo(segredo);
     return ok;
@@ -153,7 +160,7 @@ std::optional<Credenciais> lerDoCofre(std::string* erro) {
     if (!cofreDisponivel()) return std::nullopt;
 
     std::string saida;
-    if (!rodar({"secret-tool", "lookup", "service", kServico, "account", kConta}, {},
+    if (!rodar({"secret-tool", "lookup", "service", kServico, "account", conta()}, {},
                &saida, erro)) {
         // secret-tool sai != 0 quando não acha; não é erro para nós.
         if (erro) erro->clear();
@@ -178,7 +185,7 @@ std::optional<Credenciais> lerDoCofre(std::string* erro) {
 bool apagarDoCofre(std::string* erro) {
     if (!cofreDisponivel()) return true;   // não há o que apagar
     std::string ignorado;
-    rodar({"secret-tool", "clear", "service", kServico, "account", kConta}, {},
+    rodar({"secret-tool", "clear", "service", kServico, "account", conta()}, {},
           nullptr, &ignorado);
     // `clear` sai != 0 se não havia nada. A pós-condição desejada — não existe
     // credencial guardada — vale nos dois casos.

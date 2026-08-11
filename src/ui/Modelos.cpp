@@ -1,6 +1,8 @@
 #include "ui/Modelos.h"
 
 #include <QBrush>
+#include <QHash>
+#include <QLocale>
 #include <QColor>
 #include <QDate>
 #include <QFont>
@@ -190,6 +192,111 @@ ResumoProvas resumoProvas(const Snapshot& s) {
     return r;
 }
 
+namespace {
+
+// A regra de "esta aula acontece neste dia" vive em core/calendar, com teste
+// headless: ela lida com tópicos que cobrem um bloco de dias, e errar ali
+// esvazia a tela em silêncio.
+bool caiEm(const TopicoAula& t, QDate d) {
+    return calendario::aulaOcorreEm(
+        t, DateTime{d.year(), d.month(), d.day(), 0, 0, false});
+}
+
+// Quantos arquivos o professor pendurou nesta aula. A coluna "Tópico de Aula"
+// da aba Arquivos casa com o título do tópico (RECON §1.6.1).
+int materiaisDoTopico(const Snapshot& s, const TopicoAula& t) {
+    int n = 0;
+    const QString titulo = umaLinha(t.titulo);
+    for (const auto& a : s.arquivos) {
+        if (a.idTurma == t.idTurma && umaLinha(a.topico) == titulo) ++n;
+    }
+    // O tópico também carrega os materiais que vieram inline com ele. Quando as
+    // duas fontes existem, a da aba Arquivos é a completa — usar o máximo evita
+    // tanto somar em dobro quanto mostrar zero numa aula que tem material.
+    return (std::max)(n, static_cast<int>(t.materiais.size()));
+}
+
+QStandardItem* grupoDia(const QString& texto, bool destacado) {
+    auto* g = item(texto);
+    QFont f = g->font();
+    f.setBold(true);
+    g->setFont(f);
+    // "Amanhã" fica esmaecido: é contexto, não a coisa que a pessoa veio ver.
+    // O texto do próprio grupo já diz qual é qual — a cor só reforça, nunca
+    // carrega a informação sozinha.
+    if (!destacado) g->setForeground(QBrush(cor::apagado()));
+    return g;
+}
+
+} // namespace
+
+ResumoDia resumoDia(const Snapshot& s, QDate hoje) {
+    ResumoDia r;
+    r.semDados = s.topicos.empty();
+    for (const auto& t : s.topicos) {
+        if (caiEm(t, hoje)) ++r.aulasHoje;
+        else if (caiEm(t, hoje.addDays(1))) ++r.aulasAmanha;
+    }
+    return r;
+}
+
+QStandardItemModel* modeloDia(const Snapshot& s, QDate hoje, QObject* pai) {
+    auto* m = novoModelo(pai, {QStringLiteral("Aula"), QStringLiteral("Turma"),
+                               QStringLiteral("Material")});
+
+    // Nome da turma por id: o tópico só guarda o id, e "88094" na tela não diz
+    // nada a ninguém.
+    QHash<QString, QString> nomeDaTurma;
+    for (const auto& t : s.turmas) {
+        nomeDaTurma.insert(QString::fromStdString(t.idTurma), umaLinha(t.nome));
+    }
+
+    const struct {
+        QDate dia;
+        QString rotulo;
+        bool destacado;
+    } grupos[] = {
+        {hoje, QStringLiteral("Hoje"), true},
+        {hoje.addDays(1), QStringLiteral("Amanhã"), false},
+    };
+
+    for (const auto& g : grupos) {
+        // QLocale().toString, e não QDate::toString: a sobrecarga de QDate com
+        // string de formato usa a locale C no Qt 6, e o cabeçalho sairia
+        // "Wednesday, 12 de August" — meio traduzido, que é pior que nenhum.
+        const QString quando =
+            QLocale().toString(g.dia, QStringLiteral("dddd, d 'de' MMMM"));
+        auto* pai_ = grupoDia(g.rotulo + QStringLiteral(" — ") + quando, g.destacado);
+
+        int n = 0;
+        for (const auto& t : s.topicos) {
+            if (!caiEm(t, g.dia)) continue;
+            ++n;
+
+            const QString idTurma = QString::fromStdString(t.idTurma);
+            auto* aula = item(umaLinha(t.titulo));
+            aula->setData(idTurma, PapelIdTurma);
+            if (!t.conteudo.empty()) aula->setToolTip(umaLinha(t.conteudo));
+
+            const int mats = materiaisDoTopico(s, t);
+            pai_->appendRow({aula, item(nomeDaTurma.value(idTurma, idTurma)),
+                             item(mats == 0 ? QString()
+                                            : QStringLiteral("%1 arquivo(s)").arg(mats),
+                                  mats)});
+        }
+
+        if (n == 0) {
+            // Linha explícita em vez de grupo vazio: um grupo sem filhos parece
+            // um erro de carregamento, e a pessoa fica esperando algo aparecer.
+            auto* vazio = item(QStringLiteral("Nenhuma aula registrada."));
+            vazio->setForeground(QBrush(cor::apagado()));
+            pai_->appendRow({vazio, item(QString()), item(QString())});
+        }
+        m->appendRow({pai_, item(QString()), item(QString())});
+    }
+    return m;
+}
+
 QStandardItemModel* modeloTurmas(const Snapshot& s, QObject* pai) {
     auto* m = novoModelo(pai, {QStringLiteral("Turma"), QStringLiteral("Horário"),
                                QStringLiteral("Local"), QStringLiteral("Período")});
@@ -211,6 +318,116 @@ QStandardItemModel* modeloTurmas(const Snapshot& s, QObject* pai) {
             item(umaLinha(t.periodo)),
         });
     }
+    return m;
+}
+
+namespace {
+
+// "18/08" para uma aula de um dia só, "18/08 – 20/08" quando o professor
+// registrou um intervalo. O ano fica de fora: a janela é de uma turma de um
+// período, e repetir "2026" em quinze linhas só rouba largura da coluna que
+// interessa.
+QString intervaloTopico(const TopicoAula& t) {
+    const QDate a = paraQDate(t.inicio);
+    const QDate b = paraQDate(t.fim);
+    if (!a.isValid()) return {};
+    if (!b.isValid() || b == a) return a.toString(QStringLiteral("dd/MM"));
+    return a.toString(QStringLiteral("dd/MM")) + QStringLiteral(" – ") +
+           b.toString(QStringLiteral("dd/MM"));
+}
+
+QStandardItem* linhaMaterial(const QString& titulo, const QString& id, bool baixavel,
+                             const QString& detalhe) {
+    auto* it = item(titulo);
+    if (!id.isEmpty()) it->setData(id, PapelIdArquivo);
+    it->setData(baixavel, PapelBaixavel);
+    if (!detalhe.isEmpty()) it->setToolTip(detalhe);
+    if (!baixavel) {
+        // Não é um erro nem um aviso: é uma tarefa, um fórum, um vídeo. Existe
+        // na aula e o aluno merece vê-lo listado; só não dá para baixar daqui.
+        it->setForeground(QBrush(cor::apagado()));
+    }
+    return it;
+}
+
+} // namespace
+
+QStandardItemModel* modeloAulas(const std::vector<TopicoAula>& topicos,
+                                const std::vector<ArquivoTurma>& arquivos,
+                                const QHash<QString, QString>& offline, QObject* pai) {
+    auto* m = novoModelo(pai, {QStringLiteral("Aula / material"), QStringLiteral("Quando"),
+                               QStringLiteral("Offline")});
+
+    // Índice dos arquivos por id: é o que decide quem é baixável.
+    QSet<QString> idsDeArquivo;
+    for (const auto& a : arquivos) idsDeArquivo.insert(QString::fromStdString(a.idArquivo));
+
+    auto marcaOffline = [&offline](const QString& id) {
+        return offline.contains(id) ? QStringLiteral("✓") : QString();
+    };
+
+    QSet<QString> usados;
+
+    for (const auto& t : topicos) {
+        auto* aula = item(umaLinha(t.titulo));
+        QFont f = aula->font();
+        f.setBold(true);
+        aula->setFont(f);
+        if (!t.conteudo.empty()) aula->setToolTip(umaLinha(t.conteudo));
+
+        // Par (item da coluna 0, texto da coluna "Quando").
+        std::vector<std::pair<QStandardItem*, QString>> filhos;
+
+        for (const auto& mat : t.materiais) {
+            const QString id = QString::fromStdString(mat.id);
+            const bool baixavel = !id.isEmpty() && idsDeArquivo.contains(id);
+            if (!id.isEmpty()) usados.insert(id);
+            filhos.emplace_back(linhaMaterial(umaLinha(mat.titulo), id, baixavel,
+                                              umaLinha(mat.descricao)),
+                                QString::fromStdString(mat.tipo));
+        }
+
+        // A aba Arquivos agrupa por "Tópico de Aula", e a coluna casa com o
+        // título do tópico (RECON §1.6.1). É o que traz o PDF para dentro da
+        // aula em que ele foi publicado.
+        for (const auto& a : arquivos) {
+            if (umaLinha(a.topico) != umaLinha(t.titulo)) continue;
+            const QString id = QString::fromStdString(a.idArquivo);
+            if (usados.contains(id)) continue;
+            usados.insert(id);
+            filhos.emplace_back(linhaMaterial(umaLinha(a.titulo), id, /*baixavel=*/true,
+                                              umaLinha(a.descricao)),
+                                QStringLiteral("arquivo"));
+        }
+
+        for (const auto& [filho, tipo] : filhos) {
+            const QString id = filho->data(PapelIdArquivo).toString();
+            aula->appendRow({filho, item(tipo), item(marcaOffline(id))});
+        }
+
+        m->appendRow({aula, item(intervaloTopico(t)), item(QString())});
+    }
+
+    // O que não casou com nenhuma aula. Some seria pior que desarrumado.
+    QList<QStandardItem*> soltos;
+    for (const auto& a : arquivos) {
+        const QString id = QString::fromStdString(a.idArquivo);
+        if (usados.contains(id)) continue;
+        soltos << linhaMaterial(umaLinha(a.titulo), id, /*baixavel=*/true,
+                                umaLinha(a.topico));
+    }
+    if (!soltos.isEmpty()) {
+        auto* grupo = item(QStringLiteral("Outros arquivos da turma"));
+        QFont f = grupo->font();
+        f.setBold(true);
+        grupo->setFont(f);
+        for (auto* s : soltos) {
+            grupo->appendRow({s, item(QStringLiteral("arquivo")),
+                              item(marcaOffline(s->data(PapelIdArquivo).toString()))});
+        }
+        m->appendRow({grupo, item(QString()), item(QString())});
+    }
+
     return m;
 }
 
