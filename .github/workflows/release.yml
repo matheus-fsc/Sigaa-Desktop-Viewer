@@ -43,7 +43,21 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config \
             libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev libspdlog-dev \
-            catch2 qt6-base-dev libqt6svg6-dev libgl1-mesa-dev
+            catch2 \
+            libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libxcb-cursor0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
+
+      # O Qt do Ubuntu 24.04 é o 6.4.2, abaixo do 6.5 que o projeto exige — sem
+      # isto o CMake pula a interface e o script aborta por não ter o que
+      # empacotar. Baixar o Qt aqui também deixa o AppImage com a MESMA versão
+      # do pacote do Windows, que é uma variável a menos entre as duas
+      # plataformas quando alguém reporta um bug de interface.
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: 'linux_gcc_64'
+          cache: true
 
       # lexbor não está nos repos do Ubuntu 24.04 (chega no 24.10 como
       # liblexbor-dev). Compilar leva ~1 min e evita depender de PPA.
@@ -73,12 +87,13 @@ jobs:
       - uses: actions/checkout@v4
 
       # Qt não vem do vcpkg (compilar do fonte leva horas) nem pré-instalado no
-      # runner. `Svg` não é enfeite: sem o plugin de SVG os ícones somem.
+      # runner. Sem `modules: qtsvg`: no Qt 6 o Svg faz parte do pacote base, e
+      # pedi-lo como módulo separado faz o aqtinstall falhar com "package not
+      # found" — foi assim que este job quebrou da primeira vez.
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'
           arch: 'win64_msvc2022_64'
-          modules: 'qtsvg'
           cache: true
 
       - name: configurar
