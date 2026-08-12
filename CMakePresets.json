@@ -34,11 +34,23 @@
       "generator": "Ninja",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+    },
+    {
+      "name": "linux-distro",
+      "displayName": "Linux (dependências da distro, sem vcpkg)",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
     }
   ],
   "buildPresets": [
     { "name": "windows", "configurePreset": "windows", "configuration": "Debug" },
     { "name": "linux", "configurePreset": "linux" },
+    { "name": "linux-distro", "configurePreset": "linux-distro" },
     { "name": "macos", "configurePreset": "macos" }
   ],
   "testPresets": [
@@ -49,6 +61,11 @@
       "output": { "outputOnFailure": true }
     },
     { "name": "linux", "configurePreset": "linux", "output": { "outputOnFailure": true } },
+    {
+      "name": "linux-distro",
+      "configurePreset": "linux-distro",
+      "output": { "outputOnFailure": true }
+    },
     { "name": "macos", "configurePreset": "macos", "output": { "outputOnFailure": true } }
   ]
 }

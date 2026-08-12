@@ -106,21 +106,25 @@ struct ResumoProvas {
 
 ResumoProvas resumoProvas(const Snapshot& s);
 
-// --- o dia -----------------------------------------------------------------
+// --- a agenda --------------------------------------------------------------
 
-// As aulas de hoje e de amanhã, com o material pendurado em cada uma.
+// As aulas de uma faixa de dias, com o material pendurado em cada uma.
 //
 // É a pergunta que o aluno tem ao abrir o app de manhã, e a que o SIGAA
 // responde pior: lá é preciso entrar em cada turma para descobrir o que caiu na
 // aula de hoje. Aqui as duas fontes já estão no banco.
 //
-// Amanhã junto de hoje, e não só hoje: quem abre o app à noite está se
-// preparando para o dia seguinte, e uma tela que diz "nenhuma aula hoje" às
-// 22h é tecnicamente correta e inútil.
+// A faixa é um PARÂMETRO, e não "hoje e amanhã" cravado, porque o semestre
+// inteiro já está no banco depois do primeiro ciclo com turmas: recortar em
+// dois dias jogava fora dado que custou ~15 requisições para coletar, e obrigava
+// o aluno a voltar ao SIGAA justamente para a pergunta que o app deveria
+// responder melhor ("o que tem semana que vem?"). Quem chama pagina.
 //
 // Colunas: Aula | Turma | Material
 // A linha da aula guarda o `idTurma` em PapelIdTurma, para o duplo clique
-// abrir a turma certa.
+// abrir a turma certa. A linha de GRUPO (o dia) guarda em PapelOrdenacao
+// quantas aulas caem nele — é o que permite a janela expandir só os dias com
+// aula sem reabrir o modelo para contar.
 inline constexpr int PapelIdTurma = Qt::UserRole + 4;
 
 struct ResumoDia {
@@ -134,7 +138,27 @@ struct ResumoDia {
 
 ResumoDia resumoDia(const Snapshot& s, QDate hoje);
 
-QStandardItemModel* modeloDia(const Snapshot& s, QDate hoje, QObject* pai);
+// Quantas aulas caem em [inicio, fim], inclusive nas duas pontas.
+int aulasEntre(const Snapshot& s, QDate inicio, QDate fim);
+
+// O primeiro e o último dia que a coleta conhece. É o que dá FIM à paginação:
+// sem isto, o botão "semana seguinte" continuaria clicável para sempre, e a
+// pessoa pagina em direção a um vazio que não é ausência de aula, é ausência
+// de dado — a pior confusão que esta tela pode causar.
+//
+// Datas inválidas = nenhum tópico coletado ainda.
+struct FaixaAgenda {
+    QDate primeiro;
+    QDate ultimo;
+    bool valida() const { return primeiro.isValid() && ultimo.isValid(); }
+};
+
+FaixaAgenda faixaAgenda(const Snapshot& s);
+
+// Um grupo por dia em [inicio, fim], inclusive. `hoje` só decide o destaque —
+// a faixa não precisa conter o dia de hoje.
+QStandardItemModel* modeloAgenda(const Snapshot& s, QDate inicio, QDate fim, QDate hoje,
+                                 QObject* pai);
 
 // --- turma -----------------------------------------------------------------
 

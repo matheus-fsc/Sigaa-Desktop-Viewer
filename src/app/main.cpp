@@ -29,6 +29,7 @@
 #include "core/config/Instituicao.h"
 #include "app/Prompt.h"
 #include "core/http/SigaaSession.h"
+#include "core/http/Trafego.h"
 #include "core/jsf/JsfForm.h"
 #include "core/notify/Aviso.h"
 #include "core/parse/Html.h"
@@ -294,6 +295,38 @@ int cmdLogout() {
     return 0;
 }
 
+// --log-http: imprime TODA requisicao que sai para o SIGAA, uma por linha.
+//
+// Vale para qualquer subcomando, e nao so para o sync, porque o que se quer
+// observar e justamente o que o comando faz por dentro — o login sozinho sao
+// duas requisicoes, e "explorar" faz tres antes de gravar qualquer coisa. Sai
+// no stderr: o stdout deste CLI e dado (relatorio, listagem), e misturar log
+// com dado quebra qualquer pipe.
+// CONSOME o argumento, como `resolverInstituicao` faz com --url: assim nenhum
+// subcomando precisa saber que a opcao existe, e o parser do `sync` continua
+// podendo recusar flag desconhecida — que e o que impede um "--turmass" de
+// virar nome de arquivo de saida em silencio.
+void ligarLogHttp(int& argc, char** argv) {
+    bool ligado = false;
+
+    int escrita = 1;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--log-http") {
+            ligado = true;
+            continue;
+        }
+        argv[escrita++] = argv[i];
+    }
+    argc = escrita;
+    argv[argc] = nullptr;
+
+    if (!ligado) return;
+
+    sigaa::http::registrarObservador([](const sigaa::http::EventoRequisicao& ev) {
+        std::cerr << "[http] " << ev.linha() << "\n";
+    });
+}
+
 int usage() {
     std::cerr <<
         "uso:\n"
@@ -325,6 +358,12 @@ int usage() {
         "  --log <arquivo>   para onde vai o log em --quiet (padrao sigaa-viewer.log)\n"
         "  --notificar       forca notificacao nativa mesmo em modo interativo\n"
         "  --sem-notificar   desliga a notificacao mesmo em --quiet\n"
+        "\n"
+        "diagnostico (vale para qualquer subcomando):\n"
+        "  --log-http        imprime no stderr toda requisicao feita ao SIGAA, com\n"
+        "                    status, bytes, tempo, espera do rate limit e o tipo de\n"
+        "                    pagina que voltou. Serve para achar laco de navegacao\n"
+        "                    antes que ele vire bloqueio de conta.\n"
         "\n"
         "instituicao (vale para qualquer subcomando):\n"
         "  --instituicao <id>   id do catalogo embutido (hoje: unifei)\n"
@@ -648,6 +687,7 @@ std::optional<std::string> readFile(const std::string& path) {
 
 int main(int argc, char** argv) {
     resolverInstituicao(argc, argv);
+    ligarLogHttp(argc, argv);
     if (argc < 2) return usage();
 
     if (std::string(argv[1]) == "login") return cmdLogin();

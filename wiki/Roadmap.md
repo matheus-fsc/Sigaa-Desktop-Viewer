@@ -24,9 +24,9 @@ Status atual do projeto e o que está em aberto.
   - Rede: `sync`, `login`, `logout`, `doctor`, `arquivos`, `baixar`, `explorar`.
   - Offline, sobre HTML salvo: `forms`, `links`, `post`, `parse`, `report`.
   - Opções globais de instituição: `--instituicao`, `--url`.
-- Interface Qt 6 Widgets, opcional no build, com as abas **Hoje**, **Provas**,
-  **Turmas** e **Atualizações**, mais a janela da turma com tópicos, arquivos e
-  download sob demanda.
+- Interface Qt 6 Widgets, opcional no build, com as abas **Agenda** (semana a
+  semana, paginada), **Provas**, **Turmas** e **Atualizações**, mais a janela da
+  turma com tópicos, arquivos e download sob demanda.
 - Tema claro e escuro acompanhando o sistema, sem cor literal no stylesheet.
 - Empacotamento em `dist/` pelo `tools/empacotar.ps1`, que roda os testes antes
   e recusa embarcar banco, relatório ou `.env` de quem compilou.

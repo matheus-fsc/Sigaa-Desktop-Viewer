@@ -6,30 +6,32 @@ Como compilar, configurar e empacotar o **SIGAA Desktop Viewer**.
 
 *   **Compilador C++20**: MSVC 2022+, GCC 12+ ou Clang 15+.
 *   **CMake 3.24 ou superior** (o projeto usa `CMakePresets.json`, versão 6).
-*   **vcpkg**: as dependências vêm do manifesto `vcpkg.json`, então não é
-    preciso instalar nenhuma delas à mão:
-    *   `curl` (com feature `ssl`)
+*   **As bibliotecas**, de uma das duas procedências — o `CMakeLists.txt` aceita
+    as duas, e cada `find_package` tem plano B:
+    *   `curl` (com SSL)
     *   `lexbor` (parser de HTML)
     *   `sqlite3`
     *   `nlohmann-json`
     *   `spdlog`
-    *   `catch2`
+    *   `catch2` (só para os testes)
+*   **vcpkg**, no Windows: as dependências vêm do manifesto `vcpkg.json` e não é
+    preciso instalar nenhuma à mão.
 *   **Qt 6.5+** (`Widgets` e `Svg`), **opcional**: só para a interface gráfica.
     Qt não vem do vcpkg, porque compilar do fonte leva horas.
-*   *(Linux)* `libsecret-1-dev`, para o cofre de credenciais nativo.
+*   *Em tempo de execução, no Linux*: `secret-tool` (pacote `libsecret` no Arch,
+    `libsecret-tools` no Debian) para o cofre de credenciais, e `notify-send`
+    (`libnotify`) para as notificações. **Não são dependências de compilação** —
+    o app chama os dois por `execvp` e degrada sozinho se faltarem.
 
 ## Build
 
-O fluxo é o mesmo nos três sistemas: troque o nome do preset por `windows`,
-`linux` ou `macos`.
+### Windows (vcpkg)
 
 ```sh
-# vcpkg, se ainda não tiver
 git clone https://github.com/microsoft/vcpkg
-./vcpkg/bootstrap-vcpkg.sh        # Windows: .\vcpkg\bootstrap-vcpkg.bat
-export VCPKG_ROOT=$PWD/vcpkg      # Windows: setx VCPKG_ROOT "%CD%\vcpkg"
+.\vcpkg\bootstrap-vcpkg.bat
+setx VCPKG_ROOT "%CD%\vcpkg"
 
-# clonar e compilar
 git clone https://github.com/matheus-fsc/Sigaa-Desktop-Viewer.git
 cd Sigaa-Desktop-Viewer
 
@@ -38,12 +40,38 @@ cmake --build --preset windows
 ctest --preset windows
 ```
 
-No Linux, instale antes o que o cofre precisa:
+### Linux (pacotes da distro)
+
+O preset **`linux-distro`** não passa pelo vcpkg. O preset `linux` continua
+existindo para quem quiser o vcpkg também aqui.
 
 ```bash
-sudo apt update
-sudo apt install build-essential cmake pkg-config libsecret-1-dev
+# Arch / CachyOS / Manjaro
+sudo pacman -S --needed base-devel cmake ninja curl sqlite nlohmann-json \
+                        spdlog catch2 qt6-base qt6-svg qt6-wayland
+yay -S lexbor            # única que não está nos repos oficiais
+
+# Debian / Ubuntu
+sudo apt install build-essential cmake ninja-build libcurl4-openssl-dev \
+                 libsqlite3-dev nlohmann-json3-dev libspdlog-dev catch2 \
+                 qt6-base-dev libqt6svg6-dev
+# lexbor: `liblexbor-dev` no Debian 13+/Ubuntu 24.10+; antes disso, compile
+# de github.com/lexbor/lexbor (cmake, dois minutos).
+
+cmake --preset linux-distro
+cmake --build --preset linux-distro
+ctest --preset linux-distro
 ```
+
+Duas armadilhas conhecidas, ambas já tratadas no `CMakeLists.txt` — se você
+mexer nele, não as reintroduza:
+
+*   `find_package(CURL CONFIG REQUIRED)` **falha em qualquer distro**. O arquivo
+    de config é coisa do vcpkg; quem acha a libcurl do sistema é o `FindCURL` que
+    vem com o CMake. O mesmo vale para o `unofficial-sqlite3`, que é um nome que
+    só existe no vcpkg.
+*   O alvo do SQLite mudou de nome: `SQLite::SQLite3` até o CMake 3.30,
+    `SQLite3::SQLite3` daí em diante.
 
 ### Só a CLI, sem Qt
 

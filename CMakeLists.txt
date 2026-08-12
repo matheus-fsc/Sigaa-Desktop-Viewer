@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(sigaa-viewer VERSION 0.1.0 LANGUAGES CXX)
+project(sigaa-viewer VERSION 0.1.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,12 +11,43 @@ else()
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-find_package(CURL CONFIG REQUIRED)
-find_package(unofficial-sqlite3 CONFIG REQUIRED)
+# DUAS PROCEDÊNCIAS POSSÍVEIS PARA A MESMA BIBLIOTECA, e é por isso que cada
+# find_package abaixo tem plano B: no Windows as dependências vêm do vcpkg, que
+# exporta arquivos de CONFIG próprios; no Linux elas vêm do gerenciador de
+# pacotes da distro, e quem sabe encontrá-las são os módulos Find* que já vêm
+# com o CMake. Exigir CONFIG nas duas plataformas era o que fazia
+# `cmake -S . -B build` falhar num Arch com libcurl instalada — a biblioteca
+# está lá, o arquivo que o vcpkg escreve é que não.
+#
+# Os alvos importados diferem entre os dois caminhos; o nome resolvido vai para
+# uma variável e só ela aparece no target_link_libraries.
+find_package(CURL CONFIG QUIET)
+if(NOT CURL_FOUND)
+  find_package(CURL MODULE REQUIRED)   # FindCURL do CMake -> CURL::libcurl
+endif()
+
+find_package(unofficial-sqlite3 CONFIG QUIET)   # nome que só o vcpkg usa
+if(unofficial-sqlite3_FOUND)
+  set(SIGAA_SQLITE unofficial::sqlite3::sqlite3)
+else()
+  find_package(SQLite3 MODULE REQUIRED)
+  # O FindSQLite3 renomeou o alvo: SQLite::SQLite3 até o CMake 3.30, e
+  # SQLite3::SQLite3 daí em diante (o antigo continua existindo, mas avisa que
+  # está obsoleto em toda configuração). Perguntar qual existe é mais barato do
+  # que amarrar o projeto a uma versão de CMake.
+  if(TARGET SQLite3::SQLite3)
+    set(SIGAA_SQLITE SQLite3::SQLite3)
+  else()
+    set(SIGAA_SQLITE SQLite::SQLite3)
+  endif()
+endif()
+
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 
-# lexbor não exporta config em todas as portas do vcpkg; resolver na mão.
+# lexbor não exporta config em todas as portas do vcpkg nem nas distros;
+# resolver na mão. No Arch/CachyOS ela vem do AUR (`lexbor`), não dos repos
+# oficiais — é a única dependência que precisa disso.
 find_path(LEXBOR_INCLUDE_DIR lexbor/html/html.h REQUIRED)
 find_library(LEXBOR_LIBRARY NAMES lexbor lexbor_static REQUIRED)
 
@@ -28,6 +59,7 @@ add_library(sigaa_core STATIC
   src/core/parse/Html.cpp
   src/core/jsf/JsfForm.cpp
   src/core/http/SigaaSession.cpp
+  src/core/http/Trafego.cpp
   src/core/parse/PortalParser.cpp
   src/core/report/HtmlReport.cpp
   src/core/store/Database.cpp
@@ -52,8 +84,7 @@ target_include_directories(sigaa_core
 
 target_link_libraries(sigaa_core
   PUBLIC  nlohmann_json::nlohmann_json
-  PRIVATE CURL::libcurl ${LEXBOR_LIBRARY} spdlog::spdlog
-          unofficial::sqlite3::sqlite3
+  PRIVATE CURL::libcurl ${LEXBOR_LIBRARY} spdlog::spdlog ${SIGAA_SQLITE}
 )
 
 # ---------------------------------------------------------------------------
@@ -138,6 +169,7 @@ elseif(SIGAA_UI)
     src/ui/CalendarioProvas.cpp
     src/ui/DialogoLogin.cpp
     src/ui/JanelaTurma.cpp
+    src/ui/JanelaDiagnostico.cpp
     src/ui/Icones.cpp
     src/ui/Modelos.cpp
     src/ui/Trabalhador.cpp
@@ -148,6 +180,7 @@ elseif(SIGAA_UI)
     src/ui/forms/JanelaPrincipal.ui
     src/ui/forms/DialogoLogin.ui
     src/ui/forms/JanelaTurma.ui
+    src/ui/forms/JanelaDiagnostico.ui
 
     src/ui/recursos/recursos.qrc
   )
@@ -192,6 +225,41 @@ elseif(SIGAA_UI)
   if(MSVC)
     set_target_properties(sigaa-ui PROPERTIES
       VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+  endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# instalação — usada pelo `cmake --install` e, por tabela, pelo AppImage.
+#
+# No Windows o entregável é a pasta que o tools/empacotar.ps1 monta, e não um
+# prefixo de instalação; estas regras existem para o mundo Unix, onde o
+# empacotador (AppImage, .deb, PKGBUILD) espera achar o app num prefixo com a
+# hierarquia do freedesktop: binário em bin/, .desktop em share/applications e
+# ícone em share/icons/hicolor. O linuxdeploy lê exatamente esses três lugares
+# para montar o AppDir — sem eles ele monta um AppImage sem nome nem ícone.
+# ---------------------------------------------------------------------------
+include(GNUInstallDirs)
+install(TARGETS sigaa-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+if(TARGET sigaa-ui)
+  install(TARGETS sigaa-ui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+  if(UNIX AND NOT APPLE)
+    install(FILES packaging/linux/io.github.matheus_fsc.SigaaDesktopViewer.desktop
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    # O SVG serve a qualquer tamanho e é o mesmo desenho do .qrc — uma fonte,
+    # não duas que divergem. O KDE e o GNOME leem SVG em hicolor sem plugin
+    # nenhum; o PNG só faria falta num ambiente sem suporte a SVG, que não
+    # existe mais entre os alvos deste app.
+    install(FILES src/ui/recursos/icones/app.svg
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
+            RENAME io.github.matheus_fsc.SigaaDesktopViewer.svg)
+
+    # NÃO instalamos AppStream (share/metainfo) ainda, de propósito: o formato
+    # exige um <project_license> e este repositório não tem arquivo de licença.
+    # Declarar uma ali seria inventar um fato jurídico. Quando houver LICENSE,
+    # o metainfo é o que faz o app aparecer com descrição e captura de tela no
+    # Discover do KDE e no GNOME Software.
   endif()
 endif()
 

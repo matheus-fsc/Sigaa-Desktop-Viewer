@@ -40,7 +40,7 @@
       </property>
       <widget class="QWidget" name="abaHoje">
        <attribute name="title">
-        <string>Hoje</string>
+        <string>Agenda</string>
        </attribute>
        <layout class="QVBoxLayout" name="layoutHoje">
         <property name="spacing">
@@ -81,14 +81,73 @@
              <number>0</number>
             </property>
             <item>
-             <widget class="QLabel" name="rotuloDia">
-              <property name="classe" stdset="0">
-               <string>tituloTurma</string>
+             <layout class="QHBoxLayout" name="layoutNavAgenda">
+              <property name="spacing">
+               <number>4</number>
               </property>
-              <property name="text">
-               <string notr="true"/>
-              </property>
-             </widget>
+              <item>
+               <widget class="QToolButton" name="botaoSemanaAnterior">
+                <property name="text">
+                 <string notr="true">◀</string>
+                </property>
+                <property name="toolTip">
+                 <string>Semana anterior (Alt+←). Também funciona com rolagem horizontal sobre a lista.</string>
+                </property>
+                <property name="autoRepeat">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QToolButton" name="botaoSemanaSeguinte">
+                <property name="text">
+                 <string notr="true">▶</string>
+                </property>
+                <property name="toolTip">
+                 <string>Próxima semana (Alt+→). Também funciona com rolagem horizontal sobre a lista.</string>
+                </property>
+                <property name="autoRepeat">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="rotuloDia">
+                <property name="classe" stdset="0">
+                 <string>tituloTurma</string>
+                </property>
+                <property name="text">
+                 <string notr="true"/>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="espacoAgenda">
+                <property name="orientation">
+                 <enum>Qt::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>0</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+              <item>
+               <widget class="QToolButton" name="botaoHoje">
+                <property name="enabled">
+                 <bool>false</bool>
+                </property>
+                <property name="text">
+                 <string>Hoje</string>
+                </property>
+                <property name="toolTip">
+                 <string>Volta para a semana atual.</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
             </item>
             <item>
              <widget class="QLabel" name="rotuloResumoDia">
@@ -118,7 +177,7 @@
                <bool>false</bool>
               </property>
               <property name="toolTip">
-               <string>Aulas de hoje e de amanhã, com o material que o professor pendurou em cada uma. Duplo clique abre a turma.</string>
+               <string>As aulas da semana, com o material que o professor pendurou em cada uma. Duplo clique abre a turma; Alt+← e Alt+→ trocam de semana.</string>
               </property>
               <attribute name="headerStretchLastSection">
                <bool>false</bool>
@@ -669,6 +728,7 @@
    <addaction name="separator"/>
    <addaction name="acRelatorio"/>
    <addaction name="acAuto"/>
+   <addaction name="acDiagnostico"/>
    <addaction name="acConta"/>
   </widget>
   <action name="acAtualizar">
@@ -696,6 +756,14 @@
    </property>
    <property name="toolTip">
     <string>Abre no navegador o relatório HTML gerado no último sync.</string>
+   </property>
+  </action>
+  <action name="acDiagnostico">
+   <property name="text">
+    <string>Diagnóstico</string>
+   </property>
+   <property name="toolTip">
+    <string>Mostra todas as requisições feitas ao SIGAA, ao vivo: ritmo, repetições e o que o servidor respondeu. É onde se vê um laço antes de ele virar bloqueio de conta.</string>
    </property>
   </action>
   <action name="acAuto">

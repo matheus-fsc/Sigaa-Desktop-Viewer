@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "core/config/Instituicao.h"
+#include "core/http/Trafego.h"
 #include "core/jsf/JsfForm.h"
 #include "core/parse/Html.h"   // toUtf8: o SIGAA serve cp1252 (RECON §1.10)
 
@@ -205,9 +206,12 @@ bool transitorio(CURLcode rc) {
 Response SigaaSession::Impl::perform(std::string_view path, const std::string* body) {
     std::lock_guard<std::mutex> lock(mtx);
 
+    using relogio = std::chrono::steady_clock;
+    const auto entrou = relogio::now();
+
     // Rate limit: espera o que faltar do intervalo mínimo.
     if (ultimaReq.time_since_epoch().count() != 0) {
-        auto decorrido = std::chrono::steady_clock::now() - ultimaReq;
+        auto decorrido = relogio::now() - ultimaReq;
         if (decorrido < intervalo) std::this_thread::sleep_for(intervalo - decorrido);
     }
 
@@ -216,7 +220,11 @@ Response SigaaSession::Impl::perform(std::string_view path, const std::string* b
                           ? std::string(path)
                           : baseUrl + std::string(path);
 
+    const auto saiu = relogio::now();
+    int tentativas = 1;
+
     for (int tentativa = 1; ; ++tentativa) {
+        tentativas = tentativa;
         r = Response{};
         const CURLcode rc = executar(url, body, r);
         if (rc == CURLE_OK || !transitorio(rc) || tentativa >= maxTentativas) {
@@ -234,7 +242,32 @@ Response SigaaSession::Impl::perform(std::string_view path, const std::string* b
         std::this_thread::sleep_for(espera);
     }
 
-    ultimaReq = std::chrono::steady_clock::now();
+    ultimaReq = relogio::now();
+
+    // O registro sai daqui, e não de quem chama: este é o único ponto por onde
+    // TODA requisição passa, incluindo as que o login e o download fazem por
+    // dentro. Registrar nos chamadores deixaria justamente as invisíveis de
+    // fora — que são as que causam looping (RECON §2.2 e core/http/Trafego.h).
+    EventoRequisicao ev;
+    ev.quando = std::chrono::system_clock::now();
+    ev.metodo = body ? "POST" : "GET";
+    ev.url = url;
+    if (!r.finalUrl.empty() && r.finalUrl != url) ev.urlFinal = r.finalUrl;
+    ev.status = r.status;
+    ev.bytes = r.body.size();
+    ev.erro = r.error;
+    ev.tentativas = tentativas;
+    ev.esperaMs = static_cast<int>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(saiu - entrou).count());
+    ev.duracaoMs = static_cast<int>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(ultimaReq - saiu).count());
+    // Classificar custa quatro buscas de substring, e só faz sentido em HTML:
+    // rodar isso sobre um PDF de 20 MB seria pagar caro por "Desconhecida".
+    if (r.error.empty() && !r.ehDownload() && !r.body.empty()) {
+        ev.pagina = std::string(toString(SigaaSession::classify(r.body)));
+    }
+    registrar(std::move(ev));
+
     return r;
 }
 

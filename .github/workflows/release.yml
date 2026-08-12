@@ -1,0 +1,119 @@
+# Empacota Linux (AppImage) e Windows (zip) e anexa à release da tag.
+#
+# POR QUE EXISTE: o pacote do Windows não pode ser gerado numa máquina Linux —
+# ele precisa de MSVC, do windeployqt e das DLLs do Qt para Windows. Sem CI, a
+# única forma de publicar as duas plataformas seria manter uma máquina de cada,
+# e o release do Windows atrasaria até alguém ter uma por perto.
+#
+# Os dois jobs chamam os MESMOS scripts que se roda à mão (tools/empacotar.sh e
+# tools/empacotar.ps1). Nada de uma receita paralela aqui dentro: no dia em que
+# ela divergisse, o pacote publicado deixaria de ser o pacote testado.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      versao:
+        description: 'Versão para o nome do pacote (ex.: 0.1.1-alpha)'
+        required: false
+
+permissions:
+  contents: write   # anexar os pacotes à release
+
+env:
+  # linuxdeploy e appimagetool são AppImages e querem FUSE, que runner de CI não
+  # tem. Extrair em vez de montar é o caminho que funciona em qualquer lugar.
+  APPIMAGE_EXTRACT_AND_RUN: 1
+
+jobs:
+  linux:
+    # Fixo, e não `ubuntu-latest`: um AppImage só roda em glibc igual ou mais
+    # nova que a da máquina onde foi montado. Subir de versão aqui, sem querer,
+    # quebraria o pacote nas distros mais conservadoras — e o erro aparece
+    # só na máquina do usuário.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: dependências
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev libspdlog-dev \
+            catch2 qt6-base-dev libqt6svg6-dev libgl1-mesa-dev
+
+      # lexbor não está nos repos do Ubuntu 24.04 (chega no 24.10 como
+      # liblexbor-dev). Compilar leva ~1 min e evita depender de PPA.
+      - name: lexbor
+        run: |
+          git clone --depth 1 https://github.com/lexbor/lexbor.git /tmp/lexbor
+          cmake -S /tmp/lexbor -B /tmp/lexbor/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DLEXBOR_BUILD_TESTS=OFF
+          cmake --build /tmp/lexbor/build -j
+          sudo cmake --install /tmp/lexbor/build
+          sudo ldconfig
+
+      - name: empacotar
+        run: |
+          versao="${{ github.event.inputs.versao }}"
+          [ -n "$versao" ] || versao="${GITHUB_REF_NAME#v}"
+          tools/empacotar.sh --versao "$versao"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: dist/*.AppImage
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      # Qt não vem do vcpkg (compilar do fonte leva horas) nem pré-instalado no
+      # runner. `Svg` não é enfeite: sem o plugin de SVG os ícones somem.
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtsvg'
+          cache: true
+
+      - name: configurar
+        shell: pwsh
+        run: |
+          # Sem o preset `windows`: ele fixa o gerador do Visual Studio 2026, e o
+          # runner tem o 2022. O que o preset traz de essencial é o toolchain do
+          # vcpkg, e isso é uma linha.
+          cmake -S . -B build/windows -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+
+      - name: empacotar
+        shell: pwsh
+        run: |
+          $versao = "${{ github.event.inputs.versao }}"
+          if (-not $versao) { $versao = "$env:GITHUB_REF_NAME" -replace '^v', '' }
+          pwsh -File tools/empacotar.ps1 -Preset windows -Versao $versao
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: dist/*.zip
+
+  publicar:
+    needs: [linux, windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: pacotes
+      - name: anexar à release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" --clobber \
+            $(find pacotes -type f \( -name '*.AppImage' -o -name '*.zip' \))

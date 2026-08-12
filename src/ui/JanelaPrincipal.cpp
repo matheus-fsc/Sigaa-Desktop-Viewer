@@ -23,12 +23,16 @@
 #include <QToolButton>
 #include <QTimer>
 #include <QUrl>
+#include <QWheelEvent>
+
+#include <algorithm>
 
 #include "core/store/Database.h"
 #include "platform/Credenciais.h"
 #include "ui/CalendarioProvas.h"
 #include "ui/DialogoLogin.h"
 #include "ui/Icones.h"
+#include "ui/JanelaDiagnostico.h"
 #include "ui/JanelaTurma.h"
 #include "ui/Modelos.h"
 #include "ui/Trabalhador.h"
@@ -42,6 +46,34 @@ namespace {
 // e entrar nas 7 turmas custa ~15 requisições contra 1 do portal.
 constexpr int kMinutosPortal = 20;
 constexpr int kMinutosTurmas = 6 * 60;
+
+// A página da agenda é a semana — a unidade em que a grade horária existe e em
+// que o aluno pensa. Sete dias cabem na tela sem rolagem no tamanho padrão da
+// janela, então "virar a página" mostra a página inteira de uma vez.
+constexpr int kDiasPorPagina = 7;
+
+// Um "clique" de roda são 120 oitavos de grau (QWheelEvent). Trackpad manda
+// frações; o acumulador só vira a página quando somam um clique.
+constexpr int kPassoRolagem = 120;
+
+QDate segundaDaSemana(QDate d) {
+    return d.isValid() ? d.addDays(-(d.dayOfWeek() - Qt::Monday)) : d;
+}
+
+// "10 – 16 de agosto", ou "31 de agosto – 6 de setembro" quando a semana cruza
+// o mês. O ano fica de fora: a agenda é de um semestre, e repetir "2026" duas
+// vezes por linha de título não informa nada.
+QString faixaDaSemana(QDate inicio, QDate fim) {
+    const QLocale l;
+    if (inicio.month() == fim.month()) {
+        return QStringLiteral("%1 – %2")
+            .arg(inicio.day())
+            .arg(l.toString(fim, QStringLiteral("d 'de' MMMM")));
+    }
+    return QStringLiteral("%1 – %2")
+        .arg(l.toString(inicio, QStringLiteral("d 'de' MMMM")),
+             l.toString(fim, QStringLiteral("d 'de' MMMM")));
+}
 
 // Troca o modelo da tabela preservando o proxy de ordenação, e destrói o
 // modelo velho — sem isto cada sync vazaria um QStandardItemModel.
@@ -90,6 +122,7 @@ JanelaPrincipal::JanelaPrincipal(QWidget* pai)
     montarStatus();
     montarProvas();
     montarTurmas();
+    montarBarraAgenda();
     montarBandeja();
 
     if (!recarregarDoBanco()) {
@@ -148,6 +181,13 @@ void JanelaPrincipal::montarAcoes() {
         if (!relatorio_.isEmpty())
             QDesktopServices::openUrl(QUrl::fromLocalFile(relatorio_));
     });
+
+    // Ctrl+D, e não F12: F12 é "ferramentas do desenvolvedor" em navegador, e
+    // esta janela não é para desenvolvedor — é para o aluno responder "por que
+    // o SIGAA me bloqueou?" com evidência na mão.
+    formulario_->acDiagnostico->setShortcut(QKeySequence(QStringLiteral("Ctrl+D")));
+    connect(formulario_->acDiagnostico, &QAction::triggered, this,
+            &JanelaPrincipal::abrirDiagnostico);
 
     // Tooltip com os períodos reais: sai das constantes acima, então não pode
     // estar cravado no .ui — mudar a constante e o texto mentir é pior do que
@@ -326,7 +366,7 @@ void JanelaPrincipal::montarTurmas() {
     connect(formulario_->tvTurmas, &QTableView::doubleClicked, this,
             [this] { abrirTurma(); });
     connect(formulario_->arvoreHoje, &QTreeView::doubleClicked, this,
-            [this] { abrirTurmaDoDia(); });
+            [this] { abrirTurmaDaAgenda(); });
 
     // A aula é o que a pessoa veio ver; o prazo é referência. Sem os fatores,
     // o QSplitter dividiria meio a meio e a lista de prazos empurraria as
@@ -365,7 +405,7 @@ void JanelaPrincipal::abrirTurma() {
     abrirJanelaDaTurma(*alvo);
 }
 
-void JanelaPrincipal::abrirTurmaDoDia() {
+void JanelaPrincipal::abrirTurmaDaAgenda() {
     const auto sel = formulario_->arvoreHoje->selectionModel();
     if (!sel || !sel->hasSelection()) return;
 
@@ -425,8 +465,20 @@ void JanelaPrincipal::abrirJanelaDaTurma(const Turma& turma) {
                   std::move(senha), this);
     d.exec();
 
-    // A janela pode ter baixado material; o ✓ da aba Hoje vem do disco.
-    montarDia(snapshot_);
+    // A janela pode ter baixado material; o ✓ da aba Agenda vem do disco.
+    montarAgenda();
+}
+
+void JanelaPrincipal::abrirDiagnostico() {
+    // NÃO modal, e uma só: a janela serve justamente enquanto a coleta roda, e
+    // duas cópias registrariam dois observadores no mesmo tráfego.
+    if (!diagnostico_) {
+        diagnostico_ = new JanelaDiagnostico(this);
+        diagnostico_->setAttribute(Qt::WA_DeleteOnClose, false);
+    }
+    diagnostico_->show();
+    diagnostico_->raise();
+    diagnostico_->activateWindow();
 }
 
 void JanelaPrincipal::montarBandeja() {
@@ -478,9 +530,12 @@ void JanelaPrincipal::mostrar(const Snapshot& s) {
     // reaplicado sobre o modelo novo, e precisa dele no lugar.
     atualizarResumoProvas(s);
     filtrarProvasPorDia(diaFiltrado_);
-    montarDia(s);
+    montarAgenda();
 
-    abas->setTabText(0, QStringLiteral("Hoje (%1)")
+    // A contagem na aba continua sendo a de HOJE mesmo com a agenda paginada
+    // para outra semana: o número na aba é o que se lê sem entrar nela, e "3"
+    // ali precisa querer dizer "três aulas hoje" sempre.
+    abas->setTabText(0, QStringLiteral("Agenda (%1 hoje)")
                             .arg(resumoDia(s, QDate::currentDate()).aulasHoje));
     abas->setTabText(2, QStringLiteral("Turmas (%1)").arg(s.turmas.size()));
     abas->setTabText(3, QStringLiteral("Atualizações (%1)").arg(s.atualizacoes.size()));
@@ -491,43 +546,155 @@ void JanelaPrincipal::mostrar(const Snapshot& s) {
     abas->setTabText(1, QStringLiteral("Provas (%1)").arg(resumoProvas(s).total));
 }
 
-void JanelaPrincipal::montarDia(const Snapshot& s) {
+void JanelaPrincipal::montarBarraAgenda() {
+    // A faixa de datas é o título da tela agora que ela pagina: sem peso
+    // tipográfico ela se perde entre dois botões e a pessoa não repara que
+    // mudou de semana.
+    escalarFonte(formulario_->rotuloDia, 1.1, /*negrito=*/true);
+    escalarFonte(formulario_->rotuloResumoDia, 0.9);
+    esmaecer(formulario_->rotuloResumoDia);
+
+    // Alt+← / Alt+→: é o par que o sistema já reserva para "voltar/avançar", e
+    // aqui a semana é exatamente isso. Vem de QKeySequence e não de teclas
+    // cravadas porque no macOS o par é Cmd+[ e Cmd+].
+    formulario_->botaoSemanaAnterior->setShortcut(QKeySequence::Back);
+    formulario_->botaoSemanaSeguinte->setShortcut(QKeySequence::Forward);
+
+    connect(formulario_->botaoSemanaAnterior, &QToolButton::clicked, this,
+            [this] { deslocarAgenda(-1); });
+    connect(formulario_->botaoSemanaSeguinte, &QToolButton::clicked, this,
+            [this] { deslocarAgenda(1); });
+    connect(formulario_->botaoHoje, &QToolButton::clicked, this,
+            [this] { irParaSemana(QDate::currentDate()); });
+
+    // No viewport, não na árvore: é ele que recebe a roda. Filtrar na árvore
+    // pegaria o evento só quando ela tivesse foco de teclado.
+    formulario_->arvoreHoje->viewport()->installEventFilter(this);
+}
+
+bool JanelaPrincipal::eventFilter(QObject* alvo, QEvent* ev) {
+    if (alvo != formulario_->arvoreHoje->viewport() || ev->type() != QEvent::Wheel) {
+        return QMainWindow::eventFilter(alvo, ev);
+    }
+
+    auto* roda = static_cast<QWheelEvent*>(ev);
+    // Shift+roda vertical é o que um mouse comum tem: o Qt não converte
+    // sozinho, quem quer rolagem horizontal a implementa. A roda vertical pura
+    // continua rolando a lista, que é o que ela deve fazer.
+    const int delta = roda->angleDelta().x() != 0
+                          ? roda->angleDelta().x()
+                          : (roda->modifiers().testFlag(Qt::ShiftModifier)
+                                 ? roda->angleDelta().y()
+                                 : 0);
+    if (delta == 0) return QMainWindow::eventFilter(alvo, ev);
+
+    // Zera ao inverter o sentido: senão um resto acumulado para a direita
+    // atrasaria a primeira página para a esquerda.
+    if ((delta > 0) != (rolagemAgenda_ > 0)) rolagemAgenda_ = 0;
+    rolagemAgenda_ += delta;
+
+    while (rolagemAgenda_ >= kPassoRolagem) {
+        rolagemAgenda_ -= kPassoRolagem;
+        deslocarAgenda(-1);   // roda para a direita = voltar no tempo
+    }
+    while (rolagemAgenda_ <= -kPassoRolagem) {
+        rolagemAgenda_ += kPassoRolagem;
+        deslocarAgenda(1);
+    }
+    return true;
+}
+
+void JanelaPrincipal::deslocarAgenda(int semanas) {
+    if (!inicioAgenda_.isValid()) inicioAgenda_ = segundaDaSemana(QDate::currentDate());
+    irParaSemana(inicioAgenda_.addDays(qint64(semanas) * kDiasPorPagina));
+}
+
+void JanelaPrincipal::irParaSemana(QDate dia) {
+    const QDate nova = segundaDaSemana(dia.isValid() ? dia : QDate::currentDate());
+    if (nova == inicioAgenda_) return;
+    inicioAgenda_ = nova;
+    montarAgenda();
+}
+
+void JanelaPrincipal::montarAgenda() {
+    const Snapshot& s = snapshot_;
     const QDate hoje = QDate::currentDate();
+    if (!inicioAgenda_.isValid()) inicioAgenda_ = segundaDaSemana(hoje);
+
+    const QDate inicio = inicioAgenda_;
+    const QDate fim = inicio.addDays(kDiasPorPagina - 1);
     auto* arvore = formulario_->arvoreHoje;
 
     auto* antigo = arvore->model();
-    arvore->setModel(modeloDia(s, hoje, arvore));
+    arvore->setModel(modeloAgenda(s, inicio, fim, hoje, arvore));
     delete antigo;
-    arvore->expandAll();
+
+    // Expandir só os dias com aula: sete grupos abertos, cinco deles com uma
+    // linha "Nenhuma aula registrada", empurrariam as aulas de verdade para
+    // fora da tela — a rolagem viraria requisito para ler a quarta-feira.
+    for (int i = 0; i < arvore->model()->rowCount(); ++i) {
+        const QModelIndex idx = arvore->model()->index(i, 0);
+        if (idx.data(PapelOrdenacao).toInt() > 0) arvore->expand(idx);
+    }
     arvore->resizeColumnToContents(0);
     arvore->resizeColumnToContents(1);
 
-    // Data por extenso e com inicial maiúscula: "Quarta, 12 de agosto". O
-    // QLocale devolve o dia da semana em minúscula em pt-BR, e um título que
-    // começa minúsculo parece bug de formatação.
-    QString titulo = QLocale().toString(hoje, QStringLiteral("dddd, d 'de' MMMM"));
-    if (!titulo.isEmpty()) titulo[0] = titulo[0].toUpper();
+    // Título: a faixa de datas, e "esta semana" só quando for verdade. Um
+    // rótulo que diz sempre a mesma coisa não avisa que a pessoa está paginada
+    // três semanas à frente — e é aí que ela lê "nenhuma aula" e se assusta.
+    const qint64 delta = segundaDaSemana(hoje).daysTo(inicio) / kDiasPorPagina;
+    QString titulo = faixaDaSemana(inicio, fim);
+    if (delta == 0) titulo += QStringLiteral(" · esta semana");
+    else if (delta == 1) titulo += QStringLiteral(" · semana que vem");
+    else if (delta == -1) titulo += QStringLiteral(" · semana passada");
     formulario_->rotuloDia->setText(titulo);
 
     const ResumoDia r = resumoDia(s, hoje);
+    const int naSemana = aulasEntre(s, inicio, fim);
+    const FaixaAgenda faixa = faixaAgenda(s);
+
     if (r.semDados) {
         // Distinguir "não há aula" de "nunca coletei aula" é o ponto: o
         // primeiro é informação, o segundo é a tela dizendo que não sabe. Sem
-        // isso, o aluno concluiria que não tem aula nenhuma hoje.
+        // isso, o aluno concluiria que não tem aula nenhuma.
         formulario_->rotuloResumoDia->setText(QStringLiteral(
             "Ainda não coletei as aulas. Use “Atualizar tudo” — só esse ciclo "
             "entra em cada turma e lê a linha do tempo do professor."));
-    } else if (r.aulasHoje == 0 && r.aulasAmanha == 0) {
+    } else if (delta == 0) {
         formulario_->rotuloResumoDia->setText(
-            QStringLiteral("Nenhuma aula registrada para hoje nem para amanhã."));
-    } else {
-        formulario_->rotuloResumoDia->setText(
-            QStringLiteral("%1 hoje · %2 amanhã")
+            QStringLiteral("%1 hoje · %2 amanhã · %3 nesta semana")
                 .arg(r.aulasHoje == 1 ? QStringLiteral("1 aula")
                                       : QStringLiteral("%1 aulas").arg(r.aulasHoje))
                 .arg(r.aulasAmanha == 1 ? QStringLiteral("1 aula")
-                                        : QStringLiteral("%1 aulas").arg(r.aulasAmanha)));
+                                        : QStringLiteral("%1 aulas").arg(r.aulasAmanha))
+                .arg(naSemana));
+    } else if (naSemana == 0 && faixa.valida() && (fim < faixa.primeiro || inicio > faixa.ultimo)) {
+        // Fora do que a coleta cobre. Dizer "nenhuma aula" aqui seria afirmar
+        // algo que não sabemos — o professor pode ter publicado a aula e nós
+        // simplesmente não temos esse pedaço do semestre.
+        formulario_->rotuloResumoDia->setText(
+            QStringLiteral("Fora do período coletado (%1 a %2).")
+                .arg(QLocale().toString(faixa.primeiro, QLocale::ShortFormat),
+                     QLocale().toString(faixa.ultimo, QLocale::ShortFormat)));
+    } else {
+        formulario_->rotuloResumoDia->setText(
+            naSemana == 0 ? QStringLiteral("Nenhuma aula registrada nesta semana.")
+            : naSemana == 1 ? QStringLiteral("1 aula nesta semana.")
+                            : QStringLiteral("%1 aulas nesta semana.").arg(naSemana));
     }
+
+    // As bordas da paginação saem do que a coleta conhece, estendido até a
+    // semana de hoje — quem abre o app fora do semestre ainda precisa poder
+    // chegar às aulas que existem.
+    QDate limiteInicio = segundaDaSemana(hoje);
+    QDate limiteFim = limiteInicio;
+    if (faixa.valida()) {
+        limiteInicio = (std::min)(limiteInicio, segundaDaSemana(faixa.primeiro));
+        limiteFim = (std::max)(limiteFim, segundaDaSemana(faixa.ultimo));
+    }
+    formulario_->botaoSemanaAnterior->setEnabled(inicio > limiteInicio);
+    formulario_->botaoSemanaSeguinte->setEnabled(inicio < limiteFim);
+    formulario_->botaoHoje->setEnabled(delta != 0);
 }
 
 void JanelaPrincipal::sincronizar(bool comTurmas) {

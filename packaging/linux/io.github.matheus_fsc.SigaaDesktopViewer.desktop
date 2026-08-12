@@ -1,0 +1,21 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=SIGAA Viewer
+GenericName=Prazos e aulas do SIGAA
+Comment=Prazos, provas e material das turmas do SIGAA num só lugar
+# Sem caminho absoluto: dentro do AppImage o binário está em usr/bin, e o
+# AppRun põe essa pasta no PATH antes de executar. Um /usr/bin/sigaa-ui cravado
+# aqui faria o AppImage tentar abrir o app da máquina do usuário — que não
+# existe, e é justamente por isso que ele baixou um AppImage.
+Exec=sigaa-ui
+Icon=io.github.matheus_fsc.SigaaDesktopViewer
+Terminal=false
+Categories=Education;Office;
+Keywords=SIGAA;UNIFEI;universidade;aulas;prazos;provas;
+# Casa a janela com este lançador na barra de tarefas do KDE e do GNOME. É o
+# nome de classe que o Qt deriva do nome do executável — mudou o alvo no
+# CMakeLists, mude aqui, senão a janela aberta aparece como um segundo ícone
+# genérico ao lado do lançador.
+StartupWMClass=sigaa-ui
+StartupNotify=true

@@ -42,6 +42,7 @@ class JanelaPrincipal;
 namespace sigaa::ui {
 
 class Trabalhador;
+class JanelaDiagnostico;
 
 class JanelaPrincipal : public QMainWindow {
     Q_OBJECT
@@ -56,21 +57,41 @@ protected:
     // pixmap, não se atualiza sozinho como uma cor de paleta.
     void changeEvent(QEvent* ev) override;
 
+    // Rolagem horizontal (ou Shift+roda) sobre a árvore da agenda vira troca de
+    // semana — é o gesto de "virar página" no trackpad, e quem tem um espera
+    // que funcione antes de procurar o botão.
+    bool eventFilter(QObject* alvo, QEvent* ev) override;
+
 private:
     void montarAcoes();
     void montarStatus();
     void montarBandeja();
     void aplicarIcones();
 
+    // Tráfego com o SIGAA, ao vivo. Fica atrás de uma ação em vez de uma aba
+    // porque não é informação de rotina — é a resposta para "por que o SIGAA
+    // me bloqueou?", e essa pergunta se faz uma vez por semestre.
+    void abrirDiagnostico();
+
     // Recarrega a tela a partir do banco. Devolve false se o banco não abriu.
     bool recarregarDoBanco();
     void mostrar(const Snapshot& s);
 
-    // --- o dia (aba inicial) -----------------------------------------------
-    // As aulas de hoje e de amanhã com o material de cada uma, acima da lista
-    // de prazos. O prazo continua ali, mas deixou de ser a primeira coisa que
-    // a pessoa vê: prazo é o que vence, aula é o que acontece hoje.
-    void montarDia(const Snapshot& s);
+    // --- a agenda (aba inicial) --------------------------------------------
+    // As aulas da semana com o material de cada uma, acima da lista de prazos.
+    // O prazo continua ali, mas deixou de ser a primeira coisa que a pessoa vê:
+    // prazo é o que vence, aula é o que acontece hoje.
+    //
+    // Pagina de semana em semana em vez de rolar o semestre inteiro numa lista
+    // só: a semana é a unidade em que o aluno pensa ("o que tem quarta?"), e uma
+    // árvore com 120 dias abriria sempre no mesmo lugar errado — o topo, que é
+    // fevereiro. A paginação também dá um lugar honesto para o fim dos dados:
+    // o botão desliga na borda do que a coleta conhece.
+    void montarAgenda();
+    void montarBarraAgenda();
+    // Ancora a agenda na semana que contém `dia` e redesenha.
+    void irParaSemana(QDate dia);
+    void deslocarAgenda(int semanas);
 
     // --- dashboard de provas ---------------------------------------------
     void montarProvas();
@@ -80,8 +101,8 @@ private:
 
     // --- turmas ------------------------------------------------------------
     void montarTurmas();
-    void abrirTurma();        // a partir da aba Turmas
-    void abrirTurmaDoDia();   // a partir de uma aula da aba Hoje
+    void abrirTurma();          // a partir da aba Turmas
+    void abrirTurmaDaAgenda();  // a partir de uma aula da aba Agenda
     void abrirJanelaDaTurma(const Turma& turma);
     void sincronizar(bool comTurmas);
     void aoConcluir();
@@ -118,6 +139,10 @@ private:
     // usuário acabou de digitar seria esquecida na hora.
     plat::Credenciais sessao_;
 
+    // Uma só, criada no primeiro Ctrl+D e mantida: duas registrariam dois
+    // observadores no mesmo tráfego, e o histórico apareceria em dobro.
+    JanelaDiagnostico* diagnostico_{nullptr};
+
     Trabalhador* trabalho_{nullptr};
     Snapshot snapshot_;
     QString relatorio_;   // caminho do último relatório gerado, ou vazio
@@ -126,6 +151,17 @@ private:
     // do usuário, e trocar o modelo por baixo dele não deveria devolvê-lo à
     // lista inteira sem ele pedir.
     QDate diaFiltrado_;
+
+    // Segunda-feira da semana mostrada na agenda. Inválida = ainda não ancorada
+    // (o primeiro `mostrar` a coloca na semana de hoje). Sobrevive ao sync pelo
+    // mesmo motivo do filtro de provas: a semana é escolha do usuário, e o ciclo
+    // automático de 20 minutos não pode arrastá-lo de volta para hoje enquanto
+    // ele olha a semana que vem.
+    QDate inicioAgenda_;
+
+    // Acumulador da roda horizontal: um trackpad manda dezenas de eventos de
+    // poucos graus, e virar a semana em cada um daria um borrão de meses.
+    int rolagemAgenda_{0};
 };
 
 } // namespace sigaa::ui

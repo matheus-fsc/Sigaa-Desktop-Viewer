@@ -91,15 +91,17 @@ universidade e podemos desenhar juntos a abstração.
 
 ## Build
 
-Requisitos: **CMake ≥ 3.24**, um compilador C++20 (MSVC 2022+, GCC 12+, Clang 15+) e **vcpkg**.
+Requisitos: **CMake ≥ 3.24** e um compilador C++20 (MSVC 2022+, GCC 12+, Clang 15+).
+As dependências vêm do **vcpkg** ou do **gerenciador de pacotes da distro** — o
+`CMakeLists.txt` aceita as duas procedências, e cada `find_package` tem plano B.
 
-```sh
-# vcpkg, se ainda não tiver
+### Windows (vcpkg)
+
+```powershell
 git clone https://github.com/microsoft/vcpkg
-./vcpkg/bootstrap-vcpkg.sh        # Windows: .\vcpkg\bootstrap-vcpkg.bat
-export VCPKG_ROOT=$PWD/vcpkg      # Windows: setx VCPKG_ROOT "%CD%\vcpkg"
+.\vcpkg\bootstrap-vcpkg.bat
+setx VCPKG_ROOT "%CD%\vcpkg"
 
-# configurar + compilar (troque `windows` por `linux` / `macos`)
 cmake --preset windows
 cmake --build --preset windows
 ctest --preset windows
@@ -107,19 +109,68 @@ ctest --preset windows
 
 As dependências vêm do manifesto `vcpkg.json` — não é preciso instalar nada à mão.
 
+### Linux (pacotes da distro)
+
+Use o preset **`linux-distro`**: ele não passa pelo vcpkg. O preset `linux`
+continua existindo para quem quiser o vcpkg também no Linux.
+
+```sh
+# Arch / CachyOS / Manjaro
+sudo pacman -S --needed base-devel cmake ninja curl sqlite nlohmann-json spdlog catch2 qt6-base qt6-svg
+# lexbor não está nos repos oficiais — vem do AUR:
+yay -S lexbor          # ou paru -S lexbor
+
+# Debian / Ubuntu
+sudo apt install build-essential cmake ninja-build libcurl4-openssl-dev libsqlite3-dev \
+                 nlohmann-json3-dev libspdlog-dev catch2 qt6-base-dev libqt6svg6-dev
+# lexbor: pacote `liblexbor-dev` no Debian 13+/Ubuntu 24.10+; nas versões
+# anteriores, compile de github.com/lexbor/lexbor (cmake, dois minutos).
+
+cmake --preset linux-distro
+cmake --build --preset linux-distro
+ctest --preset linux-distro
+```
+
+Em tempo de execução, o app usa dois programas externos e **degrada sozinho sem
+eles**: `secret-tool` (pacote `libsecret`) para guardar a senha no chaveiro —
+KWallet no KDE, GNOME Keyring no GNOME — e `notify-send` (`libnotify`) para as
+notificações. Sem o primeiro o app cai para o `.env` e avisa; sem o segundo a
+novidade aparece só na janela.
+
 ### Onde fica o release
 
-**`dist/`.** Um comando, um caminho:
+**`dist/`.** Um comando, um caminho — um script por plataforma:
 
 ```powershell
 pwsh -File tools/empacotar.ps1
 # -> dist/SIGAA-Desktop-Viewer-v<versão>-windows-x64/  (e o .zip ao lado)
 ```
 
-O script compila em Release, **roda os testes antes de empacotar** e monta a
-pasta com os dois executáveis, as DLLs do Qt e do vcpkg, os plugins que o
-`windeployqt` escolheu, o README e o `.env.example`. É o que o usuário final
+```sh
+tools/empacotar.sh
+# -> dist/SIGAA-Desktop-Viewer-v<versão>-x86_64.AppImage
+```
+
+O script do Windows compila em Release, **roda os testes antes de empacotar** e
+monta a pasta com os dois executáveis, as DLLs do Qt e do vcpkg, os plugins que
+o `windeployqt` escolheu, o README e o `.env.example`. É o que o usuário final
 recebe: descompactar e abrir o `sigaa-ui.exe`, sem Qt instalado.
+
+O do Linux faz o mesmo com **AppImage**: configura, compila, roda o `ctest`,
+instala num `AppDir` (`cmake --install`) e chama o `linuxdeploy`, que copia as
+bibliotecas do sistema para dentro do pacote. Os plugins do Qt — plataforma
+(xcb/wayland), iconengine de SVG, formatos de imagem — são copiados por uma
+lista explícita, e **não** pelo `--plugin qt` do linuxdeploy: aquele plugin leva
+a pasta de plugins inteira, o que numa máquina com KDE inclui os `kimg_*` do
+kimageformats. Um deles tem dependência opcional que quase ninguém instala, o
+linuxdeploy não a encontra e aborta o empacotamento — ou seja, ele falha
+justamente na distro do desenvolvedor típico deste projeto. O resultado é **um arquivo**: `chmod +x`, duplo clique, sem
+sudo, sem repositório e sem depender da versão de Qt da distro de quem baixou.
+As ferramentas do linuxdeploy (~120 MB) ficam em `~/.cache/sigaa-viewer/`, não
+no repositório. AppImage não é o formato mais elegante para quem já sabe usar os
+repositórios da distro — mas o público aqui é aluno de graduação, cada um numa
+distro diferente, e o `cmake --install` que o script usa é o mesmo que um
+PKGBUILD ou um `.deb` usaria no dia em que alguém quiser empacotar assim.
 
 Nada dentro de `build/` é o release, e vale saber por quê antes de procurar lá:
 
@@ -194,6 +245,14 @@ Não são preferências — são consequências do recon, e quebrá-las tem cust
 | Limite rígido de tentativas de login | Senha errada em loop **bloqueia a conta do usuário** |
 | `JSESSIONID` só em memória | `CURLOPT_COOKIEFILE ""` — o cookie nunca toca o disco |
 
+Essas quatro invariantes têm um defeito em comum: **são invisíveis**. Um laço de
+navegação não trava o app nem levanta exceção — ele só faz o SIGAA ver um
+cliente se comportando como robô, com a conta de um aluno de verdade. Por isso
+toda requisição passa por `core/http/Trafego`, que numera, guarda e publica o
+que saiu: `sigaa-cli --log-http` imprime no stderr e a interface tem a janela de
+**Diagnóstico** (`Ctrl+D`). Não entra corpo, cookie nem senha no registro — a
+janela tem botão de copiar, e é para colar em issue.
+
 ### Convenção de testes
 
 Nomes de `TEST_CASE` em **ASCII puro**. O CTest repassa o nome como filtro ao
@@ -267,7 +326,7 @@ O ciclo de turmas entra em cada turma e, dentro dela, abre a aba **Arquivos**.
 novidade mais frequente do semestre, e a única que o portal nunca mostra: as
 "Atualizações das Turmas" trazem um texto solto ("Novo Arquivo: …"), sem id,
 sem título confiável e sem o material. O evento aparece como *material novo* na
-lista de novidades e alimenta a contagem de arquivos na aba Hoje. Custa uma
+lista de novidades e alimenta a contagem de arquivos na aba Agenda. Custa uma
 requisição por turma; `--sem-arquivos` desliga no CLI.
 
 As frequências são diferentes de propósito. Prazo de atividade muda a qualquer
@@ -278,7 +337,7 @@ descobrir quase sempre a mesma coisa (ver *Etiqueta*).
 
 Isso só é seguro porque o banco faz *upsert*: um ciclo só-portal **não apaga**
 as provas, as aulas nem os arquivos já conhecidos, e o DiffEngine ignora essas
-três categorias quando a coleta veio sem turmas. Sem isso a aba Hoje ficaria
+três categorias quando a coleta veio sem turmas. Sem isso a aba Agenda ficaria
 vazia a cada 20 minutos, e a primeira coleta completa seguinte anunciaria o
 acervo inteiro de cada turma como "material novo". Travado em
 `tests/database_test.cpp` e `tests/diff_engine_test.cpp`.
@@ -372,23 +431,44 @@ continuam compilando. Quem só quer mexer no parser não precisa baixar 1,5 GB.
 
 ### O que a janela faz
 
-Quatro abas, na ordem das perguntas que o aluno faz: **Hoje**, **Provas**,
+Quatro abas, na ordem das perguntas que o aluno faz: **Agenda**, **Provas**,
 **Turmas** e **Atualizações**.
 
-**Hoje** é a tela inicial: em cima, as aulas de hoje e de amanhã — o tópico que
-o professor registrou, a turma e quantos arquivos ele pendurou naquela aula;
+**Agenda** é a tela inicial: em cima, as aulas da semana — o tópico que o
+professor registrou, a turma e quantos arquivos ele pendurou naquela aula;
 embaixo, a lista de prazos, com "em 2 dias" em laranja e atrasado em vermelho.
 Duplo clique numa aula entra na turma.
+
+A semana é a página, e ◀ / ▶ (ou `Alt+←` / `Alt+→`, ou rolagem horizontal sobre
+a lista) viram a página; **Hoje** volta para a semana atual. O semestre inteiro
+já está no banco depois do primeiro ciclo com turmas — mostrar dois dias jogava
+fora dado que custou ~22 requisições e mandava o aluno de volta ao SIGAA para
+"o que tem quarta que vem?". Os botões desligam na borda do que a coleta
+conhece: paginar para o vazio confundiria *não há aula* com *não temos esse
+pedaço do semestre*, e o rótulo diz qual dos dois é. Dentro da semana, só os
+dias com aula abrem — sete grupos abertos, cinco deles vazios, empurrariam a
+quarta-feira para fora da tela.
+
+Um tópico de aula tem um **intervalo**, e muito professor registra um bloco de
+semanas ("Desenvolvimento Móvel, 07/08 a 28/08"). Esse intervalo diz em que
+período a unidade corre, **não** que há aula todo dia dentro dele — tomá-lo ao
+pé da letra colocava a mesma aula no sábado, no domingo e em toda quarta de uma
+turma que só encontra às sextas. Por isso o bloco é cruzado com o código de
+horário da turma (`6M2345` = sexta de manhã, `24M23` = segunda e quarta), que a
+coleta já trazia e a aba Turmas já mostrava. Sem código legível, o bloco vale
+inteiro — sem a grade, alargar é menos errado do que esconder uma aula. Tópico
+de **um dia só** nunca é filtrado: reposição de sábado é exatamente o que não
+pode sumir. Travado em `tests/calendario_test.cpp`.
 
 Os prazos desceram para o rodapé de propósito. Prazo é o que *vence*; aula é o
 que *acontece hoje* — e era justamente essa a pergunta que o app não respondia,
 apesar de já ter o dado no banco. O divisor é arrastável, então quem prefere a
 lista de prazos grande a puxa para cima.
 
-Amanhã aparece junto de hoje porque quem abre o app às 22h está se preparando
-para o dia seguinte: uma tela que diz "nenhuma aula hoje" àquela hora está certa
-e é inútil. E "ainda não coletei as aulas" é uma mensagem diferente de "não há
-aula hoje" — a primeira é a tela admitindo que não sabe, e confundir as duas
+A semana inteira aparece, e não só hoje, porque quem abre o app às 22h está se
+preparando para o dia seguinte e quem abre no domingo está planejando a semana:
+uma tela que diz "nenhuma aula hoje" àquela hora está certa e é inútil. E "ainda
+não coletei as aulas" é uma mensagem diferente de "não há aula hoje" — a primeira é a tela admitindo que não sabe, e confundir as duas
 faria o aluno concluir que está livre.
 
 Duas decisões que valem mais que o layout:
@@ -430,6 +510,29 @@ laranja para os próximos 7 dias.
 Clicar num dia filtra a lista; clicar de novo desfaz. Clicar num dia **sem** prova
 não esvazia a tabela — diz "18 de agosto não tem prova" e mantém tudo à vista,
 porque uma tabela em branco depois de um clique parece defeito, não resposta.
+
+### Diagnóstico: o tráfego com o SIGAA (`Ctrl+D`)
+
+Uma janela com **todas** as requisições, na ordem: método, caminho, HTTP, bytes,
+tempo de rede, quanto o rate limit segurou antes de sair, tentativas e o tipo de
+página que voltou. Fica aberta enquanto o sync roda, que é quando ela serve.
+
+Ela responde uma pergunta só: *estou batendo demais no servidor da
+universidade?* Três coisas ficam explícitas, e cada uma existe por um modo de
+falha real:
+
+- **repetição** do mesmo endereço em sequência, pintada de vermelho a partir da
+  terceira — é a assinatura de laço de navegação, e o que o SIGAA responde a um
+  laço é bloqueio de conta;
+- **ritmo** do último minuto, e não a média desde que o app abriu: a média
+  dilui exatamente o pico que interessa;
+- **o que o SIGAA respondeu**. Uma sequência de `TurmaVirtual` que vira `Login`
+  no meio do crawl é sessão expirada — o modo de falha que devolve coleta vazia
+  *sem erro nenhum*, e que sem esta tela é indistinguível de "o semestre acabou".
+
+O mesmo registro no CLI: `sigaa-cli --log-http sync --turmas`. Vale para
+qualquer subcomando, porque o que interessa observar é o que o comando faz por
+dentro — o login sozinho são duas requisições.
 
 ### Turmas: entrar e baixar o material
 
@@ -580,7 +683,7 @@ não são arquivo aparecem na árvore de aulas, mas em cinza: sabemos listá-los
 não abri-los. O download passa inteiro pela memória antes de ir ao disco, o que
 serve para PDF de aula mas incharia com um vídeo de 1 GB — e com N canais são N
 arquivos na memória ao mesmo tempo, que é mais uma razão para o teto ser 3.
-Fora a UNIFEI, nenhuma instituição foi testada contra o site real. A aba Hoje
+Fora a UNIFEI, nenhuma instituição foi testada contra o site real. A aba Agenda
 depende de um ciclo com turmas ter rodado ao menos uma vez: antes disso ela diz
 que não sabe, em vez de afirmar que não há aula. O ícone da bandeja já existe e mostra o aviso agregado quando
 a janela não está em foco. As strings estão fixas em português, sem `tr()` nem

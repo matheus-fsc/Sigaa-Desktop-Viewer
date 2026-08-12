@@ -194,12 +194,25 @@ ResumoProvas resumoProvas(const Snapshot& s) {
 
 namespace {
 
+// Código de horário por turma ("24M23"), para o `caiEm` saber em que dias da
+// semana aquela turma encontra. Sem isto, um tópico que cobre três semanas
+// aparece no sábado e no domingo — foi o que aconteceu com "Desenvolvimento
+// Móvel" (07/08 a 28/08, turma que só tem aula na sexta).
+QHash<QString, std::string> horariosDasTurmas(const Snapshot& s) {
+    QHash<QString, std::string> h;
+    for (const auto& t : s.turmas) {
+        h.insert(QString::fromStdString(t.idTurma), t.horario);
+    }
+    return h;
+}
+
 // A regra de "esta aula acontece neste dia" vive em core/calendar, com teste
-// headless: ela lida com tópicos que cobrem um bloco de dias, e errar ali
-// esvazia a tela em silêncio.
-bool caiEm(const TopicoAula& t, QDate d) {
+// headless: ela cruza o bloco de dias do tópico com a grade horária da turma, e
+// errar ali esvazia a tela (ou a enche de aula que não existe) em silêncio.
+bool caiEm(const TopicoAula& t, QDate d, const QHash<QString, std::string>& horarios) {
     return calendario::aulaOcorreEm(
-        t, DateTime{d.year(), d.month(), d.day(), 0, 0, false});
+        t, DateTime{d.year(), d.month(), d.day(), 0, 0, false},
+        horarios.value(QString::fromStdString(t.idTurma)));
 }
 
 // Quantos arquivos o professor pendurou nesta aula. A coluna "Tópico de Aula"
@@ -216,14 +229,33 @@ int materiaisDoTopico(const Snapshot& s, const TopicoAula& t) {
     return (std::max)(n, static_cast<int>(t.materiais.size()));
 }
 
+// Cabeçalho de um dia: "Hoje — quarta, 12 de agosto".
+//
+// QLocale().toString, e não QDate::toString: a sobrecarga de QDate com string
+// de formato usa a locale C no Qt 6, e o cabeçalho sairia "Wednesday, 12 de
+// August" — meio traduzido, que é pior que nenhum.
+QString rotuloDoDia(QDate dia, QDate hoje) {
+    QString quando = QLocale().toString(dia, QStringLiteral("dddd, d 'de' MMMM"));
+    if (!quando.isEmpty()) quando[0] = quando[0].toUpper();
+
+    const qint64 delta = hoje.daysTo(dia);
+    if (delta == 0) return QStringLiteral("Hoje — ") + quando;
+    if (delta == 1) return QStringLiteral("Amanhã — ") + quando;
+    if (delta == -1) return QStringLiteral("Ontem — ") + quando;
+    return quando;
+}
+
+// Destaque só para o dia de hoje e para os dias à frente que TÊM aula. O que
+// já passou e o que está vazio ficam esmaecidos: numa semana inteira na tela,
+// se todo cabeçalho tiver o mesmo peso, nenhum orienta o olho — e o dia que a
+// pessoa abriu o app para ver é o de hoje.
 QStandardItem* grupoDia(const QString& texto, bool destacado) {
     auto* g = item(texto);
     QFont f = g->font();
     f.setBold(true);
     g->setFont(f);
-    // "Amanhã" fica esmaecido: é contexto, não a coisa que a pessoa veio ver.
-    // O texto do próprio grupo já diz qual é qual — a cor só reforça, nunca
-    // carrega a informação sozinha.
+    // A cor só reforça, nunca carrega a informação sozinha: o texto do próprio
+    // grupo já diz de que dia se trata.
     if (!destacado) g->setForeground(QBrush(cor::apagado()));
     return g;
 }
@@ -233,16 +265,46 @@ QStandardItem* grupoDia(const QString& texto, bool destacado) {
 ResumoDia resumoDia(const Snapshot& s, QDate hoje) {
     ResumoDia r;
     r.semDados = s.topicos.empty();
+    const auto horarios = horariosDasTurmas(s);
     for (const auto& t : s.topicos) {
-        if (caiEm(t, hoje)) ++r.aulasHoje;
-        else if (caiEm(t, hoje.addDays(1))) ++r.aulasAmanha;
+        if (caiEm(t, hoje, horarios)) ++r.aulasHoje;
+        else if (caiEm(t, hoje.addDays(1), horarios)) ++r.aulasAmanha;
     }
     return r;
 }
 
-QStandardItemModel* modeloDia(const Snapshot& s, QDate hoje, QObject* pai) {
+int aulasEntre(const Snapshot& s, QDate inicio, QDate fim) {
+    int n = 0;
+    const auto horarios = horariosDasTurmas(s);
+    for (QDate d = inicio; d.isValid() && d <= fim; d = d.addDays(1)) {
+        for (const auto& t : s.topicos) {
+            if (caiEm(t, d, horarios)) ++n;
+        }
+    }
+    return n;
+}
+
+FaixaAgenda faixaAgenda(const Snapshot& s) {
+    FaixaAgenda f;
+    for (const auto& t : s.topicos) {
+        // O fim vale como limite superior; quando o professor registrou um dia
+        // só, `fim` vem inválido e o início responde pelos dois lados.
+        const QDate a = paraQDate(t.inicio);
+        const QDate b = paraQDate(t.fim);
+        for (const QDate d : {a, b}) {
+            if (!d.isValid()) continue;
+            if (!f.primeiro.isValid() || d < f.primeiro) f.primeiro = d;
+            if (!f.ultimo.isValid() || d > f.ultimo) f.ultimo = d;
+        }
+    }
+    return f;
+}
+
+QStandardItemModel* modeloAgenda(const Snapshot& s, QDate inicio, QDate fim, QDate hoje,
+                                 QObject* pai) {
     auto* m = novoModelo(pai, {QStringLiteral("Aula"), QStringLiteral("Turma"),
                                QStringLiteral("Material")});
+    if (!inicio.isValid() || !fim.isValid()) return m;
 
     // Nome da turma por id: o tópico só guarda o id, e "88094" na tela não diz
     // nada a ninguém.
@@ -250,28 +312,13 @@ QStandardItemModel* modeloDia(const Snapshot& s, QDate hoje, QObject* pai) {
     for (const auto& t : s.turmas) {
         nomeDaTurma.insert(QString::fromStdString(t.idTurma), umaLinha(t.nome));
     }
+    const auto horarios = horariosDasTurmas(s);
 
-    const struct {
-        QDate dia;
-        QString rotulo;
-        bool destacado;
-    } grupos[] = {
-        {hoje, QStringLiteral("Hoje"), true},
-        {hoje.addDays(1), QStringLiteral("Amanhã"), false},
-    };
+    for (QDate dia = inicio; dia <= fim; dia = dia.addDays(1)) {
+        QList<QList<QStandardItem*>> filhos;
 
-    for (const auto& g : grupos) {
-        // QLocale().toString, e não QDate::toString: a sobrecarga de QDate com
-        // string de formato usa a locale C no Qt 6, e o cabeçalho sairia
-        // "Wednesday, 12 de August" — meio traduzido, que é pior que nenhum.
-        const QString quando =
-            QLocale().toString(g.dia, QStringLiteral("dddd, d 'de' MMMM"));
-        auto* pai_ = grupoDia(g.rotulo + QStringLiteral(" — ") + quando, g.destacado);
-
-        int n = 0;
         for (const auto& t : s.topicos) {
-            if (!caiEm(t, g.dia)) continue;
-            ++n;
+            if (!caiEm(t, dia, horarios)) continue;
 
             const QString idTurma = QString::fromStdString(t.idTurma);
             auto* aula = item(umaLinha(t.titulo));
@@ -279,20 +326,28 @@ QStandardItemModel* modeloDia(const Snapshot& s, QDate hoje, QObject* pai) {
             if (!t.conteudo.empty()) aula->setToolTip(umaLinha(t.conteudo));
 
             const int mats = materiaisDoTopico(s, t);
-            pai_->appendRow({aula, item(nomeDaTurma.value(idTurma, idTurma)),
-                             item(mats == 0 ? QString()
-                                            : QStringLiteral("%1 arquivo(s)").arg(mats),
-                                  mats)});
+            filhos.append({aula, item(nomeDaTurma.value(idTurma, idTurma)),
+                           item(mats == 0 ? QString()
+                                          : QStringLiteral("%1 arquivo(s)").arg(mats),
+                                mats)});
         }
 
+        const int n = filhos.size();
+        auto* grupo = grupoDia(rotuloDoDia(dia, hoje),
+                               /*destacado=*/dia == hoje || (n > 0 && dia > hoje));
+        // Quantas aulas o dia tem, para quem desenha decidir o que expandir sem
+        // ter que percorrer o modelo de novo.
+        grupo->setData(n, PapelOrdenacao);
+
+        for (const auto& linha : filhos) grupo->appendRow(linha);
         if (n == 0) {
             // Linha explícita em vez de grupo vazio: um grupo sem filhos parece
             // um erro de carregamento, e a pessoa fica esperando algo aparecer.
             auto* vazio = item(QStringLiteral("Nenhuma aula registrada."));
             vazio->setForeground(QBrush(cor::apagado()));
-            pai_->appendRow({vazio, item(QString()), item(QString())});
+            grupo->appendRow({vazio, item(QString()), item(QString())});
         }
-        m->appendRow({pai_, item(QString()), item(QString())});
+        m->appendRow({grupo, item(QString()), item(QString())});
     }
     return m;
 }
