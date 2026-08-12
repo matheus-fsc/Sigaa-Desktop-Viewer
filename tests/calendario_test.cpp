@@ -299,6 +299,63 @@ TEST_CASE("topico sem data nunca cai num dia", "[calendario]") {
     CHECK_FALSE(calendario::aulaOcorreEm(aula("x", 12), DateTime{}));
 }
 
+TEST_CASE("codigo de horario do SIGAA vira dias da semana", "[calendario]") {
+    using Dias = std::set<int>;   // ISO: 1 = segunda ... 7 = domingo
+
+    CHECK(calendario::diasDeAula("24M23") == Dias{1, 3});      // segunda e quarta
+    CHECK(calendario::diasDeAula("6M2345") == Dias{5});        // so sexta
+    CHECK(calendario::diasDeAula("35T34") == Dias{2, 4});      // terca e quinta
+    CHECK(calendario::diasDeAula("7T12") == Dias{6});          // sabado
+    CHECK(calendario::diasDeAula("1M12") == Dias{7});          // domingo
+    CHECK(calendario::diasDeAula("2M12 4T34") == Dias{1, 3});  // dois blocos
+    CHECK(calendario::diasDeAula("2m12") == Dias{1});          // turno minusculo
+
+    // "Nao sei" tem que ser distinguivel de "nenhum dia": quem chama alarga o
+    // bloco quando nao sabe, e esconderia a aula se tratasse os dois igual.
+    CHECK(calendario::diasDeAula("").empty());
+    CHECK(calendario::diasDeAula("A definir").empty());
+    CHECK(calendario::diasDeAula("8M12").empty());   // dia fora de 1..7
+}
+
+TEST_CASE("bloco de varias semanas so cai nos dias de aula da turma",
+          "[calendario]") {
+    // O caso real que motivou isto: "Desenvolvimento Movel", 07/08 a 28/08,
+    // numa turma que so encontra na sexta ("6M2345"). Sem a grade horaria o
+    // topico aparecia em TODOS os dias do bloco — inclusive sabado e domingo.
+    const auto t = aula("Desenvolvimento Movel", 7, 28);
+
+    CHECK(calendario::aulaOcorreEm(t, dia(7), "6M2345"));    // sexta
+    CHECK(calendario::aulaOcorreEm(t, dia(14), "6M2345"));   // sexta
+    CHECK(calendario::aulaOcorreEm(t, dia(28), "6M2345"));   // sexta
+    CHECK_FALSE(calendario::aulaOcorreEm(t, dia(8), "6M2345"));    // sabado
+    CHECK_FALSE(calendario::aulaOcorreEm(t, dia(9), "6M2345"));    // domingo
+    CHECK_FALSE(calendario::aulaOcorreEm(t, dia(12), "6M2345"));   // quarta
+
+    // E fora do bloco continua fora, mesmo sendo sexta.
+    CHECK_FALSE(calendario::aulaOcorreEm(t, dia(29), "6M2345"));
+
+    // Sem o horario, o comportamento antigo: o bloco vale inteiro. Alargar e
+    // menos errado do que esconder uma aula porque nao sabemos a grade.
+    CHECK(calendario::aulaOcorreEm(t, dia(9)));
+}
+
+TEST_CASE("bloco sem nenhum dia de aula dentro aparece no inicio",
+          "[calendario]") {
+    // Turma de sexta ("6T34") com um topico de segunda a quarta: nenhuma sexta
+    // cai no intervalo. Sumir seria pior — e uma aula registrada.
+    const auto t = aula("Semana de revisao", 10, 12);
+    CHECK(calendario::aulaOcorreEm(t, dia(10), "6T34"));
+    CHECK_FALSE(calendario::aulaOcorreEm(t, dia(11), "6T34"));
+    CHECK_FALSE(calendario::aulaOcorreEm(t, dia(12), "6T34"));
+}
+
+TEST_CASE("topico de um dia so ignora a grade horaria", "[calendario]") {
+    // Reposicao num sabado numa turma de segunda e quarta. O professor apontou
+    // a data; a grade nao pode desmentir um dia cadastrado a dedo.
+    const auto t = aula("Reposicao", 8, 8);
+    CHECK(calendario::aulaOcorreEm(t, dia(8), "24M23"));
+}
+
 TEST_CASE("aulasDoDia filtra e preserva a ordem", "[calendario]") {
     const std::vector<TopicoAula> todos = {aula("Primeira", 12, 12),
                                            aula("Outra", 13, 13),

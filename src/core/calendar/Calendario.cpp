@@ -1,6 +1,8 @@
 #include "core/calendar/Calendario.h"
 
 #include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <map>
 #include <sstream>
@@ -87,12 +89,64 @@ std::string dobrarLinha(std::string_view linhaLogica) {
 
 // ---------------------------------------------------------------------------
 
-bool aulaOcorreEm(const TopicoAula& t, const DateTime& d) {
+std::set<int> diasDeAula(std::string_view horario) {
+    std::set<int> dias;
+
+    // Uma passada só, sem regex: acumula dígitos até encontrar o turno (M/T/N);
+    // o que veio antes são os dias, o que vem depois são os horários, que não
+    // interessam aqui. Qualquer outro caractere reinicia o bloco — é o que faz
+    // "2M12 4T34" valer sem tratar espaço como caso especial.
+    std::string digitos;
+    for (const char c : horario) {
+        if (c >= '0' && c <= '9') {
+            digitos.push_back(c);
+            continue;
+        }
+        const char turno = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        if (turno == 'M' || turno == 'T' || turno == 'N') {
+            for (const char dc : digitos) {
+                // O SIGAA numera 1 = domingo ... 7 = sábado. O resto do mundo
+                // (e o std::chrono) usa ISO, com a semana começando na segunda;
+                // converter aqui evita que a diferença vaze para o chamador.
+                const int sigaa = dc - '0';
+                if (sigaa >= 1 && sigaa <= 7) dias.insert(sigaa == 1 ? 7 : sigaa - 1);
+            }
+        }
+        digitos.clear();
+    }
+    return dias;
+}
+
+namespace {
+
+int soData(const DateTime& x) { return x.year * 10000 + x.month * 100 + x.day; }
+
+std::chrono::sys_days paraDias(const DateTime& d) {
+    using namespace std::chrono;
+    return sys_days{year{d.year} / month{static_cast<unsigned>(d.month)} /
+                    day{static_cast<unsigned>(d.day)}};
+}
+
+int diaDaSemanaIso(std::chrono::sys_days d) {
+    return static_cast<int>(std::chrono::weekday{d}.iso_encoding());
+}
+
+// Algum dia de aula da turma cai dentro do bloco? Percorrer é barato — o laço
+// para no primeiro acerto, e uma semana inteira sempre acerta.
+bool blocoTemDiaDeAula(const DateTime& ini, const DateTime& fim,
+                       const std::set<int>& dias) {
+    using namespace std::chrono;
+    for (sys_days d = paraDias(ini); d <= paraDias(fim); d += days{1}) {
+        if (dias.count(diaDaSemanaIso(d))) return true;
+    }
+    return false;
+}
+
+} // namespace
+
+bool aulaOcorreEm(const TopicoAula& t, const DateTime& d, std::string_view horarioTurma) {
     if (!d.valid() || !t.inicio.valid()) return false;
 
-    auto soData = [](const DateTime& x) {
-        return x.year * 10000 + x.month * 100 + x.day;
-    };
     const int dia = soData(d);
     const int ini = soData(t.inicio);
 
@@ -100,8 +154,20 @@ bool aulaOcorreEm(const TopicoAula& t, const DateTime& d) {
     // quebrado do parser não pode alargar o intervalo — alargar faria a aula
     // aparecer em dias em que ela não acontece, que é o erro que o aluno
     // levaria a sério.
+    //
+    // A grade horária NÃO filtra este caso, de propósito: o professor apontou
+    // uma data específica, e uma aula de reposição num sábado é exatamente o
+    // tipo de coisa que o aluno não pode deixar de ver.
     if (!t.fim.valid() || soData(t.fim) < ini) return dia == ini;
-    return dia >= ini && dia <= soData(t.fim);
+    if (dia < ini || dia > soData(t.fim)) return false;
+
+    const std::set<int> dias = diasDeAula(horarioTurma);
+    if (dias.empty()) return true;   // sem grade legível, o bloco vale inteiro
+    if (dias.count(diaDaSemanaIso(paraDias(d)))) return true;
+
+    // Bloco que não cruza nenhum dia de aula (feriado, semana de prova, código
+    // de horário de outra turma): cai no primeiro dia em vez de sumir.
+    return dia == ini && !blocoTemDiaDeAula(t.inicio, t.fim, dias);
 }
 
 std::vector<TopicoAula> aulasDoDia(const std::vector<TopicoAula>& topicos,
