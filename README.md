@@ -449,6 +449,20 @@ pedaço do semestre*, e o rótulo diz qual dos dois é. Dentro da semana, só os
 dias com aula abrem — sete grupos abertos, cinco deles vazios, empurrariam a
 quarta-feira para fora da tela.
 
+A aula da agenda nasce da **grade horária da turma** (`6M2345`, `24T34`), não do
+tópico que o professor registrou. A diferença apareceu em produção: Compiladores
+tem aula toda segunda e quarta, mas o professor não publicou tópico nenhum na
+Turma Virtual — e a agenda, que só desenhava tópicos, dizia que a quarta-feira
+tinha duas aulas quando tinha três. O aluno usa essa contagem para decidir se
+vai à faculdade; ela não pode depender de o professor ter preenchido a linha do
+tempo. Quando não há tópico, a linha aparece com *"sem tópico registrado"* —
+informação diferente de "não há aula". O turno também ordena o dia: manhã antes
+de tarde antes de noite.
+
+Um tópico datado num dia em que a turma **não** tem horário (reposição, prova,
+semana especial) aparece marcado como `extra`. Foi o professor que apontou a
+data, e é justamente o tipo de aula que não pode passar batido.
+
 Um tópico de aula tem um **intervalo**, e muito professor registra um bloco de
 semanas ("Desenvolvimento Móvel, 07/08 a 28/08"). Esse intervalo diz em que
 período a unidade corre, **não** que há aula todo dia dentro dele — tomá-lo ao

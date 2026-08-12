@@ -317,6 +317,34 @@ TEST_CASE("codigo de horario do SIGAA vira dias da semana", "[calendario]") {
     CHECK(calendario::diasDeAula("8M12").empty());   // dia fora de 1..7
 }
 
+TEST_CASE("horario tambem devolve turno e ordem dentro do dia", "[calendario]") {
+    // O turno e o que ordena a agenda do dia: sem ele, a aula da tarde aparece
+    // antes da aula da manha sempre que o crawler devolver as turmas nessa
+    // ordem — e uma agenda fora de ordem cronologica nao e agenda.
+    const auto manha = calendario::lerHorario("24M23");
+    REQUIRE(manha.size() == 1);
+    CHECK(manha[0].turno == 'M');
+    CHECK(manha[0].horarios == std::vector<int>{2, 3});
+    CHECK(manha[0].codigo() == "M23");
+
+    const auto tarde = calendario::lerHorario("24T34");
+    REQUIRE(tarde.size() == 1);
+    CHECK(tarde[0].ordem() > manha[0].ordem());
+
+    const auto noite = calendario::lerHorario("35N12");
+    REQUIRE(noite.size() == 1);
+    CHECK(noite[0].ordem() > tarde[0].ordem());
+
+    // Dois blocos: a turma encontra segunda de manha e quarta a tarde.
+    const auto dois = calendario::lerHorario("2M12 4T34");
+    REQUIRE(dois.size() == 2);
+    CHECK(dois[0].dias == std::set<int>{1});
+    CHECK(dois[1].dias == std::set<int>{3});
+    CHECK(dois[1].codigo() == "T34");
+
+    CHECK(calendario::lerHorario("A definir").empty());
+}
+
 TEST_CASE("bloco de varias semanas so cai nos dias de aula da turma",
           "[calendario]") {
     // O caso real que motivou isto: "Desenvolvimento Movel", 07/08 a 28/08,

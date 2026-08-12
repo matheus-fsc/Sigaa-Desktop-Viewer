@@ -89,31 +89,64 @@ std::string dobrarLinha(std::string_view linhaLogica) {
 
 // ---------------------------------------------------------------------------
 
-std::set<int> diasDeAula(std::string_view horario) {
-    std::set<int> dias;
+int BlocoHorario::ordem() const {
+    const int t = turno == 'M' ? 0 : (turno == 'T' ? 1 : 2);
+    return t * 100 + (horarios.empty() ? 0 : horarios.front());
+}
+
+std::string BlocoHorario::codigo() const {
+    std::string s(1, turno);
+    for (const int h : horarios) s += static_cast<char>('0' + h);
+    return s;
+}
+
+std::vector<BlocoHorario> lerHorario(std::string_view horario) {
+    std::vector<BlocoHorario> blocos;
 
     // Uma passada só, sem regex: acumula dígitos até encontrar o turno (M/T/N);
-    // o que veio antes são os dias, o que vem depois são os horários, que não
-    // interessam aqui. Qualquer outro caractere reinicia o bloco — é o que faz
-    // "2M12 4T34" valer sem tratar espaço como caso especial.
+    // o que veio antes são os dias, o que vem depois são os horários. Qualquer
+    // outro caractere fecha o bloco — é o que faz "2M12 4T34" valer sem tratar
+    // espaço como caso especial.
+    BlocoHorario atual;
+    bool emHorarios = false;
     std::string digitos;
+
+    auto fechar = [&] {
+        if (emHorarios && !atual.dias.empty()) blocos.push_back(atual);
+        atual = BlocoHorario{};
+        emHorarios = false;
+        digitos.clear();
+    };
+
     for (const char c : horario) {
         if (c >= '0' && c <= '9') {
-            digitos.push_back(c);
+            if (emHorarios) atual.horarios.push_back(c - '0');
+            else digitos.push_back(c);
             continue;
         }
-        const char turno = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-        if (turno == 'M' || turno == 'T' || turno == 'N') {
+        const char t = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        if ((t == 'M' || t == 'T' || t == 'N') && !emHorarios && !digitos.empty()) {
             for (const char dc : digitos) {
                 // O SIGAA numera 1 = domingo ... 7 = sábado. O resto do mundo
                 // (e o std::chrono) usa ISO, com a semana começando na segunda;
                 // converter aqui evita que a diferença vaze para o chamador.
                 const int sigaa = dc - '0';
-                if (sigaa >= 1 && sigaa <= 7) dias.insert(sigaa == 1 ? 7 : sigaa - 1);
+                if (sigaa >= 1 && sigaa <= 7) atual.dias.insert(sigaa == 1 ? 7 : sigaa - 1);
             }
+            atual.turno = t;
+            emHorarios = true;
+            digitos.clear();
+            continue;
         }
-        digitos.clear();
+        fechar();
     }
+    fechar();
+    return blocos;
+}
+
+std::set<int> diasDeAula(std::string_view horario) {
+    std::set<int> dias;
+    for (const auto& b : lerHorario(horario)) dias.insert(b.dias.begin(), b.dias.end());
     return dias;
 }
 

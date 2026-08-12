@@ -138,6 +138,36 @@ struct ResumoDia {
 
 ResumoDia resumoDia(const Snapshot& s, QDate hoje);
 
+// Uma aula na agenda de um dia.
+//
+// A FONTE PRIMÁRIA É A GRADE HORÁRIA DA TURMA, e não o tópico registrado pelo
+// professor. A diferença apareceu na prática: Compiladores tem aula toda
+// segunda e quarta ("24T34"), mas o professor não publicou tópico nenhum na
+// Turma Virtual — e a agenda, que só desenhava tópicos, dizia que a quarta-feira
+// tinha duas aulas quando tinha três. O aluno confia nessa contagem para saber
+// se precisa ir à faculdade; ela não pode depender de o professor ter
+// preenchido a linha do tempo.
+//
+// O tópico continua sendo o CONTEÚDO daquela aula, quando existe. Quando não
+// existe, a aula aparece assim mesmo, dizendo que não há tópico — que é
+// informação diferente de "não há aula".
+struct AulaDoDia {
+    QString idTurma;
+    QString turma;
+    QString horario;    // código do turno, "T34"; vazio se ilegível
+    QString titulo;     // título do tópico, ou vazio
+    QString conteudo;   // para o tooltip
+    int materiais{0};
+    int ordem{0};       // manhã < tarde < noite, depois pelo horário
+    bool semTopico{false};
+    // A turma não tem aula neste dia da semana, mas o professor datou um tópico
+    // aqui: reposição, prova, semana especial. Nunca é escondido.
+    bool foraDaGrade{false};
+};
+
+// As aulas de um dia, já ordenadas por turno/horário.
+std::vector<AulaDoDia> aulasDoDia(const Snapshot& s, QDate dia);
+
 // Quantas aulas caem em [inicio, fim], inclusive nas duas pontas.
 int aulasEntre(const Snapshot& s, QDate inicio, QDate fim);
 

@@ -20,13 +20,36 @@ namespace sigaa::calendario {
 // é inferência por regex sobre um título livre.
 std::vector<Avaliacao> mesclarAvaliacoes(std::vector<Avaliacao> todas);
 
-// Dias da semana em que a turma tem aula, lidos do código de horário do SIGAA:
-// "24M23" = segunda e quarta, 2º e 3º horários da manhã; "6M2345" = só sexta.
-// Vários blocos separados por espaço também valem ("2M12 4T34").
+// Um bloco do código de horário do SIGAA: "24M23" = segunda e quarta, 2º e 3º
+// horários da manhã. Um código pode ter vários blocos ("2M12 4T34").
 //
-// Devolve no padrão ISO — 1 = segunda ... 7 = domingo — e VAZIO quando não dá
-// para ler o código. Vazio significa "não sei", nunca "não tem aula": quem
-// chama trata os dois casos de forma diferente.
+// POR QUE O TURNO E OS HORÁRIOS IMPORTAM, e não só os dias: é o que ordena as
+// aulas dentro do dia. Sem isso a agenda lista a aula da noite antes da aula da
+// manhã sempre que o crawler devolver as turmas nessa ordem — e uma agenda fora
+// de ordem cronológica não é agenda.
+//
+// O que este módulo NÃO faz: converter horário em hora do relógio. "T34" é
+// 15h30 na UNIFEI e pode ser outra coisa na universidade do lado; inventar
+// "15:30" aqui seria afirmar o que não sabemos. O código cru vai para a tela,
+// que é o mesmo que o aluno lê no SIGAA.
+struct BlocoHorario {
+    std::set<int> dias;        // ISO: 1 = segunda ... 7 = domingo
+    char turno{'M'};           // 'M', 'T' ou 'N'
+    std::vector<int> horarios; // 1..6, na ordem em que vieram
+
+    // Chave de ordenação dentro do dia: manhã < tarde < noite e, dentro do
+    // turno, o primeiro horário.
+    int ordem() const;
+
+    // "M23", "T34" — o pedaço do código que se refere ao turno, sem os dias.
+    std::string codigo() const;
+};
+
+// Vazio quando não dá para ler — e "vazio" significa "não sei", nunca "não tem
+// aula". Quem chama trata os dois casos de forma diferente.
+std::vector<BlocoHorario> lerHorario(std::string_view horario);
+
+// Só os dias, de todos os blocos. Atalho para quem não precisa do turno.
 std::set<int> diasDeAula(std::string_view horario);
 
 // A aula do tópico `t` acontece no dia `d`?

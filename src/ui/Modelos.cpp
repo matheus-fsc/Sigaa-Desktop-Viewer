@@ -2,6 +2,7 @@
 
 #include <QBrush>
 #include <QHash>
+#include <QSet>
 #include <QLocale>
 #include <QColor>
 #include <QDate>
@@ -262,24 +263,99 @@ QStandardItem* grupoDia(const QString& texto, bool destacado) {
 
 } // namespace
 
+std::vector<AulaDoDia> aulasDoDia(const Snapshot& s, QDate dia) {
+    std::vector<AulaDoDia> aulas;
+    if (!dia.isValid()) return aulas;
+
+    // A grade horária não tem começo nem fim — é uma regra semanal. Sem limitar
+    // ao período que a coleta conhece, paginar para janeiro mostraria aula de
+    // Compiladores para sempre. As pontas saem dos tópicos, que são o único
+    // dado com data que o SIGAA nos dá.
+    const FaixaAgenda faixa = faixaAgenda(s);
+    const bool dentroDoSemestre =
+        faixa.valida() && dia >= faixa.primeiro && dia <= faixa.ultimo;
+
+    const auto horarios = horariosDasTurmas(s);
+    QSet<const TopicoAula*> usados;
+
+    for (const auto& turma : s.turmas) {
+        const QString idTurma = QString::fromStdString(turma.idTurma);
+
+        // Os tópicos que caem neste dia (o `caiEm` já cruza bloco com grade).
+        std::vector<const TopicoAula*> doDia;
+        for (const auto& t : s.topicos) {
+            if (t.idTurma == turma.idTurma && caiEm(t, dia, horarios)) doDia.push_back(&t);
+        }
+
+        // O bloco da grade que corresponde a este dia da semana, se houver.
+        const auto blocos = calendario::lerHorario(turma.horario);
+        const calendario::BlocoHorario* bloco = nullptr;
+        for (const auto& b : blocos) {
+            if (b.dias.count(dia.dayOfWeek())) bloco = &b;
+        }
+
+        if (!bloco && doDia.empty()) continue;
+
+        if (!bloco) {
+            // Tópico datado num dia em que a turma não tem aula: reposição,
+            // prova, semana especial. Aparece sempre — foi o professor que
+            // apontou a data, e é o tipo de aula que não pode passar batido.
+            for (const auto* t : doDia) {
+                usados.insert(t);
+                aulas.push_back({idTurma, umaLinha(turma.nome), QString(), umaLinha(t->titulo),
+                                 umaLinha(t->conteudo), materiaisDoTopico(s, *t),
+                                 /*ordem=*/999, /*semTopico=*/false, /*foraDaGrade=*/true});
+            }
+            continue;
+        }
+
+        // Aula da grade fora do período coletado: a regra semanal vale, mas não
+        // sabemos se o semestre já começou ou acabou. Só entra se um tópico
+        // datado confirmar.
+        if (!dentroDoSemestre && doDia.empty()) continue;
+
+        const QString codigo = QString::fromStdString(bloco->codigo());
+        if (doDia.empty()) {
+            aulas.push_back({idTurma, umaLinha(turma.nome), codigo, QString(), QString(),
+                             /*materiais=*/0, bloco->ordem(), /*semTopico=*/true,
+                             /*foraDaGrade=*/false});
+            continue;
+        }
+        for (const auto* t : doDia) {
+            usados.insert(t);
+            aulas.push_back({idTurma, umaLinha(turma.nome), codigo, umaLinha(t->titulo),
+                             umaLinha(t->conteudo), materiaisDoTopico(s, *t), bloco->ordem(),
+                             /*semTopico=*/false, /*foraDaGrade=*/false});
+        }
+    }
+
+    // Tópico de uma turma que não está mais na lista (trancou, ou a coleta do
+    // portal trouxe menos turmas que a anterior). Some seria pior.
+    for (const auto& t : s.topicos) {
+        if (usados.contains(&t) || !caiEm(t, dia, horarios)) continue;
+        aulas.push_back({QString::fromStdString(t.idTurma),
+                         QString::fromStdString(t.idTurma), QString(), umaLinha(t.titulo),
+                         umaLinha(t.conteudo), materiaisDoTopico(s, t), 999,
+                         /*semTopico=*/false, /*foraDaGrade=*/true});
+    }
+
+    std::stable_sort(aulas.begin(), aulas.end(),
+                     [](const AulaDoDia& a, const AulaDoDia& b) { return a.ordem < b.ordem; });
+    return aulas;
+}
+
 ResumoDia resumoDia(const Snapshot& s, QDate hoje) {
     ResumoDia r;
     r.semDados = s.topicos.empty();
-    const auto horarios = horariosDasTurmas(s);
-    for (const auto& t : s.topicos) {
-        if (caiEm(t, hoje, horarios)) ++r.aulasHoje;
-        else if (caiEm(t, hoje.addDays(1), horarios)) ++r.aulasAmanha;
-    }
+    r.aulasHoje = static_cast<int>(aulasDoDia(s, hoje).size());
+    r.aulasAmanha = static_cast<int>(aulasDoDia(s, hoje.addDays(1)).size());
     return r;
 }
 
 int aulasEntre(const Snapshot& s, QDate inicio, QDate fim) {
     int n = 0;
-    const auto horarios = horariosDasTurmas(s);
     for (QDate d = inicio; d.isValid() && d <= fim; d = d.addDays(1)) {
-        for (const auto& t : s.topicos) {
-            if (caiEm(t, d, horarios)) ++n;
-        }
+        n += static_cast<int>(aulasDoDia(s, d).size());
     }
     return n;
 }
@@ -302,34 +378,51 @@ FaixaAgenda faixaAgenda(const Snapshot& s) {
 
 QStandardItemModel* modeloAgenda(const Snapshot& s, QDate inicio, QDate fim, QDate hoje,
                                  QObject* pai) {
-    auto* m = novoModelo(pai, {QStringLiteral("Aula"), QStringLiteral("Turma"),
-                               QStringLiteral("Material")});
+    auto* m = novoModelo(pai, {QStringLiteral("Turma"), QStringLiteral("Aula"),
+                               QStringLiteral("Horário"), QStringLiteral("Material")});
     if (!inicio.isValid() || !fim.isValid()) return m;
-
-    // Nome da turma por id: o tópico só guarda o id, e "88094" na tela não diz
-    // nada a ninguém.
-    QHash<QString, QString> nomeDaTurma;
-    for (const auto& t : s.turmas) {
-        nomeDaTurma.insert(QString::fromStdString(t.idTurma), umaLinha(t.nome));
-    }
-    const auto horarios = horariosDasTurmas(s);
 
     for (QDate dia = inicio; dia <= fim; dia = dia.addDays(1)) {
         QList<QList<QStandardItem*>> filhos;
 
-        for (const auto& t : s.topicos) {
-            if (!caiEm(t, dia, horarios)) continue;
+        // A TURMA vem primeiro agora, e não o título do tópico: a aula existe
+        // pela grade horária, e o tópico é o conteúdo dela quando o professor
+        // registrou. Com o título na frente, uma aula sem tópico virava uma
+        // linha que começava com um traço.
+        for (const AulaDoDia& a : aulasDoDia(s, dia)) {
+            auto* turma = item(a.turma);
+            turma->setData(a.idTurma, PapelIdTurma);
 
-            const QString idTurma = QString::fromStdString(t.idTurma);
-            auto* aula = item(umaLinha(t.titulo));
-            aula->setData(idTurma, PapelIdTurma);
-            if (!t.conteudo.empty()) aula->setToolTip(umaLinha(t.conteudo));
+            QStandardItem* titulo = nullptr;
+            if (a.semTopico) {
+                // Não é erro nem falta de dado nosso: a aula está na grade, o
+                // professor é que não publicou nada para o dia. Dizer isso é
+                // diferente de omitir a aula, que faria o aluno concluir que
+                // não tem aula.
+                titulo = item(QStringLiteral("sem tópico registrado"));
+                titulo->setForeground(QBrush(cor::apagado()));
+                titulo->setToolTip(QStringLiteral(
+                    "A turma tem aula neste dia pela grade horária, mas o "
+                    "professor não publicou tópico para ela na Turma Virtual."));
+            } else {
+                titulo = item(a.titulo);
+                if (!a.conteudo.isEmpty()) titulo->setToolTip(a.conteudo);
+            }
 
-            const int mats = materiaisDoTopico(s, t);
-            filhos.append({aula, item(nomeDaTurma.value(idTurma, idTurma)),
-                           item(mats == 0 ? QString()
-                                          : QStringLiteral("%1 arquivo(s)").arg(mats),
-                                mats)});
+            auto* quando = item(a.horario, a.ordem);
+            if (a.foraDaGrade) {
+                quando->setText(QStringLiteral("extra"));
+                quando->setForeground(QBrush(cor::inferido()));
+                quando->setToolTip(QStringLiteral(
+                    "O professor datou esta aula num dia em que a turma não tem "
+                    "horário — reposição, prova ou semana especial."));
+            }
+
+            filhos.append({turma, titulo, quando,
+                           item(a.materiais == 0
+                                    ? QString()
+                                    : QStringLiteral("%1 arquivo(s)").arg(a.materiais),
+                                a.materiais)});
         }
 
         const int n = filhos.size();
@@ -345,9 +438,9 @@ QStandardItemModel* modeloAgenda(const Snapshot& s, QDate inicio, QDate fim, QDa
             // um erro de carregamento, e a pessoa fica esperando algo aparecer.
             auto* vazio = item(QStringLiteral("Nenhuma aula registrada."));
             vazio->setForeground(QBrush(cor::apagado()));
-            grupo->appendRow({vazio, item(QString()), item(QString())});
+            grupo->appendRow({vazio, item(QString()), item(QString()), item(QString())});
         }
-        m->appendRow({grupo, item(QString()), item(QString())});
+        m->appendRow({grupo, item(QString()), item(QString()), item(QString())});
     }
     return m;
 }
