@@ -785,3 +785,7 @@ São os seus próprios dados, mas o cliente precisa se comportar:
 - `User-Agent` identificável
 - **limite rígido de tentativas de login** — senha errada em loop bloqueia a conta
 - credenciais só no keychain do SO; nunca em disco ou log
+
+## Licença
+
+MIT — veja [LICENSE](LICENSE).
