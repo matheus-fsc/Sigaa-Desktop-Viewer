@@ -61,6 +61,20 @@ QIcon icone(const QString& nome, const QWidget* alvo) {
     return saida;
 }
 
-QIcon iconeApp() { return QIcon(caminho(QStringLiteral("app"))); }
+QIcon iconeApp() {
+    // Um QIcon com TODOS os tamanhos, e não um arquivo só.
+    //
+    // O sistema pede o ícone em resoluções diferentes conforme o lugar: 16 px
+    // na barra de título, 22 na bandeja, 48 no alt-tab, 256 no gerenciador de
+    // arquivos. Entregando um desenho único, o Qt reduz em tempo de execução —
+    // e reduzir 256 para 16 borra os traços finos do capelo a ponto de virar
+    // uma mancha. Cada tamanho aqui foi gerado do original, com o desenho
+    // ajustado para aquela grade de pixels.
+    QIcon icone;
+    for (const int t : {16, 24, 32, 48, 64, 128, 256}) {
+        icone.addFile(QStringLiteral(":/icones/app-%1.png").arg(t), QSize(t, t));
+    }
+    return icone;
+}
 
 } // namespace sigaa::ui

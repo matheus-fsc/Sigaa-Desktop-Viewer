@@ -24,6 +24,21 @@ re-login. O plano original assumia que só re-login resolveria; está errado, co
 Endpoints `.do` vistos até agora: `logar.do` (`?dispatch=logOff`), `verPortalDiscente.do`,
 `entrarChat.do`.
 
+⚠️ **O reset é barato, mas não é grátis — e havia um par redundante.** O `POST logar.do?dispatch=logOn`
+já responde com o portal inteiro; chamar `verPortalDiscente.do` logo depois buscava os mesmos bytes
+de novo, com o intervalo mínimo inteiro pelo caminho:
+
+```
+#2 POST .../logar.do?dispatch=logOn      200  97444B  12662ms  [Portal]
+#3 GET  .../verPortalDiscente.do         200  97444B    844ms  [Portal]   <- os mesmos 97444B
+```
+
+`SigaaSession` passou a guardar o corpo da última resposta **quando ela é o portal**, e
+`irParaPortal()` devolve esse corpo se nenhuma requisição aconteceu no meio. Como nada navegou, a
+view do servidor é exatamente a que aquele corpo descreve — é equivalente ao GET, menos a ida e
+volta. Qualquer outra requisição esvazia o campo, que é o que impede um ViewState velho de
+sobreviver a uma navegação.
+
 ### 1.2 A turma virtual usa `frontEndIdTurma`, não `idTurma`
 
 Convivem **três namespaces de ID** para a mesma turma:
@@ -87,11 +102,23 @@ portal têm 2 inputs cada. Isso torna `Jsfcljs::buildPost()` trivial.
 | Marca no DOM | Significa |
 |---|---|
 | `#formAtividades` + `#formAtualizacoesTurmas` | Portal do discente |
-| `#formAva` | Turma Virtual (qualquer aba) |
+| `#formAva` | Turma Virtual — **só a página inicial da turma**, não as abas |
+| `#formAcoesTurma` | Turma Virtual, **inclusive as abas internas** |
 | `.intro-aval` | Turma sem nenhum tópico de aula cadastrado |
 | `#formTurma` | Catálogo de turmas inline (ver §1.5) |
 | `div.rich-stglpanel` | Barra lateral da turma (painéis) |
 | texto `/expirad/i` | Sessão expirada → disparar recuperação |
+
+⚠️ **`#formAva` sozinho não cobre as abas.** A aba Participantes não tem esse form — só
+`#formMenu`, `#formTurma` e `#formAcoesTurma`. Enquanto o classificador olhava só para `#formAva`,
+ela era rotulada `Desconhecida`, e o diagnóstico de tráfego acusava uma tela estranha no meio de
+uma navegação perfeitamente normal:
+
+```
+#7 POST https://.../sigaa/ava/index.jsf  200  180433B  [Desconhecida]
+```
+
+O marcador confiável para "estou dentro de uma turma, em qualquer aba" é `#formAcoesTurma`.
 
 ### 1.5 O catálogo completo de turmas vem inline em toda página de turma
 
@@ -264,6 +291,90 @@ pelo professor. Existe `html::Node::textoVisivel()` para isso.
 **Nem toda turma usa isto.** Na amostra: uma turma com 16 tópicos e 2 materiais (ambos tarefas),
 outra com 35 tópicos e nenhum material — o professor registrou só título e data de cada aula. As
 duas formas são normais, e a linha do tempo continua sendo o que o aluno lê.
+
+### 1.6.3 Aba "Participantes" — o docente e os colegas (sessão 4, 2026-08-15)
+
+Chega-se nela como em qualquer outra aba: POST no `formMenu` com o par do item de menu, resolvido
+**pelo rótulo** (`<div class="itemMenu">Participantes</div>`) e nunca pelo id — o mesmo
+`Participantes` que era `formMenu:j_id_jsp_719010821_81` na página da turma aparece como
+`formMenu:j_id_jsp_165512588_81` na resposta. A página resultante posta em `/sigaa/ava/participantes.jsf`.
+
+São duas `table.participantes`, cada uma precedida de um `<legend>` com a contagem:
+
+```html
+<fieldset><legend> Docentes (1)</legend></fieldset>
+<table class="participantes">
+  <tr class="odd">
+    <td width="72"><img src="/shared/verFoto?idFoto=...&key=..." /></td>
+    <td valign="top">
+      <strong><a href="https://.../RedirectDocente?login=/<CPF>">NOME</a></strong><br/>
+      Departamento: <em>...</em><br/> Formação: <em>...</em><br/> E-Mail: <em>...</em><br/>
+    </td>
+    <td width="20"><a onclick="Mensagem.show(1, '<CPF>', ...)">...</a></td>
+  </tr>
+</table>
+<fieldset><legend> Discentes (31)</legend></fieldset>
+<table class="participantes">
+  ...  <strong>NOME <a onclick="...{'idPessoa':194699,...}">(Perfil)</a></strong><br/>
+       Curso: <em>...</em><br/> Matrícula: <em>...</em><br/> E-mail: <em>...</em>
+</table>
+```
+
+⚠️ **O bloco de discentes tem DUAS COLUNAS de participantes por linha.** Cada `<tr>` guarda duas
+pessoas, em 6 `<td>`. Na captura eram 31 alunos em 16 linhas — iterar por `<tr>` não dá "lista
+curta e óbvia": dá o e-mail de um aluno com o nome do seguinte grudado no fim. **A unidade é o
+`<td>`**, reconhecido pelos rótulos que carrega.
+
+⚠️ **A foto é opcional, e mora num `<td>` próprio** — o imediatamente anterior ao da pessoa. São 19
+retratos para 32 pessoas; as outras 13 trazem `/sigaa/img/no_picture.png` no mesmo lugar, então a
+célula sempre existe e sempre tem uma `<img>`. Duas consequências:
+
+- ancorar a célula da pessoa na `<img>` perde metade da turma sem nenhum sinal de erro;
+- distinguir retrato de placeholder é por `verFoto` no `src`, não pela presença da `<img>`. Pegar a
+  primeira imagem daria a silhueta cinza a todo mundo como se fosse foto.
+
+Como a API de `html::Node` não navega para irmãos, o parser guarda a foto da célula **anterior** a
+cada volta do laço (`select` devolve em ordem de documento). Guardar "a última foto vista" em vez
+disso faria o retrato escorregar para o próximo participante sempre que alguém não tivesse foto.
+
+⚠️ **O rótulo de e-mail muda de caixa entre os blocos**: `E-Mail:` no docente, `E-mail:` no
+discente. A busca do parser é case-insensitive por causa disso.
+
+⚠️ Há **outro `Matrícula:`** fora das tabelas, num formulário de busca, com o `<em>` vazio. O
+seletor precisa ser ancorado em `table.participantes`.
+
+**Esta é a página mais sensível do SIGAA que o app toca.** Ela traz o CPF de *cada* participante
+(no `Mensagem.show`), mais matrícula, e-mail e `idPessoa` — 33 CPFs numa turma de 32. Não é a conta
+do próprio aluno, são terceiros. Duas consequências, ambas já implementadas:
+
+- o parser **não extrai** CPF nem `idPessoa`, e o banco não tem coluna para eles (§4);
+- o `tools/redact.py` ganhou regras **estruturais** de nome (`nome-participante`, `nome-docente`) e
+  `idpessoa`, porque o `--name` por pessoa não escala para uma turma inteira e um esquecido vaza.
+
+A **URL da foto** (`/shared/verFoto?idFoto=...&key=...`) segue a mesma regra pela mesma razão: o
+`key` é um token que abre o retrato de um terceiro. Ela é extraída, usada uma vez para baixar a
+imagem e descartada — não vai para o banco. O que fica no disco é o arquivo da imagem, em
+`Documentos/SIGAA/.fotos`, achável pelo par `(idTurma, nome)` que o banco já guarda
+(`core/sync/Fotos.h`).
+
+**Custo de rede da aba, e quem paga:**
+
+| Quem | Quando | Custo |
+|---|---|---|
+| ciclo de sync (`incluirParticipantes`) | só quando o banco ainda não tem ninguém | 1 requisição por turma |
+| janela da turma | a cada "Atualizar" na turma aberta | 1 requisição |
+| retratos (`CacheFotos`) | junto da coleta acima, e depois só na turma aberta | 1 por foto, uma vez |
+
+Os retratos saem do laço do `Crawler` e ficam no `Servico`, que é quem sabe onde o material da
+turma mora. A conta fecha porque o cache pula quem já está no disco **e** quem não cadastrou foto:
+a primeira coleta paga ~19 requisições por turma, as seguintes pagam zero.
+
+⚠️ Este é o único lugar em que o **invariante nº 2** (1,5 s entre requisições) é afrouxado, para
+300 ms, e só durante o lote de imagens. `/shared/verFoto` não é a máquina de estados JSF — é um
+servlet de imagem estática que não toca ViewState nenhum, e o próprio navegador busca as 19 fotos
+**em paralelo** ao abrir a página. Serializadas a 300 ms continuamos várias vezes mais educados que
+um acesso normal, e a turma sai em ~6 s em vez de ~28 s. O intervalo é restaurado por RAII no fim
+do lote (`core/sync/Fotos.cpp`).
 
 ### 1.7 ⚠️ Fixture do browser ≠ HTML da rede (e o contador de sessão não existe para nós)
 
@@ -459,6 +570,20 @@ Descobertas nesta sessão que **não podem vazar** para o repositório:
 - Antes de commitar qualquer fixture, rodar um script de redação
   (`tools/redact.py`) que substitua CPF, matrícula, nome, e-mail, `idFoto`/`key` e `JSESSIONID`
   por placeholders. **Escrever esse script antes do primeiro fixture commitado.**
+- ⚠️ **A aba Participantes (§1.6.3) muda a escala do problema: ali a PII não é do dono da conta, é
+  da turma inteira.** Uma turma de 32 pessoas traz 33 CPFs (um por participante, no
+  `Mensagem.show`), mais 31 matrículas, 31 e-mails e 31 `idPessoa`. O `--name` do `redact.py` não
+  serve — exigiria um por pessoa, e um esquecido vaza; por isso as regras `nome-participante` e
+  `nome-docente` redigem por **estrutura** (o `<strong>` da célula e o texto do link
+  `RedirectDocente`), funcionando numa turma nunca vista. Regra do projeto daqui em diante:
+  **identificador de terceiro não é extraído nem persistido** — CPF e `idPessoa` não têm campo em
+  `Participante` nem coluna na tabela `participante`, embora estejam no HTML.
+- A **foto do participante** é o único caso em que a regra acima precisou de nuance, porque a tela
+  passou a mostrar o retrato: a URL `verFoto?idFoto=...&key=...` é **extraída mas não persistida**.
+  Ela existe pelo tempo de baixar a imagem uma vez e some com o `Snapshot`; o que fica no disco é o
+  arquivo da imagem, num cache fora do banco (`Documentos/SIGAA/.fotos`), nomeado pelo hash de
+  `(idTurma, nome)`. Guardar o `key` deixaria no `sigaa-viewer.db` um jeito de buscar o retrato de
+  cada colega meses depois de o app ter parado de precisar disso.
 
 ---
 
@@ -475,9 +600,10 @@ Em aberto:
 3. **Sondar camada REST/mobile** (`/sigaa/mobile/`, `/sigaa/api/`, `/sigaa/rest/`) — a sonda desta
    sessão não retornou resultado utilizável (o `fetch` assíncrono não serializou no tool).
 4. **Mapear as demais abas da Turma Virtual.** ✅ **Arquivos** fechada em §1.6.1 (listagem +
-   download, com parser e fixture de rede) e ✅ **materiais do tópico** em §1.6.2 — estes vêm na
-   própria página inicial da turma, sem abrir aba. Continuam abertas: Ver Notas, Frequência,
-   Tarefas, Fóruns, Notícias, Participantes, Plano de Curso. A ferramenta para capturá-las já
+   download, com parser e fixture de rede), ✅ **materiais do tópico** em §1.6.2 — estes vêm na
+   própria página inicial da turma, sem abrir aba — e ✅ **Participantes** em §1.6.3 (parser,
+   fixture redigido e aba na janela da turma). Continuam abertas: Ver Notas, Frequência,
+   Tarefas, Fóruns, Notícias, Plano de Curso. A ferramenta para capturá-las já
    existe: `sigaa-cli explorar <turma> <rótulo da aba> <dir>` grava o HTML cru de cada passo.
 7. **"Baixar todos os arquivos"** (§1.6.1): o comando existe na aba e provavelmente devolve um zip.
    Não testado — o app baixa um a um, o que funciona e é verificável.
@@ -487,3 +613,155 @@ Em aberto:
 5. **Exportar um HAR completo** (DevTools → Network → exportar) cobrindo login → portal → turma →
    volta, e guardar **redigido** em `tests/fixtures/har/`.
 6. **Confirmar o timeout real de 30 min** e se `verPortalDiscente.do` sozinho o renova.
+
+## 5.1 Dados de terceiros que o app decidiu NÃO coletar
+
+O SIGAA entrega, na aba Participantes, bem mais do que a lista de nomes. O que
+fica de fora é decisão de projeto, não limitação do parser:
+
+| dado | onde aparece | por que não coletamos |
+|---|---|---|
+| CPF do participante | `Mensagem.show(1, '<CPF>', ...)` de cada pessoa | documento de terceiro; nada no app precisa dele |
+| `idPessoa` | link do perfil | identificador interno de outra pessoa |
+| **retrato** | `/shared/verFoto?idFoto=...&key=...` | **removido em 18/09/2026 — ver abaixo** |
+
+**A foto foi coletada, e não deveria ter sido.** Até 18/09/2026 o app baixava o
+retrato de cada participante para `Documentos/SIGAA/.fotos` e o exibia na lista
+da turma. Numa turma de 32 pessoas são 19 imagens — de 31 colegas e um
+professor, nenhum dos quais escolheu ter a própria foto copiada para a máquina
+de outro aluno. Eles cadastraram o retrato no SIGAA, para o SIGAA.
+
+Removido por inteiro: a coleta (`core/sync/Fotos.{h,cpp}`), a extração da URL
+no parser, o campo no modelo e o cache em disco. A lista passou a mostrar as
+**iniciais** num quadrado colorido, o que resolve o problema real da tela —
+reconhecer alguém de relance — sem carregar dado pessoal, e ainda funciona para
+os 13 de 32 que nunca cadastraram foto.
+
+Dois testes guardam a decisão: um confere que o esquema do banco não tem coluna
+de imagem, outro que a célula da foto no HTML não vira participante nem desloca
+os campos do vizinho.
+
+## 6. Problemas do servidor a reportar à instituição
+
+Achados que não são bugs do app nem do computador do aluno: são configurações
+do próprio SIGAA que precisam chegar à TI da instituição. Ficam aqui para que o
+reporte possa ser feito com evidência, e para que o próximo a tropeçar no mesmo
+sintoma não perca uma tarde procurando defeito no lugar errado.
+
+### 6.0 Segundo login simultâneo fica sem resposta (18/09/2026, UNIFEI)
+
+**Sintoma.** Com uma sessão já aberta na conta, o `POST logar.do?dispatch=logOn`
+seguinte **não recebe resposta nenhuma**: 45 s de timeout, 0 bytes, três vezes.
+O primeiro login da mesma sequência tinha funcionado normalmente (200, portal
+de 103 KB, 6,7 s).
+
+```
+10:35:34 #1 GET  logar.do?dispatch=logOff  200  10642B   700ms  [Login]
+10:35:42 #2 POST logar.do?dispatch=logOn   200 103092B  6679ms  [Portal]
+10:36:04 #3 GET  logar.do?dispatch=logOff  200  10642B   770ms  [Login]
+10:38:23 #4 POST logar.do?dispatch=logOn   ERRO: timed out after 45002ms
+                                           with 0 bytes received (3 tentativas)
+```
+
+O `#3` é o GET que abre uma sessão NOVA (outro JSESSIONID), então ele não
+encerra a sessão do `#2` — que segue viva no servidor.
+
+**O que era do app.** Cada tarefa abria a própria sessão e fazia o próprio
+login: o diálogo de senha para conferir a credencial, e a sincronização logo
+atrás. Dois logins para uma ação, e nenhuma das sessões era encerrada.
+
+**Consequência para o desenho.** Uma sessão viva por vez, reaproveitada
+(`core/http/SessaoViva.h`): o diálogo entrega a sessão que abriu, a
+sincronização continua nela, e o app só desloga ao fechar. As sessões
+descartáveis do `Baixador` — que precisam ser paralelas, e por isso não podem
+compartilhar o ViewState (§2.2) — chamam `logout()` ao terminar.
+
+**Não confirmado:** se o SIGAA recusa qualquer segundo login concorrente, ou se
+foi degradação momentânea do servidor (a instituição estava com o TLS quebrado
+no mesmo dia, ver §6.1). O desenho acima está certo de qualquer forma — sessão
+abandonada é recurso vazado — mas a causa exata merece nova captura antes de
+virar afirmação.
+
+### 6.1 Cadeia de certificados TLS incompleta (18/09/2026, UNIFEI)
+
+**Sintoma.** Todo cliente que valida TLS corretamente falha ao falar com
+`sigaa.unifei.edu.br`:
+
+```
+SSL certificate OpenSSL verify result: unable to get local issuer certificate (20)
+```
+
+`curl`, `openssl s_client` e o `sigaa-viewer` falham. **Os navegadores
+funcionam** — e é isso que torna o problema difícil de enxergar: a conclusão
+natural de quem vê "abre no Chrome, não abre no app" é que o app está quebrado.
+
+**Causa.** O certificado do servidor foi trocado em **16/09/2026** para uma
+autoridade nova, mas a cadeia enviada no handshake continua sendo a **antiga**:
+
+| | o que o servidor envia | quem realmente assinou |
+|---|---|---|
+| folha | `CN=*.unifei.edu.br`, emitida em 16/09/2026 | `RNP ICPEdu GR46 OV TLS CA 2025` |
+| intermediário enviado | `GlobalSign RSA OV SSL CA 2018` | — (pertence ao certificado anterior) |
+| raiz enviada | `GlobalSign Root CA - R3` | — |
+
+O intermediário que liga a folha à raiz — `RNP ICPEdu GR46 OV TLS CA 2025`,
+emitido por `GlobalSign Root R46` — **não é enviado**. A raiz `GlobalSign Root
+R46` já é confiável em qualquer loja de CAs atual, então o certificado em si
+está correto: o que falta é a peça do meio.
+
+Os navegadores disfarçam porque fazem *AIA chasing* — leem a extensão
+Authority Information Access da folha e baixam o intermediário sozinhos:
+
+```
+CA Issuers - URI:http://secure.globalsign.com/cacert/rnpicpedugr46ovtlsca2025.crt
+```
+
+A libcurl não faz isso, e nem todo cliente faz.
+
+**Como reproduzir.**
+
+```bash
+openssl s_client -connect sigaa.unifei.edu.br:443 -servername sigaa.unifei.edu.br </dev/null
+#   Verify return code: 21 (unable to verify the first certificate)
+
+# e a prova de que o problema é só a peça faltante:
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  --cacert <(cat /etc/ssl/certs/ca-certificates.crt rnpicpedugr46ovtlsca2025.pem) \
+  https://sigaa.unifei.edu.br/sigaa/verTelaLogin.do
+#   200
+```
+
+**Impacto.** Qualquer integração automatizada com o SIGAA quebra: scripts,
+aplicativos móveis que não façam AIA chasing, monitoramento, e clientes de
+linha de comando. Pior, empurra quem precisa que aquilo funcione para a
+"solução" de desligar a verificação de certificado — o que expõe **CPF e senha**
+de quem usa a integração a interceptação em rede hostil (Wi-Fi de campus, por
+exemplo). Um erro de configuração vira, por esse caminho, um risco real de
+credencial.
+
+**Correção (no servidor).** Instalar o bundle completo: folha +
+`RNP ICPEdu GR46 OV TLS CA 2025`. A raiz não precisa ser enviada.
+
+**Contorno no app.** Resolvido automaticamente desde 18/09/2026: o app faz
+*AIA chasing* (`core/http/CadeiaAia.h`) — ao levar uma recusa de verificação,
+lê a extensão AIA do certificado do servidor, baixa o intermediário que falta e
+tenta de novo, uma vez por sessão. É o que o navegador faz.
+
+A verificação da segunda tentativa é **inteira**: o intermediário entra ao lado
+das CAs do sistema, não no lugar delas, e o OpenSSL continua exigindo que a
+cadeia termine num certificado auto-assinado da lista. Um intermediário forjado
+não fecha cadeia com raiz nenhuma e é recusado igual — conferido contra
+`expired`, `self-signed`, `wrong.host` e `untrusted-root` do badssl.com, todos
+ainda rejeitados com o AIA ligado.
+
+`SIGAA_CA_BUNDLE` continua existindo para o caso de rede que intercepta HTTPS
+(Wi-Fi corporativo, antivírus com inspeção de TLS), onde a CA a acrescentar é
+local e não está publicada em AIA nenhum. `SIGAA_SEM_AIA=1` desliga o chasing,
+para depurar.
+
+O app **não** desliga `CURLOPT_SSL_VERIFYPEER`, e não deve passar a desligar:
+num programa que envia CPF e senha, trocar um erro visível por um ataque
+silencioso é o pior negócio disponível.
+
+**Status.** Não reportado ainda. Contato: DTI/UNIFEI, (35) 3629-1080 (rodapé do
+próprio SIGAA).

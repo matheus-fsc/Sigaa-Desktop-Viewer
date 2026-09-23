@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "core/frequencia/Presenca.h"
 #include "core/model/Models.h"
 
 class QThread;
@@ -34,6 +35,9 @@ namespace sigaa {
 namespace http { class SigaaSession; }
 namespace sync { class SessaoTurma; }
 }
+
+class QAction;
+class QPushButton;
 
 namespace sigaa::ui {
 
@@ -62,7 +66,8 @@ public:
     // `login`/`senha` são cópias desta execução, guardadas para esse momento.
     // Não vão para o disco.
     JanelaTurma(Turma turma, std::vector<TopicoAula> topicos,
-                std::vector<ArquivoTurma> arquivos, std::string login,
+                std::vector<ArquivoTurma> arquivos,
+                std::vector<Participante> participantes, std::string login,
                 std::string senha, QWidget* pai = nullptr);
     ~JanelaTurma() override;
 
@@ -76,18 +81,49 @@ private:
     // Atualizar e, sob demanda, antes do primeiro download.
     void atualizarDoSigaa();
 
+    // Segunda passada da atualizacao: busca os retratos que ainda nao estao no
+    // cache em disco. Roda DEPOIS de a lista ja estar na tela, porque a foto e
+    // a ultima coisa de que alguem precisa aqui — e sem ela a linha ja mostra
+    // as iniciais. Nao faz nada quando nao falta nenhuma.
+
     // Garante uma sessão aberta nesta turma. Devolve false se não deu — e a
     // mensagem já foi para a barra de status.
     //
     // Existe porque baixar exige um POST na view corrente do SIGAA: não há
     // URL estável para o arquivo (RECON §1.6.1), então o download offline-first
     // acaba aqui, e só aqui.
-    bool garantirSessao(std::string* erro);
+    // `criouAgora` distingue "abri a sessao neste instante" de "ja estava
+    // aberta". Importa porque a criacao ja abre a aba Arquivos: sem o sinal,
+    // quem chama reabria a mesma aba logo em seguida, gastando uma requisicao
+    // identica a anterior.
+    bool garantirSessao(std::string* erro, bool* criouAgora = nullptr);
 
     // "Abrir": o que já está no disco abre direto, sem tocar na rede. Baixar de
     // novo o que a pessoa já tem é gastar o tempo dela e a paciência do SIGAA
     // para produzir um arquivo idêntico.
     void abrirSelecionados();
+    // --- aba Presença ------------------------------------------------------
+    //
+    // O aluno registra a própria presença nos dias que o professor deixou em
+    // branco. Não muda a contagem do SIGAA — é prova pessoal para a conversa
+    // que pode vir. Ver core/frequencia/Presenca.h.
+    void montarPresenca();
+    void recarregarPresenca();          // do banco: frequência + marcações
+    void marcarPresenca(SituacaoDia situacao);
+    void marcarPresencaComoPresente();
+    void marcarPresencaComoFalta();
+    void desfazerMarcacao();
+    void verHistoricoPresenca();
+    void atualizarAcoesPresenca();
+    void avisarConflitosPresenca(const std::vector<frequencia::Conflito>& cs);
+
+    // A data selecionada na aba, ou vazio. Sai da CHAVE guardada na linha,
+    // nunca do índice: a tabela é ordenável.
+    std::string diaSelecionado() const;
+
+    // Grava turma.md na pasta da turma. Ver core/report/TurmaMd.h.
+    void gerarResumoMd();
+
     void rebaixarSelecionados();  // o botão para quem quer se certificar
     void baixarTudo();
 
@@ -115,6 +151,22 @@ private:
     // e o botão "Abrir pasta" resolve o "onde foi parar".
     QString pastaDestino() const;
 
+    QPushButton* botaoResumo_{nullptr};   // criado em código, não no formulário
+
+    // Guarda a frequência enquanto o resumo é montado: `DadosTurmaMd` aponta
+    // para ela, e um temporário morreria antes de `gerarTurmaMd` ler.
+    Frequencia frequenciaDoResumo_;
+
+    // O mapa do SIGAA e o que o aluno registrou por cima dele.
+    Frequencia frequencia_;
+    std::vector<frequencia::Marcacao> marcacoes_;
+    std::vector<frequencia::DiaEfetivo> diasPresenca_;
+
+    QAction* acMarcarPresente_{nullptr};
+    QAction* acMarcarFalta_{nullptr};
+    QAction* acDesfazerMarcacao_{nullptr};
+    QAction* acHistoricoPresenca_{nullptr};
+
     std::unique_ptr<Ui::JanelaTurma> formulario_;
 
     Turma turma_;
@@ -128,6 +180,7 @@ private:
 
     std::vector<ArquivoTurma> arquivos_;
     std::vector<TopicoAula> topicos_;
+    std::vector<Participante> participantes_;
 
     // idArquivo -> caminho local do que já está no disco, segundo o manifesto
     // da pasta da turma. Relido do disco a cada mudança — o aluno apaga

@@ -5,7 +5,9 @@
 
 #include "core/jsf/JsfForm.h"
 #include "core/parse/ArquivoParser.h"
+#include "core/parse/FrequenciaParser.h"
 #include "core/parse/Html.h"
+#include "core/parse/ParticipanteParser.h"
 #include "core/parse/TurmaParser.h"
 #include "core/util/Caminho.h"
 
@@ -137,6 +139,53 @@ bool SessaoTurma::abrirArquivos(std::string* erro) {
         return false;
     }
     return recarregarAbaArquivos(erro);
+}
+
+bool SessaoTurma::abrirParticipantes(std::string* erro) {
+    if (!naTurma_) {
+        falhar(erro, "chame entrar() antes");
+        return false;
+    }
+    if (!abrirAbaPorRotulo(sessao_, docTurma_, "Participantes", &docParticipantes_, erro)) {
+        return false;
+    }
+
+    const auto lista =
+        parse::parseParticipantes(docParticipantes_, turma_.idTurma, turma_.nome);
+    if (!lista.pareceAbaParticipantes) {
+        // Turma vazia não existe: sempre há ao menos o professor. Se nem a
+        // moldura da aba veio, caímos noutra tela — dizer "sem participantes"
+        // seria inventar uma resposta a partir de uma falha.
+        falhar(erro, "a resposta nao parece a aba Participantes (sessao expirada?)");
+        return false;
+    }
+    participantes_ = lista.participantes;
+    return true;
+}
+
+bool SessaoTurma::abrirFrequencia(std::string* erro) {
+    if (!naTurma_) {
+        falhar(erro, "chame entrar() antes");
+        return false;
+    }
+    // Pelo prefixo ASCII "Frequ", e não pela palavra acentuada: o rótulo vem
+    // do HTML como "Frequ&#234;ncia", e casar o acento obrigaria este arquivo
+    // a saber se o parser já decodificou a entidade. "Frequ" é único no menu
+    // da turma (conferido na captura de rede).
+    if (!abrirAbaPorRotulo(sessao_, docTurma_, "Frequ", &docFrequencia_, erro)) {
+        return false;
+    }
+
+    const auto r = parse::parseFrequencia(docFrequencia_, turma_.idTurma, turma_.nome);
+    if (!r.pareceMapaDeFrequencia) {
+        // Sem esta guarda, uma sessão expirada viraria "parabéns, zero faltas"
+        // — o pior resultado possível para quem está contando quanto ainda
+        // pode faltar.
+        falhar(erro, "a resposta nao parece o mapa de frequencia (sessao expirada?)");
+        return false;
+    }
+    frequencia_ = r.frequencia;
+    return true;
 }
 
 std::optional<std::string> SessaoTurma::baixar(const std::string& idArquivo,

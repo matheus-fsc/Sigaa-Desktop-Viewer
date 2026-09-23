@@ -78,8 +78,14 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-appimage
-          path: dist/*.AppImage
+          name: linux
+          # O AppImage, o portátil e as somas. O portátil existe para quem não
+          # tem FUSE (container, laboratório com o módulo desabilitado), onde o
+          # AppImage falha com uma mensagem que não ajuda ninguém.
+          path: |
+            dist/*.AppImage
+            dist/*.tar.gz
+            dist/SHA256SUMS
 
   windows:
     runs-on: windows-2022
@@ -131,4 +137,5 @@ jobs:
         run: |
           gh release upload "${GITHUB_REF_NAME}" \
             --repo "${GITHUB_REPOSITORY}" --clobber \
-            $(find pacotes -type f \( -name '*.AppImage' -o -name '*.zip' \))
+            $(find pacotes -type f \( -name '*.AppImage' -o -name '*.zip' \
+                                    -o -name '*.tar.gz' -o -name 'SHA256SUMS' \))

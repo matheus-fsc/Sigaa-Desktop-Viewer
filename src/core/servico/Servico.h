@@ -23,9 +23,12 @@
 
 #include <functional>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 
+#include "core/avaliacao/Ajustes.h"
+#include "core/http/SessaoViva.h"
 #include "core/model/Models.h"
 #include "core/notify/Aviso.h"
 #include "core/sync/DiffEngine.h"
@@ -42,6 +45,37 @@ struct Opcoes {
     // app perceber o PDF que o professor subiu hoje — o portal não conta isso.
     // Custa uma requisição por turma e só tem efeito com `incluirTurmas`.
     bool incluirArquivos{true};
+
+    // Deixa o ciclo abrir a aba Participantes — mas SÓ quando o banco ainda
+    // não tem ninguém guardado. É a primeira coleta completa que popula a aba
+    // para todas as turmas de uma vez; nas seguintes a lista já está no disco,
+    // e reconferir custaria uma requisição por turma para receber de volta a
+    // mesma resposta. Depois disso quem reatualiza é a janela da turma, sob
+    // demanda, só na turma que o aluno abriu.
+    //
+    // Só tem efeito com `incluirTurmas`.
+    bool participantesSeBancoVazio{true};
+
+    // Abre o mapa de frequência de cada turma visitada. Só com `incluirTurmas`.
+    bool incluirFrequencia{true};
+
+    // Visita só estas turmas (por `idTurma`). Vazio = todas.
+    //
+    // É o que sustenta o fluxo "atualizar só esta turma" da janela: o custo de
+    // um ciclo é dominado pela espera do SIGAA, e uma turma custa um sexto de
+    // seis. Ver `sync::OpcoesColeta::apenasTurmas`.
+    std::set<std::string> apenasTurmas;
+
+    // Sessão já autenticada, para o ciclo REUSAR em vez de logar de novo.
+    //
+    // Login é a operação mais cara do app (6 a 8 s observados) e a única que
+    // o SIGAA às vezes recusa quando já há outra sessão aberta na conta. Quem
+    // tem uma sessão viva — a janela, que acabou de conferir a senha — passa
+    // ela aqui e o ciclo não paga esse preço de novo.
+    //
+    // `nullptr` mantém o comportamento antigo: o ciclo abre e autentica a
+    // própria sessão. É o caso do CLI, que roda e morre.
+    http::SessaoViva* sessao{nullptr};
 
     std::string caminhoRelatorio{"relatorio.html"};
     // Vazio = deriva do relatório trocando a extensão por .ics.
@@ -104,6 +138,15 @@ struct Resultado {
     // é o que falhou.
     int materiaisPendentes{0};
     int materiaisBaixados{0};
+
+    // Correções do aluno que o SIGAA atropelou nesta rodada.
+    //
+    // Sai no Resultado, e não numa notificação montada aqui dentro, porque é
+    // a informação mais cara do ciclo inteiro: o aluno digitou uma data de
+    // prova e o app acabou de descartá-la. Quem chama tem de ser obrigado a
+    // olhar — a UI abre um alerta, o CLI escreve no terminal. Enterrar isso
+    // numa linha de log seria perder a data da prova em silêncio.
+    std::vector<avaliacao::Conflito> conflitosAvaliacao;
 
     // Caminhos ABSOLUTOS do que foi escrito, ou vazio. O clique na notificação
     // precisa de caminho absoluto: o shell não herda nosso diretório de

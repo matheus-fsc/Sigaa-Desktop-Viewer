@@ -21,9 +21,13 @@
 class QObject;
 class QStandardItemModel;
 
+#include "core/avaliacao/Ajustes.h"
+#include "core/frequencia/Presenca.h"
+
 namespace sigaa {
 struct ArquivoTurma;
 struct DateTime;
+struct Participante;
 struct Snapshot;
 struct TopicoAula;
 }
@@ -35,15 +39,17 @@ inline constexpr int PapelOrdenacao = Qt::UserRole + 1;
 
 // Cores semânticas da apresentação.
 //
-// São as ÚNICAS cores literais do app — `estilo.qss` não tem nenhuma, por
-// regra. Estas ficam aqui porque significam algo ("isto está atrasado") em vez
-// de decorar, e a paleta do sistema não tem papel para "urgente". São tons
-// médios de propósito: legíveis sobre fundo claro e escuro, já que o Qt não
-// avisa quando o Windows troca de tema.
+// Existem porque significam algo ("isto está atrasado") em vez de decorar, e a
+// paleta do sistema não tem papel para "urgente".
 //
 // Ficam num só lugar porque a tabela de provas e o calendário precisam
 // concordar: um ponto laranja no dia 4 e uma linha cinza para a mesma prova
 // seriam duas respostas diferentes para a mesma pergunta.
+//
+// O TOM não é decidido aqui: estas funções repassam a ui/Tema.h, que tem um
+// vermelho para o tema claro e outro para o escuro. Antes eram tons médios
+// cravados, escolhidos para serem sofríveis nos dois — o tema acabou com essa
+// concessão.
 namespace cor {
 QColor atrasado();    // prazo vencido
 QColor urgente();     // vence em até 2 dias / prova nos próximos 7
@@ -58,6 +64,13 @@ QString formatarData(const DateTime& d);
 // Data inválida devolve `semPrazo`, um valor que ordena por último de propósito:
 // atividade sem prazo não é urgente, e jogá-la para o topo por acidente
 // esconderia a que vence amanhã.
+// A partir de quantos dias de atraso uma entrega sai da lista principal.
+//
+// Uma semana: atrasado ha dois dias ainda e assunto — da para pedir prorrogacao,
+// da para entregar fora do prazo. Ha tres semanas nao volta, e ocupar a primeira
+// tela com isso empurra para baixo o que vence amanha.
+inline constexpr int kDiasParaHistorico = 7;
+
 inline constexpr int semPrazo = 1'000'000;
 int diasAte(const DateTime& d);
 
@@ -72,7 +85,25 @@ QStandardItemModel* modeloPrazos(const Snapshot& s, QObject* pai);
 // o painel do professor é dado cadastrado, o tópico de aula é regex sobre
 // título livre. Esconder essa diferença faria o aluno estudar para a data
 // errada sem desconfiar (RECON §1.6).
-QStandardItemModel* modeloProvas(const Snapshot& s, QObject* pai);
+// Recebe a lista JÁ RESOLVIDA (`avaliacao::efetivas`), não o Snapshot cru.
+//
+// É o que garante que a tabela, o calendário, o .ics e as notificações falem
+// da mesma data: se cada um aplicasse as correções do aluno por conta própria,
+// o .ics exportaria a data velha enquanto a tela mostra a nova — e o aluno
+// confia no calendário do celular, que é onde ele realmente olha.
+QStandardItemModel* modeloProvas(const std::vector<avaliacao::Efetiva>& provas,
+                                 QObject* pai);
+
+// A chave da prova viaja nos itens da linha, para o botão de corrigir saber
+// sobre qual delas o aluno clicou. Fora da faixa dos outros papéis.
+// A coluna "SIGAA diz" da tabela de provas. Nomeada porque a janela precisa
+// escondê-la quando ninguém discorda, e um `5` solto no meio da JanelaPrincipal
+// vira um mistério no dia em que uma coluna for inserida antes dela.
+inline constexpr int kColunaSigaaDiz = 5;
+
+inline constexpr int PapelIdTurmaProva = Qt::UserRole + 20;
+inline constexpr int PapelDescricaoProva = Qt::UserRole + 21;
+inline constexpr int PapelEstadoProva = Qt::UserRole + 22;
 
 // Colunas: Data | Turma | Atualização
 QStandardItemModel* modeloAtualizacoes(const Snapshot& s, QObject* pai);
@@ -90,7 +121,7 @@ struct DiaComProva {
 };
 
 // Chaveado por dia, já com as duas fontes mescladas (mesma regra do .ics).
-QMap<QDate, DiaComProva> provasPorDia(const Snapshot& s);
+QMap<QDate, DiaComProva> provasPorDia(const std::vector<avaliacao::Efetiva>& provas);
 
 struct ResumoProvas {
     int total{0};
@@ -104,7 +135,7 @@ struct ResumoProvas {
     QString turma;
 };
 
-ResumoProvas resumoProvas(const Snapshot& s);
+ResumoProvas resumoProvas(const std::vector<avaliacao::Efetiva>& provas);
 
 // --- a agenda --------------------------------------------------------------
 
@@ -200,6 +231,35 @@ QStandardItemModel* modeloTurmas(const Snapshot& s, QObject* pai);
 // não informação para o aluno — mostrá-la só ocuparia largura.
 inline constexpr int PapelIdArquivo = Qt::UserRole + 2;
 QStandardItemModel* modeloArquivos(const std::vector<ArquivoTurma>& arquivos, QObject* pai);
+
+// Colunas: Papel | Nome | Curso / Departamento | Matrícula | E-mail
+//
+// Uma coluna só para "Curso / Departamento" porque os dois papéis nunca
+// preenchem os dois campos: o docente traz departamento, o discente traz
+// curso. Duas colunas deixariam metade de cada uma vazia em toda turma.
+//
+// A ordenação vem de PapelOrdenacao com o papel na frente do nome, e não do
+// texto: ordenar pela coluna Nome jogaria o professor para o meio da lista
+// alfabética dos colegas, e ele é quem a pessoa procura primeiro.
+//
+// A célula do nome mostra as INICIAIS num quadro colorido. Já mostrou o
+// retrato de verdade; a foto saiu em 18/09/2026 junto com a coleta que a
+// alimentava (ver `avatarDe` em Modelos.cpp).
+QStandardItemModel* modeloParticipantes(const std::vector<Participante>& participantes,
+                                        QObject* pai);
+
+// Colunas: Data | Situação | Origem
+//
+// A tabela do mapa de frequência do SIGAA, mais o que o aluno registrou nos
+// dias em branco. A coluna Origem distingue as três procedências — o professor,
+// o aluno, e o conflito entre os dois — porque é dela que depende o valor da
+// aba: uma marcação só serve de prova se der para ver que ela é uma marcação.
+QStandardItemModel* modeloPresenca(const std::vector<frequencia::DiaEfetivo>& dias,
+                                   QObject* pai);
+
+// A data ISO do dia viaja na linha, para o botão de marcar saber sobre qual
+// dia o aluno clicou sem depender da ordem da tabela.
+inline constexpr int PapelDataDia = Qt::UserRole + 30;
 
 // A árvore de aulas: cada tópico com os materiais pendurados nele.
 //

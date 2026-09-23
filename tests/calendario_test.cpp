@@ -393,3 +393,82 @@ TEST_CASE("aulasDoDia filtra e preserva a ordem", "[calendario]") {
     CHECK(hoje[0].titulo == "Primeira");
     CHECK(hoje[1].titulo == "Segunda");
 }
+
+// ---------------------------------------------------------------------------
+// As correcoes do aluno tem de chegar ao .ics
+//
+// E o canal onde a data vira alarme no celular — e onde ela sera obedecida sem
+// ninguem reconferir. Exportar a data que o app SABE estar errada, enquanto a
+// tela mostra a certa, seria escolher exatamente o pior lugar para mentir.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Desdobra as linhas do .ics antes de procurar texto nelas.
+//
+// O RFC 5545 corta linha logica a cada 75 octetos e continua na seguinte com
+// um espaco na frente. Procurar uma frase no .ics cru encontra ou nao encontra
+// conforme o tamanho do texto que veio ANTES dela — um teste que passa hoje e
+// falha quando alguem acrescentar uma palavra na descricao. E o que qualquer
+// cliente de calendario faz antes de ler.
+std::string desdobrar(std::string ics) {
+    for (size_t i = ics.find("\r\n "); i != std::string::npos; i = ics.find("\r\n ")) {
+        ics.erase(i, 3);
+    }
+    return ics;
+}
+
+}  // namespace
+
+TEST_CASE("a data corrigida pelo aluno e a que vai para o .ics", "[calendario]") {
+    Snapshot s;
+    Avaliacao av;
+    av.idTurma = "T1";
+    av.turmaNome = "INTELIGENCIA ARTIFICIAL";
+    av.descricao = "Prova 1";
+    av.quando.year = 2026; av.quando.month = 9; av.quando.day = 22;
+    s.avaliacoes.push_back(av);
+
+    avaliacao::Ajuste aj;
+    aj.idTurma = "T1";
+    aj.descricao = "Prova 1";
+    aj.quando.year = 2026; aj.quando.month = 9; aj.quando.day = 29;
+    aj.quandoSigaaNaEpoca = av.quando;
+    aj.nota = "adiada em sala";
+
+    const std::string ics = desdobrar(calendario::gerarIcs(s, {}, {aj}));
+
+    CHECK(ics.find("20260929") != std::string::npos);
+    CHECK(ics.find("20260922") == std::string::npos);
+    // E o evento diz de onde veio a data: quem abrir no celular tem de poder
+    // descobrir que aquilo e uma correcao, nao um cadastro do professor.
+    CHECK(ics.find("corrigida por voce") != std::string::npos);
+    CHECK(ics.find("adiada em sala") != std::string::npos);
+}
+
+TEST_CASE("prova criada pelo aluno aparece no .ics", "[calendario]") {
+    avaliacao::Ajuste aj;
+    aj.idTurma = "T9";
+    aj.turmaNome = "COMPILADORES";
+    aj.descricao = "Prova surpresa";
+    aj.quando.year = 2026; aj.quando.month = 10; aj.quando.day = 2;
+    aj.criadaPeloAluno = true;
+
+    const std::string ics = desdobrar(calendario::gerarIcs({}, {}, {aj}));
+    CHECK(ics.find("20261002") != std::string::npos);
+    CHECK(ics.find("COMPILADORES") != std::string::npos);
+    CHECK(ics.find("nao tem esta prova") != std::string::npos);
+}
+
+TEST_CASE("sem correcoes o .ics continua igual ao que sempre foi", "[calendario]") {
+    // A garantia de que o recurso novo nao mexeu em quem nao o usa.
+    Snapshot s;
+    Avaliacao av;
+    av.idTurma = "T1";
+    av.turmaNome = "INTELIGENCIA ARTIFICIAL";
+    av.descricao = "Prova 1";
+    av.quando.year = 2026; av.quando.month = 9; av.quando.day = 22;
+    s.avaliacoes.push_back(av);
+
+    CHECK(calendario::gerarIcs(s, {}, {}) == calendario::gerarIcs(s));
+}

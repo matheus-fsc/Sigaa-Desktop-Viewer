@@ -1,29 +1,52 @@
 /* ---------------------------------------------------------------------------
- * Folha de estilo do sigaa-ui.  Carregada em main.cpp a partir do .qrc.
+ * Folha de estilo do sigaa-ui.  Carregada por ui/Tema.cpp a partir do .qrc.
  *
- * REGRA DESTE ARQUIVO: nenhuma cor literal.  Tudo sai de palette(...), que o
- * Qt resolve contra a paleta viva do sistema.  E o que faz o app continuar
- * legivel quando o Windows esta no tema escuro — um "#f5f5f5" cravado aqui
- * viraria texto branco sobre branco na primeira vez que o usuario trocasse o
- * tema, e ninguem testa isso.
+ * REGRA DESTE ARQUIVO: nenhuma cor literal.  Tudo sai de palette(...).
  *
- * O QSS aqui mexe em ESPACAMENTO e HIERARQUIA, nao em pintura.  Estilizar
- * demais um app de Widgets custa a aparencia nativa sem devolver nada.
+ * O que mudou: a paleta agora e NOSSA (ui/Tema.cpp define uma clara e uma
+ * escura e escolhe pelo tema do sistema), entao palette(base), palette(mid) e
+ * companhia resolvem contra cores escolhidas, nao contra o que o Qt achou no
+ * sistema.  A regra fica mais forte, nao mais fraca: continua existindo UM
+ * lugar onde cor e decidida, e ele nao e aqui.
+ *
+ * Consequencia pratica: cravar um "#2F62E8" nesta folha nao so quebraria o
+ * tema escuro como sairia do ar na hora em que o azul do app mudasse.
+ *
+ * TAMBEM NAO HA "font-size" AQUI.  Tamanho de fonte sai de tema::fonte(), que
+ * deriva da fonte do sistema; um "10pt" cravado ignoraria a escala de
+ * acessibilidade de quem aumentou a fonte no Windows para enxergar.
+ *
+ * Espacamento segue o ritmo de 4px de tema::esp().
  * ------------------------------------------------------------------------- */
+
+/* --- Base ---------------------------------------------------------------- */
+
+QMainWindow,
+QDialog {
+    background: palette(window);
+}
+
+/* O Fusion desenha uma moldura afundada em volta de area de rolagem.  E o
+ * detalhe que mais data a aparencia de um app Qt: caixa dentro de caixa dentro
+ * de caixa.  A separacao fica por conta do contraste entre base e window. */
+QAbstractScrollArea {
+    border: none;
+}
 
 /* --- Barra de acoes ------------------------------------------------------ */
 
 QToolBar#barraAcoes {
     border: none;
     border-bottom: 1px solid palette(mid);
-    padding: 4px 6px;
+    background: palette(base);
+    padding: 8px 12px;
     spacing: 4px;
 }
 
 QToolBar#barraAcoes QToolButton {
     border: 1px solid transparent;
-    border-radius: 5px;
-    padding: 5px 10px;
+    border-radius: 8px;
+    padding: 8px 12px;
 }
 
 QToolBar#barraAcoes QToolButton:hover {
@@ -61,7 +84,7 @@ QTabWidget#abas::pane {
 }
 
 QTabWidget#abas::tab-bar {
-    left: 6px;
+    left: 12px;
 }
 
 /* Sublinhado no lugar de "aba fisica": a contagem no titulo ("Prazos (12)")
@@ -69,17 +92,139 @@ QTabWidget#abas::tab-bar {
 QTabBar::tab {
     border: none;
     border-bottom: 2px solid transparent;
-    padding: 7px 14px;
+    padding: 10px 16px;
     margin-right: 2px;
-    color: palette(window-text);
+    color: palette(placeholder-text);
 }
 
 QTabBar::tab:hover {
-    background: palette(alternate-base);
+    color: palette(window-text);
 }
 
 QTabBar::tab:selected {
+    color: palette(window-text);
     border-bottom-color: palette(highlight);
+}
+
+/* --- Botoes -------------------------------------------------------------- */
+
+QPushButton {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 8px;
+    padding: 8px 16px;
+}
+
+QPushButton:hover {
+    background: palette(alternate-base);
+}
+
+QPushButton:pressed {
+    background: palette(mid);
+}
+
+QPushButton:disabled {
+    background: palette(window);
+    color: palette(mid);
+}
+
+/* A acao principal do dialogo.  O Qt marca sozinho o botao Default, entao isto
+ * pega "Entrar" e "Baixar" sem ninguem precisar etiquetar nada no .ui. */
+QPushButton:default {
+    background: palette(highlight);
+    border-color: palette(highlight);
+    color: palette(highlighted-text);
+}
+
+QPushButton:default:hover {
+    /* Sem cor propria para hover: qualquer tom escolhido aqui seria uma cor
+     * literal disfarcada.  O contorno da o retorno de que o botao respondeu. */
+    border-color: palette(window-text);
+}
+
+QPushButton:default:disabled {
+    background: palette(alternate-base);
+    border-color: palette(mid);
+    color: palette(mid);
+}
+
+/* --- Campos -------------------------------------------------------------- */
+
+/* SEM PADDING VERTICAL, e sem `min-height`.  Os dois foram tentados e os dois
+ * quebraram, de formas diferentes:
+ *
+ *   - `padding: 7px` sozinho: o Qt calcula a altura natural do campo SEM o
+ *     padding desta folha, o campo nasce curto demais para o proprio texto, e
+ *     o QComboBox desenhava a fatia de cima das letras e cortava o resto.
+ *   - `padding` + `min-height`: o desenho cresce, o `sizeHint` NAO, e o layout
+ *     aloca a altura antiga — as duas linhas do formulario se sobrepunham, com
+ *     os combos por cima dos proprios rotulos.
+ *
+ * E a mesma armadilha do padding de celula em QTableView (ver
+ * tema::kRespiroCelula): o QSS pinta, o C++ mede, e os dois nao se falam.  A
+ * altura vertical fica com o Qt, que sabe medi-la; daqui sai so o respiro
+ * HORIZONTAL, que nao afeta o empilhamento das linhas.
+ */
+QLineEdit,
+QSpinBox,
+QPlainTextEdit,
+QTextEdit {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+}
+
+/* Foco visivel, e visivel de longe.  E acessibilidade antes de ser estetica:
+ * quem navega por Tab precisa saber onde esta, e o anel pontilhado do Fusion
+ * some contra fundo claro. */
+QLineEdit:focus,
+QSpinBox:focus,
+QPlainTextEdit:focus,
+QTextEdit:focus {
+    border-color: palette(highlight);
+}
+
+QLineEdit:disabled,
+QSpinBox:disabled {
+    background: palette(window);
+    color: palette(mid);
+}
+
+/* O QComboBox NAO e estilizado, e a ausencia custou tres tentativas:
+ *
+ *   1. `padding: 7px 10px` — o Qt mede a altura natural SEM o padding do QSS,
+ *      o campo nasceu curto demais e o texto saiu cortado pela metade.
+ *   2. `padding` + `min-height` — o desenho cresceu, o `sizeHint` nao, e as
+ *      linhas do formulario passaram a se sobrepor, com os combos por cima
+ *      dos proprios rotulos.
+ *   3. so `padding-left/right` — o campo colapsou para uma fatia de poucos
+ *      pixels.
+ *
+ * A raiz e conhecida: estilizar um QComboBox transfere a GEOMETRIA dele para o
+ * QStyleSheetStyle, e a partir dai a regra tem de descrever tudo — moldura,
+ * respiro, seta, altura — ou o que faltar vira zero.  Descrever tudo significa
+ * tambem embutir a imagem da seta, porque `::down-arrow` sem `image` some.
+ *
+ * O preco de deixar o Fusion desenhar e um canto menos arredondado que o dos
+ * outros campos.  O preco da alternativa foi um campo ilegivel em tres formas
+ * diferentes.  A paleta do tema continua valendo: as cores saem dela, nao
+ * daqui.
+ */
+
+/* A lista que desce do combo e uma janela separada: sem estas regras ela abre
+ * com a moldura crua do Fusion, destoando do campo que a abriu. */
+QComboBox QAbstractItemView {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 8px;
+    padding: 4px;
+    outline: none;
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
 }
 
 /* --- Tabelas ------------------------------------------------------------- */
@@ -90,36 +235,102 @@ QTabBar::tab:selected {
  * entao perder a seta e perder a unica pista de por qual coluna a lista esta
  * ordenada.  Padding de cabecalho nao vale esse preco. */
 QTableView {
+    background: palette(base);
     border: none;
-    gridline-color: palette(alternate-base);
+    /* Sem grade.  A separacao entre linhas vem do respiro e da zebra; a grade
+     * completa e o que faz uma lista parecer planilha de contabilidade. */
+    gridline-color: transparent;
     selection-background-color: palette(highlight);
     selection-color: palette(highlighted-text);
+    alternate-background-color: palette(alternate-base);
+    outline: none;
 }
 
+/* O respiro horizontal (10px) esta DUPLICADO em tema::kRespiroCelula, e tem de
+ * continuar batendo: o Qt nao conta o padding do QSS ao medir a largura de uma
+ * coluna, entao e o C++ que soma a diferenca de volta.  Mudar um lado sozinho
+ * corta a ultima palavra das colunas. */
 QTableView::item {
-    padding: 3px 6px;
+    padding: 8px 10px;
+    border: none;
+}
+
+/* Linha inteira sob o cursor: a tabela de prazos e larga, e sem isto o olho
+ * perde a linha no meio do caminho entre a turma e a data. */
+QTableView::item:hover {
+    background: palette(alternate-base);
 }
 
 /* QCalendarWidget tem uma QTableView POR DENTRO (QCalendarView herda de
- * QTableView), entao as duas regras acima caem nela sem ninguem pedir: o
- * padding de ::item incha cada celula do mes e a grade fica desalinhada do
- * cabecalho dos dias da semana.  Desfaz so para o calendario. */
+ * QTableView), entao as regras acima caem nela sem ninguem pedir: o padding de
+ * ::item incha cada celula do mes e a grade fica desalinhada do cabecalho dos
+ * dias da semana.  Desfaz so para o calendario. */
 QCalendarWidget QTableView::item {
     padding: 0;
+}
+
+QCalendarWidget QTableView::item:hover {
+    background: transparent;
+}
+
+/* --- Rolagem ------------------------------------------------------------- */
+
+/* Barra fina, sem setas nas pontas.  As setas sao alvo pequeno demais para o
+ * mouse e ninguem as usa desde que existe roda. */
+QScrollBar:vertical {
+    background: transparent;
+    width: 12px;
+    margin: 0;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 12px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical,
+QScrollBar::handle:horizontal {
+    background: palette(mid);
+    border-radius: 4px;
+    border: 3px solid transparent;
+}
+
+QScrollBar::handle:vertical {
+    min-height: 32px;
+}
+
+QScrollBar::handle:horizontal {
+    min-width: 32px;
+}
+
+QScrollBar::handle:hover {
+    background: palette(dark);
+}
+
+QScrollBar::add-line,
+QScrollBar::sub-line {
+    height: 0;
+    width: 0;
+}
+
+QScrollBar::add-page,
+QScrollBar::sub-page {
+    background: transparent;
 }
 
 /* --- Dashboard de provas ------------------------------------------------- */
 
 /* Cartao de resumo.  So chrome: fundo, borda e respiro.  O tamanho de fonte e
  * o cinza do texto secundario ficam em JanelaPrincipal.cpp — fonte porque um
- * "font-size: 10pt" cravado aqui ignoraria a escala de fonte do sistema, e
- * cinza porque palette(placeholder-text) nao existe no parser de QSS (ver a
- * nota no fim deste arquivo). */
+ * "font-size" cravado aqui ignoraria a escala do sistema, e cinza porque
+ * palette(placeholder-text) so funciona em algumas propriedades do parser de
+ * QSS (ver a nota no fim deste arquivo). */
 QFrame[classe="cartao"] {
-    background: palette(alternate-base);
+    background: palette(base);
     border: 1px solid palette(mid);
-    border-radius: 6px;
-    padding: 8px 12px;
+    border-radius: 12px;
+    padding: 16px;
 }
 
 /* O calendario nao leva fundo de cartao: ele ja e uma grade densa, e uma
@@ -130,10 +341,26 @@ QCalendarWidget QAbstractItemView {
     selection-color: palette(highlighted-text);
 }
 
+/* --- Progresso ----------------------------------------------------------- */
+
+QProgressBar {
+    background: palette(alternate-base);
+    border: none;
+    border-radius: 3px;
+    max-height: 6px;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background: palette(highlight);
+    border-radius: 3px;
+}
+
 /* --- Barra de status ----------------------------------------------------- */
 
 QStatusBar {
     border-top: 1px solid palette(mid);
+    background: palette(base);
 }
 
 /* Tira o entalhe que o Qt desenha em volta de cada widget da barra. */
@@ -142,7 +369,40 @@ QStatusBar::item {
 }
 
 QStatusBar QLabel {
-    padding: 2px 6px;
+    padding: 4px 8px;
+}
+
+/* --- Menus e dicas ------------------------------------------------------- */
+
+QMenu {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 8px;
+    padding: 4px;
+}
+
+QMenu::item {
+    padding: 7px 24px 7px 12px;
+    border-radius: 5px;
+}
+
+QMenu::item:selected {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+}
+
+QMenu::separator {
+    height: 1px;
+    background: palette(mid);
+    margin: 4px 8px;
+}
+
+QToolTip {
+    background: palette(tooltip-base);
+    color: palette(tooltip-text);
+    border: none;
+    border-radius: 6px;
+    padding: 6px 8px;
 }
 
 /* --- Dialogo de login ---------------------------------------------------- */
@@ -153,15 +413,15 @@ QLabel[classe="titulo"] {
 
 /* A cor das notas (o cinza de texto secundario) NAO esta aqui: o palette() do
  * QSS so aceita a lista fechada de papeis que o parser conhece, e
- * placeholder-text — o unico papel que significa "cinza legivel nos dois
- * temas" — nao esta nela.  A regra seria descartada em silencio.  Fica em
- * DialogoLogin.cpp, via QPalette::PlaceholderText, que existe de verdade.
+ * placeholder-text nao esta nela para a propriedade `color`.  A regra seria
+ * descartada em silencio.  Fica em DialogoLogin.cpp, via
+ * QPalette::PlaceholderText, que existe de verdade.
  *
- * Consequencia pratica: nao adiantar acrescentar `color:` aqui para QLabel de
+ * Consequencia pratica: nao adianta acrescentar `color:` aqui para QLabel de
  * classe "nota" — o C++ ja resolveu, e QSS venceria a paleta. */
 QLabel[classe="recado"] {
     background: palette(alternate-base);
     border: 1px solid palette(mid);
-    border-radius: 4px;
-    padding: 6px 8px;
+    border-radius: 8px;
+    padding: 10px 12px;
 }

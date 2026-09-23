@@ -51,7 +51,7 @@ struct Response {
 // então a única forma confiável de saber onde estamos é olhar o conteúdo.
 enum class PageKind {
     Portal,          // #formAtividades + #formAtualizacoesTurmas
-    TurmaVirtual,    // #formAva
+    TurmaVirtual,    // #formAva (pagina inicial) ou #formAcoesTurma (abas)
     Login,           // form com user.login / user.senha
     SessaoExpirada,
     Desconhecida
@@ -89,6 +89,25 @@ public:
 
     bool autenticado() const;
 
+    // Encerra a sessão NO SERVIDOR (GET logar.do?dispatch=logOff).
+    //
+    // POR QUE ISTO PRECISA EXISTIR — e por que a falta dele travava o login:
+    //
+    //   Destruir o objeto `SigaaSession` fecha o handle do curl e joga fora o
+    //   cookie. Não diz NADA ao SIGAA, que continua com a sessão do aluno
+    //   aberta até o timeout de 30 minutos.
+    //
+    //   Era o que acontecia no diálogo de login: ele confirma a senha fazendo
+    //   um login de verdade, joga a sessão fora e devolve o controle; a
+    //   sincronização seguinte abre OUTRA sessão e loga de novo. Duas sessões
+    //   vivas para o mesmo aluno — e o segundo POST de login ficava sem
+    //   resposta, estourando três timeouts de 45 s antes de desistir.
+    //
+    // Idempotente e silencioso: numa sessão que nunca autenticou, não faz
+    // requisição nenhuma. Falha de rede aqui não é erro de ninguém — a sessão
+    // vai expirar sozinha — então não devolve erro, só se a requisição saiu.
+    bool logout();
+
     // --- classificação ----------------------------------------------------
     static PageKind classify(std::string_view html);
     // Lê "Tempo de Sessão: 00:25" do cabeçalho (RECON §1.7).
@@ -96,6 +115,7 @@ public:
 
     // --- configuração -----------------------------------------------------
     void setIntervaloMinimo(std::chrono::milliseconds ms);
+    std::chrono::milliseconds intervaloMinimo() const;
     void setUserAgent(std::string ua);
     void setMaxTentativasLogin(int n);
 

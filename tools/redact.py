@@ -49,6 +49,12 @@ RULES: list[tuple[str, re.Pattern[str], str]] = [
     ("idusuario",
      re.compile(r"(idusuario=)\d+"),
      r"\g<1>00000"),
+    # Id interno da pessoa, no A4J de "Visualizar Perfil" da aba Participantes:
+    #   'parameters':{'idPessoa':194699, ...}
+    # E o mesmo tipo de identificador que idusuario, so que noutra tela.
+    ("idpessoa",
+     re.compile(r"(['\"]idPessoa['\"]\s*:\s*)\d+"),
+     r"\g<1>00000"),
     # O mesmo id aparece como argumento posicional de JS, fora de query string:
     #   exibirJanelaVideoChat(&quot;88080&quot;, 25318, &quot;db86...&quot;)
     # Dois cuidados: o nome real da funcao e "exibirJanelaVideoChat" (V
@@ -65,6 +71,59 @@ RULES: list[tuple[str, re.Pattern[str], str]] = [
     ("nome-em-url",
      re.compile(r"(nomeUsuario=)[^&'\"]+"),
      r"\g<1>ALUNO+TESTE"),
+    # O nome do DONO DA CONTA, no 5o argumento de exibirJanelaVideoChat.
+    #
+    # Existe porque `name_rules` so roda com --name, e --name depende de
+    # alguem lembrar. Nao lembraram: `arquivos_rede.html` e `arquivos_vazio.html`
+    # foram commitados com o nome completo do aluno em texto puro, e o --check
+    # deu verde. Regra estrutural nao tem esse modo de falha — funciona em
+    # fixture de qualquer conta, sem flag.
+    #
+    # Ancorada no `, false` que SEGUE o nome: e o unico argumento da chamada
+    # seguido de um booleano, entao o `[^)]*?` preguicoso nao tem como parar
+    # no argumento errado.
+    ("nome-em-videochat",
+     re.compile(r"(VideoChat\([^)]*?(?:&quot;|[\"']))"
+                r"([^\"'&]+?)"
+                r"((?:&quot;|[\"'])\s*,\s*(?:false|true))",
+                re.IGNORECASE),
+     r"\g<1>ALUNO TESTE\g<3>"),
+    # O mesmo nome, agora no cabecalho de toda pagina logada: o SIGAA escreve
+    # o dono da conta solto dentro de #painelDadosUsuario. Estrutural pelo
+    # mesmo motivo da regra acima — nao pode depender de --name.
+    # Os \s* ficam DENTRO dos grupos 1 e 3, e nao fora: engolir o espaco em
+    # volta do nome faria a regra reescrever o arquivo mesmo quando ele ja esta
+    # redigido — e o --check, que conta so as regras que MUDARAM o texto,
+    # acusaria de PII um fixture limpo. Toda regra daqui tem de ser ponto fixo
+    # de si mesma (ver o docstring de redact()).
+    ("nome-no-cabecalho",
+     re.compile(r"(id=[\"']painelDadosUsuario[\"'][\s\S]{0,400}?<p[^>]*>\s*)"
+                r"([^<>\s][^<>]*?)"
+                r"(\s*</p>)"),
+     r"\g<1>ALUNO TESTE\g<3>"),
+    # --- aba Participantes ------------------------------------------------
+    # Aqui os nomes nao sao UM (o do dono da conta), sao a TURMA INTEIRA: 31
+    # colegas mais o professor, cada um com CPF, matricula e e-mail ao lado.
+    # `name_rules` nao serve — exigiria um --name por pessoa, e um esquecido
+    # vaza. Estas duas regras redigem por ESTRUTURA, entao funcionam numa turma
+    # que nunca vimos.
+    #
+    # Discente: o nome e o texto solto logo apos <strong>, em caixa alta.
+    # O primeiro caractere tem que ser do nome (e nao \s) senao a regra tambem
+    # casaria o <strong> do docente, que abre com <a>, e injetaria texto antes
+    # do link — corrompendo justamente o no de onde o parser le o nome dele.
+    # Os &#NNN; sao obrigatorios na classe: o SIGAA escreve "JO&#195;O" e
+    # "VIN&#205;CIUS", e sem eles tres nomes de 32 passavam limpos.
+    ("nome-participante",
+     re.compile(r"(<strong>\s*)"
+                r"((?:[A-ZÀ-Ü.'-]|&#\d+;)(?:(?:[A-ZÀ-Ü.'-]|&#\d+;)|[ \t]){4,}?)"
+                r"(?=\s*<)"),
+     r"\g<1>ALUNO TESTE"),
+    # Docente: o nome e o texto do link para a pagina publica dele. O CPF que
+    # vai no ?login= da mesma URL cai na regra cpf-solto.
+    ("nome-docente",
+     re.compile(r"(RedirectDocente[^>]*>)[^<]+(</a>)"),
+     r"\g<1>DOCENTE TESTE\g<2>"),
     # TLD opcional de proposito: no HTML do SIGAA o e-mail aparece truncado
     # ("d2023013362@unifei....") e as vezes quebrado por tags, entao exigir
     # dominio completo faz a regra nunca casar. "@media" e afins nao casam
@@ -154,6 +213,72 @@ def redact(text: str, rules) -> tuple[str, dict[str, int]]:
     return text, hits
 
 
+# Caminho padrao do .env de quem esta testando. Fica em tests/fixtures/ e nao
+# na raiz porque e um arquivo de FIXTURE: quem gera fixture e quem precisa
+# dele, e quem so compila o projeto nunca o vera.
+ENV_PADRAO = pathlib.Path(__file__).resolve().parent.parent / "tests" / "fixtures" / ".env"
+
+# Chave -> se o valor e um NOME (sem padrao sintatico, precisa de name_rules)
+# ou um literal qualquer (redigido como texto exato).
+CHAVES_NOME = ("SIGAA_NOME", "SIGAA_NOMES_EXTRA")
+CHAVES_LITERAL = {
+    "SIGAA_EMAIL": "aluno@example.edu",
+    "SIGAA_CPF": "00000000000",
+    "SIGAA_MATRICULA": "2000000000",
+    "SIGAA_IDUSUARIO": "00000",
+}
+
+
+def carregar_env(path: pathlib.Path) -> dict[str, str]:
+    """Le o .env de quem esta testando. Ausente = dict vazio, sem erro.
+
+    NAO e obrigatorio de proposito: as regras estruturais de RULES cobrem CPF,
+    e-mail, matricula e os dois lugares onde o SIGAA escreve o nome do dono da
+    conta. O .env existe para o que sobra — um apelido, um nome do meio escrito
+    diferente, o nome de um colega que aparece numa mensagem. Exigi-lo faria o
+    --check falhar em CI, que nao tem .env nenhum.
+    """
+    if not path.is_file():
+        return {}
+    out: dict[str, str] = {}
+    for linha in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or "=" not in linha:
+            continue
+        chave, _, valor = linha.partition("=")
+        valor = valor.strip().strip('"').strip("'")
+        if valor:
+            out[chave.strip()] = valor
+    return out
+
+
+def regras_do_env(env: dict[str, str]) -> list[tuple[str, re.Pattern[str], str]]:
+    """Converte o .env em regras.
+
+    Nomes viram `name_rules` (que quebra em tokens, porque o SIGAA abrevia o
+    mesmo nome de formas diferentes na mesma pagina). O resto vira literal
+    exato — redundante com as regras estruturais no caso normal, e a rede de
+    seguranca quando o SIGAA escreve o dado num formato que elas nao preveem.
+    """
+    regras: list[tuple[str, re.Pattern[str], str]] = []
+
+    nomes: list[str] = []
+    for chave in CHAVES_NOME:
+        # Varios nomes por chave, separados por ";" — o caso de quem testa com
+        # mais de uma conta, ou precisa redigir um colega citado numa mensagem.
+        nomes += [n.strip() for n in env.get(chave, "").split(";") if n.strip()]
+    regras += name_rules(nomes)
+
+    for chave, placeholder in CHAVES_LITERAL.items():
+        valor = env.get(chave, "")
+        if not valor or valor == placeholder:
+            continue   # nao redigir o placeholder para ele mesmo: nao seria ponto fixo
+        regras.append((f"env:{chave.lower()}",
+                       re.compile(re.escape(valor), re.IGNORECASE),
+                       placeholder))
+    return regras
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -164,12 +289,20 @@ def main() -> int:
                     help="nome próprio a redigir; pode repetir")
     ap.add_argument("--check", action="store_true",
                     help="não escreve; sai 1 se encontrar PII")
+    ap.add_argument("--env", type=pathlib.Path, default=ENV_PADRAO,
+                    help=f"dados de quem testa (padrão: {ENV_PADRAO})")
+    ap.add_argument("--sem-env", action="store_true",
+                    help="ignora o .env; use para conferir só as regras estruturais")
     args = ap.parse_args()
 
     if args.output and len(args.files) > 1:
         ap.error("-o só funciona com um arquivo de entrada")
 
-    rules = RULES + name_rules(args.name)
+    env = {} if args.sem_env else carregar_env(args.env)
+    # Ordem: estruturais, depois .env. As do .env sao literais e nao dependem
+    # do contexto, entao rodar por ultimo nao muda o resultado — mas deixa o
+    # relatorio de hits mais legivel, com o que veio do arquivo no fim.
+    rules = RULES + name_rules(args.name) + regras_do_env(env)
     dirty = False
 
     for path in args.files:

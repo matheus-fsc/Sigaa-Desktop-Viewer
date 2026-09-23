@@ -139,7 +139,123 @@ struct ArquivoTurma {
     std::string topico;         // "Materiais auxiliares para Estudo"
 };
 
+// Quem está na turma: o professor e os colegas (aba "Participantes").
+//
+// O SIGAA desenha os dois grupos em `table.participantes` separadas, com
+// markup DIFERENTE — docente traz Departamento/Formação e o nome dentro de um
+// link para a página pública; discente traz Curso/Matrícula e o nome como
+// texto solto. Um struct só, com os campos de cada papel vazios no outro, em
+// vez de dois tipos: a tela mostra uma lista única, e duplicar o tipo
+// espalharia o `if` por toda a UI em troca de nada.
+enum class PapelParticipante { Docente, Discente };
+
+// CPF e idPessoa NÃO entram aqui, de propósito. A página traz os dois para cada
+// participante — `Mensagem.show(1, '<CPF>', ...)` e `'idPessoa':194699` — e o
+// app não tem nenhuma tela que precise deles. Extrair identificador de terceiro
+// só porque ele está no HTML é aumentar a superfície de vazamento em troca de
+// campo que ninguém lê; a chave (idTurma, nome) resolve o que precisamos.
+struct Participante {
+    std::string idTurma;
+    std::string turmaNome;
+    PapelParticipante papel{PapelParticipante::Discente};
+    std::string nome;
+    std::string email;
+
+    // Só discente.
+    std::string matricula;      // "2022004556"
+    std::string curso;          // "ENGENHARIA DE COMPUTAÇÃO/ICT"
+
+    // Só docente.
+    std::string departamento;   // "INSTITUTO DE CIÊNCIAS TECNOLÓGICAS"
+    std::string formacao;       // "DOUTORADO"
+
+    // NÃO HÁ CAMPO DE FOTO, e a ausência é deliberada.
+    //
+    // O app já guardou retrato de colega em disco (`core/sync/Fotos.h`,
+    // removido em 18/09/2026). A imagem de uma pessoa é dado pessoal dela, e
+    // ela não escolheu nos dar cópia — cadastrou a foto no SIGAA, para o
+    // SIGAA. Espalhar isso pela máquina de cada colega de turma é uma decisão
+    // que nenhum dos 31 tomou.
+    //
+    // O ganho era reconhecer alguém de relance na lista. As INICIAIS em um
+    // quadrado colorido resolvem o mesmo problema (ver `avatarDe` em
+    // ui/Modelos.cpp) sem copiar o rosto de ninguém, e ainda funcionam para
+    // quem não cadastrou retrato — 13 dos 32 na captura de rede.
+    //
+    // O parser também não extrai mais a URL: ela carrega um `key` que é token
+    // de acesso ao retrato de um terceiro, e não coletar é mais forte que
+    // coletar e não usar.
+};
+
 // Snapshot completo de um ciclo de coleta.
+// Um dia no diário de classe do professor.
+enum class SituacaoDia {
+    Presente,
+    Falta,           // o SIGAA escreve "N Falta(s)"; N está em `faltas`
+    NaoRegistrada,   // o professor não lançou este dia
+};
+
+struct DiaFrequencia {
+    DateTime data;
+    SituacaoDia situacao{SituacaoDia::NaoRegistrada};
+    // Aulas perdidas nesse dia. Zero quando presente ou não registrada.
+    //
+    // NÃO é "1 por dia": um encontro de dois horários seguidos lança 2 faltas,
+    // e é assim que o SIGAA conta — a unidade da frequência é a HORA-AULA, não
+    // o dia. A própria página diz: "a porcentagem é calculada levando em
+    // consideração que uma aula dura 60 minutos".
+    int faltas{0};
+};
+
+// O mapa de frequência de uma turma — /sigaa/ava/FrequenciaAluno/mapa.jsf
+//
+// OS TOTAIS VÊM DO SIGAA, não da soma das linhas, e isso é deliberado: a
+// tabela diz "Presente" sem dizer de quantas aulas aquele encontro foi feito.
+// Somar as linhas exigiria adivinhar isso (dividir o total pelo número de
+// encontros dá uma média que quebra na turma com um encontro de 1 aula). O
+// rodapé da página já traz os três números exatos.
+//
+// PODE NÃO EXISTIR: se o professor nunca abriu o diário eletrônico, não há
+// tabela nem rodapé. `temDados` distingue isso de "zero faltas" — e a
+// diferença importa, porque "você não faltou" e "ninguém registrou nada" levam
+// o aluno a decisões opostas.
+struct Frequencia {
+    std::string idTurma;
+    std::string turmaNome;
+
+    int presencas{0};          // "Presenças Registradas: 18"
+    int aulasComRegistro{0};   // "Número de Aulas com Registro de Frequência: 24"
+    int aulasPelaCH{0};        // "Número de Aulas definidas pela CH do Componente: 64"
+
+    bool temDados{false};
+
+    std::vector<DiaFrequencia> dias;
+
+    // Aulas perdidas. A subtração é a do próprio SIGAA: das aulas que ele
+    // registrou, as que não foram presença.
+    int faltas() const {
+        const int f = aulasComRegistro - presencas;
+        return f > 0 ? f : 0;
+    }
+
+    // Quantas aulas dá para perder antes de reprovar por falta.
+    //
+    // 25% da carga horária, que é o complemento da regra que a própria página
+    // enuncia: "aprovado [...] se tiver presença em um número de aulas igual
+    // ou superior a 75.0% da carga horária do componente curricular". Em 64
+    // aulas dá 16; em 32, dá 8.
+    //
+    // Calculado sobre `aulasPelaCH` — a carga horária do componente — e não
+    // sobre o que o professor já lançou: o limite é do semestre inteiro e não
+    // encolhe porque o diário está atrasado.
+    int limiteFaltas() const { return aulasPelaCH / 4; }
+
+    // Já reprovado por falta. `>=` e não `>`: com 16 de 64, a presença caiu
+    // para 75% — e a regra exige "igual ou superior a 75%" de PRESENÇA, então
+    // o limite ainda passa. É a falta seguinte que reprova.
+    bool reprovado() const { return limiteFaltas() > 0 && faltas() > limiteFaltas(); }
+};
+
 struct Snapshot {
     std::vector<Turma> turmas;
     std::vector<Atividade> atividades;
@@ -149,6 +265,12 @@ struct Snapshot {
     // Material publicado nas turmas. Só é preenchido quando a coleta entra nas
     // turmas (`incluirTurmas`): o portal não sabe que estes arquivos existem.
     std::vector<ArquivoTurma> arquivos;
+    // Colegas e professores das turmas. Como `arquivos`, só vem quando a coleta
+    // entra nas turmas.
+    std::vector<Participante> participantes;
+    // Uma por turma, quando a coleta entra nas turmas E o professor lançou
+    // alguma frequência. Turma sem diário aberto simplesmente não aparece.
+    std::vector<Frequencia> frequencias;
     std::optional<int> minutosSessaoRestantes;  // lido do header do SIGAA
 };
 

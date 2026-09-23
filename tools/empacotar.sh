@@ -47,8 +47,14 @@ cache="${XDG_CACHE_HOME:-$HOME/.cache}/sigaa-viewer"
 # passa a mentir o próprio nome.
 if [[ -z "$versao" ]]; then
     versao="$(sed -nE 's/^project\(.*VERSION[[:space:]]+([0-9][0-9.]*).*/\1/p' \
-                  "$raiz/CMakeLists.txt" | head -1)"
+        "$raiz/CMakeLists.txt" | head -1)"
     [[ -n "$versao" ]] || { echo "não achei a versão em CMakeLists.txt" >&2; exit 1; }
+    # O sufixo de pré-lançamento vive separado porque `project(VERSION)` só
+    # aceita número. Sem juntá-lo aqui, o pacote sairia "v0.2.0" enquanto a tag
+    # é "v0.2.0-alpha" — e o atualizador não acharia o arquivo pelo nome.
+    sufixo="$(sed -nE 's/^set\(SIGAA_SUFIXO "([^"]*)".*/\1/p' \
+        "$raiz/CMakeLists.txt" | head -1)"
+    [[ -z "$sufixo" ]] || versao="$versao-$sufixo"
 fi
 
 arquitetura="$(uname -m)"
@@ -185,12 +191,58 @@ echo ":: linuxdeploy"
     --executable "$appdir/usr/bin/sigaa-cli" \
     "${deps_only[@]}" \
     --desktop-file "$appdir/usr/share/applications/io.github.matheus_fsc.SigaaDesktopViewer.desktop" \
-    --icon-file "$appdir/usr/share/icons/hicolor/scalable/apps/io.github.matheus_fsc.SigaaDesktopViewer.svg" )
+    --icon-file "$appdir/usr/share/icons/hicolor/256x256/apps/io.github.matheus_fsc.SigaaDesktopViewer.png" )
 
 [[ -f "$dist/$saida" ]] || { echo "linuxdeploy não gerou $saida" >&2; exit 1; }
 chmod +x "$dist/$saida"
 cp "$raiz/.env.example" "$dist/" 2>/dev/null || true
 
+# ---------------------------------------------------------------------------
+# Portátil: o mesmo AppDir num .tar.gz, com um script de abertura.
+#
+# POR QUE ALÉM DO AppImage: o AppImage precisa de FUSE, e há duas situações
+# comuns em que ele não está lá — container e máquina de laboratório com o
+# módulo desabilitado. Nas duas, o erro é "dlopen(): error loading libfuse.so.2",
+# que não diz a quem lê o que fazer a respeito.
+#
+# O tarball é o mesmo conteúdo sem a camada de montagem: descompacta e roda.
+# Nenhum instalador, nenhuma permissão de root, nada escrito fora da pasta.
+# ---------------------------------------------------------------------------
+portatil="SIGAA-Desktop-Viewer-v$versao-$arquitetura-portatil"
+echo ":: portátil"
+rm -rf "$dist/$portatil"
+cp -a "$appdir" "$dist/$portatil"
+
+cat > "$dist/$portatil/sigaa-viewer" <<'ABRIR'
+#!/usr/bin/env bash
+# Abre o SIGAA Viewer desta pasta, sem instalar nada.
+#
+# O `cd` para a pasta do script é deliberado: o app procura o banco e o .env no
+# diretório de trabalho, e abrir por duplo clique deixaria esse diretório sendo
+# a casa do usuário — o app subiria sem achar a coleta anterior.
+set -euo pipefail
+aqui="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export LD_LIBRARY_PATH="$aqui/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export QT_PLUGIN_PATH="$aqui/usr/plugins"
+cd "$aqui"
+exec "$aqui/usr/bin/sigaa-ui" "$@"
+ABRIR
+chmod +x "$dist/$portatil/sigaa-viewer"
+
+( cd "$dist" && tar -czf "$portatil.tar.gz" "$portatil" && rm -rf "$portatil" )
+
+# ---------------------------------------------------------------------------
+# Somas de verificação.
+#
+# NÃO é enfeite: é o que o atualizador automático do app confere antes de
+# trocar o próprio binário (core/atualizacao/Atualizador.h). Sem elas o app
+# baixaria um arquivo do GitHub e o executaria sob a palavra do DNS — e uma
+# atualização automática é o melhor alvo que um programa pode oferecer.
+# ---------------------------------------------------------------------------
+( cd "$dist" && sha256sum "$saida" "$portatil.tar.gz" > SHA256SUMS )
+
 echo
-echo "pronto: dist/$saida"
-echo "        $(du -h "$dist/$saida" | cut -f1)"
+echo "pronto:"
+echo "  dist/$saida  ($(du -h "$dist/$saida" | cut -f1))"
+echo "  dist/$portatil.tar.gz  ($(du -h "$dist/$portatil.tar.gz" | cut -f1))"
+echo "  dist/SHA256SUMS"

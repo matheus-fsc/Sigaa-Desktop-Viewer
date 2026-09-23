@@ -23,6 +23,15 @@ TEST_CASE("classify reconhece a turma virtual", "[session]") {
           PageKind::TurmaVirtual);
 }
 
+TEST_CASE("classify reconhece as abas internas da turma", "[session]") {
+    // A aba Participantes nao tem #formAva — so o menu lateral e a barra de
+    // acoes. Antes disto ela era classificada como Desconhecida, e o
+    // diagnostico de trafego acusava tela estranha numa navegacao normal.
+    CHECK(SigaaSession::classify(
+              R"(<form id="formAcoesTurma"></form><form id="formMenu"></form>)") ==
+          PageKind::TurmaVirtual);
+}
+
 TEST_CASE("classify reconhece a tela de login", "[session]") {
     CHECK(SigaaSession::classify(
               R"(<input name="user.login"><input name="user.senha" type="password">)") ==

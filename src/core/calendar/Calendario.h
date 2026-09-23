@@ -10,6 +10,7 @@
 #include <string_view>
 #include <vector>
 
+#include "core/avaliacao/Ajustes.h"
 #include "core/model/Models.h"
 
 namespace sigaa::calendario {
@@ -85,7 +86,12 @@ struct OpcoesIcs {
 };
 
 // Gera um .ics com as atividades (prazos) e as avaliações (provas).
-std::string gerarIcs(const Snapshot& s, const OpcoesIcs& op = {});
+// `ajustes` são as correções do aluno (core/avaliacao/Ajustes.h). Elas entram
+// no .ics porque é lá que a data vira alarme no celular — exportar a data que
+// o app sabe estar errada, enquanto a tela mostra a certa, seria escolher
+// justamente o canal errado para mentir.
+std::string gerarIcs(const Snapshot& s, const OpcoesIcs& op = {},
+                     const std::vector<avaliacao::Ajuste>& ajustes = {});
 
 // --- expostos para teste ---------------------------------------------------
 std::string escaparTexto(std::string_view s);

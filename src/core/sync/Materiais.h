@@ -48,6 +48,27 @@ public:
     // Turma -> aba Arquivos. Só depois de `entrar`.
     bool abrirArquivos(std::string* erro = nullptr);
 
+    // Turma -> aba Participantes. Só depois de `entrar`.
+    //
+    // Custa uma requisição e é chamada sob demanda, não dentro de `entrar`:
+    // quem abre a turma quase sempre quer material, e cobrar a lista de colegas
+    // de todo mundo somaria uma requisição por turma em cada ciclo de sync.
+    bool abrirParticipantes(std::string* erro = nullptr);
+
+    // Turma -> aba Frequência (o item "Frequência" do painel "Alunos").
+    //
+    // Sob demanda, como `abrirParticipantes`: custa uma requisição por turma e
+    // só interessa a quem está olhando faltas.
+    //
+    // Devolve false quando a resposta não é o mapa de frequência — sessão
+    // expirada, ou turma sem o item no menu. NÃO devolve false por "o
+    // professor não lançou nada": isso é um mapa válido e vazio, e a diferença
+    // está em `frequencia().temDados`.
+    bool abrirFrequencia(std::string* erro = nullptr);
+
+    // Vazia até `abrirFrequencia` rodar.
+    const Frequencia& frequencia() const { return frequencia_; }
+
     // Tópicos de aula e avaliações da turma, lidos da MESMA resposta que
     // `entrar` já buscou — custo zero de rede. A página inicial da Turma
     // Virtual é a linha do tempo das aulas; ignorá-la era jogar fora o que o
@@ -55,6 +76,10 @@ public:
     const parse::ConteudoTurma& conteudo() const { return conteudo_; }
 
     const std::vector<ArquivoTurma>& arquivos() const { return arquivos_; }
+
+    // Vazio até `abrirParticipantes` rodar — que é diferente de turma sem
+    // colegas. Quem precisa distinguir olha o retorno daquela chamada.
+    const std::vector<Participante>& participantes() const { return participantes_; }
 
     // O professor não publicou nada (o SIGAA disse isso, não deduzimos).
     bool semArquivos() const { return vazioConfirmado_; }
@@ -78,9 +103,13 @@ private:
     http::SigaaSession& sessao_;
     html::Document docTurma_;
     html::Document docArquivos_;
+    html::Document docParticipantes_;
+    html::Document docFrequencia_;
     Turma turma_;
     parse::ConteudoTurma conteudo_;
     std::vector<ArquivoTurma> arquivos_;
+    std::vector<Participante> participantes_;
+    Frequencia frequencia_;
     std::vector<std::string> menu_;
     bool vazioConfirmado_{false};
     bool naTurma_{false};

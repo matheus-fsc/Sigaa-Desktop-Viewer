@@ -17,6 +17,8 @@
 // de rede fora da thread da GUI.
 
 #include <QDialog>
+
+#include "core/http/SessaoViva.h"
 #include <QString>
 
 #include <memory>
@@ -42,7 +44,16 @@ public:
     QString login() const;
     QString senha() const;
 
+    // Onde guardar a sessão que a verificação de senha abrir.
+    //
+    // Sem isto o diálogo logava, jogava a sessão fora, e a sincronização logo
+    // atrás logava de novo — dois logins para uma ação só. E o SIGAA não
+    // respondia ao segundo enquanto o primeiro seguia aberto: três timeouts de
+    // 45 s, e o app parecia travado. Entregando a sessão, o login é UM.
+    void usarSessao(http::SessaoViva* s) { cofre_ = s; }
+
 private:
+    http::SessaoViva* cofre_{nullptr};
     void montarCampoSenha();
     void montarTextosDoCofre();
 

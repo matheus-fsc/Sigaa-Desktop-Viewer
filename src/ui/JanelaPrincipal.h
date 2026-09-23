@@ -22,11 +22,17 @@
 // derivadas da paleta viva.
 
 #include <QDate>
+#include <optional>
 #include <QMainWindow>
 #include <QString>
 
 #include <memory>
 
+#include "core/atualizacao/Atualizador.h"
+#include "core/avaliacao/Ajustes.h"
+#include "core/http/SessaoViva.h"
+#include "ui/DialogoAtualizar.h"
+#include "ui/DialogoOpcoes.h"
 #include "core/model/Models.h"
 #include "platform/Credenciais.h"
 
@@ -38,6 +44,9 @@ class QTimer;
 namespace Ui {
 class JanelaPrincipal;
 }
+
+class QAction;
+class QToolButton;
 
 namespace sigaa::ui {
 
@@ -62,7 +71,70 @@ protected:
     // que funcione antes de procurar o botão.
     bool eventFilter(QObject* alvo, QEvent* ev) override;
 
+    // Janela estreita esconde o RÓTULO dos botões da barra, não os botões.
+    void resizeEvent(QResizeEvent* ev) override;
+
 private:
+    // Texto ao lado do ícone enquanto couber; só ícone quando não couber mais.
+    //
+    // O comportamento padrão do QToolBar é pior: ele empurra o que não coube
+    // para um botão de transbordo que, com folha de estilo aplicada, sai sem
+    // desenho nenhum — os botões "Diagnóstico" e "Conta" simplesmente sumiam
+    // numa janela de 700 px, sem nada indicando que existiam.
+    void ajustarBarraAoEspaco();
+
+    // Largura que a barra pede COM os rótulos, medida uma vez enquanto ela
+    // ainda está nesse estado. Medir a cada resize devolveria a largura do
+    // estado corrente e a barra ficaria presa em "só ícone" depois da primeira
+    // vez que encolhesse.
+    int larguraBarraComTexto_{0};
+
+    // Acabamento das listas (densidade, distintivos). Roda antes das montagens
+    // por aba, para que elas encontrem a view já com a altura de linha final —
+    // resizeColumnsToContents medindo antes mediria a linha errada.
+    void montarListas();
+
+    // Restaura a aba em que o aluno estava e passa a guardar a escolha.
+    void montarAbaLembrada();
+
+    // "Atualizar": abre o diálogo de escolha e sincroniza o que foi marcado.
+    void escolherEAtualizar();
+
+    // Opções: a rotina automática e as ferramentas de desenvolvedor.
+    void abrirOpcoes();
+    DialogoOpcoes::Config configAtual() const;
+    void aplicarConfig(const DialogoOpcoes::Config& c);
+
+    // Atualização do próprio app, a partir das releases do GitHub.
+    //
+    // `silencioso` é a verificação da abertura: sem diálogo, sem alarme, e sem
+    // dizer nada quando não há novidade nem quando o GitHub está fora do ar.
+    void procurarAtualizacao(DialogoOpcoes* dlg, bool silencioso);
+    void instalarAtualizacao(DialogoOpcoes* dlg);
+
+    // --- correções de data de prova ----------------------------------------
+    void montarBotoesProva();
+    void recalcularProvas();          // ajustes_ + snapshot_ -> provas_
+    void recarregarAjustes();         // do banco
+    bool gravarAjuste(const avaliacao::Ajuste& a, avaliacao::TipoMudanca tipo,
+                      const std::string& de);
+
+    // A prova selecionada na tabela, ou nullopt. Sai da CHAVE guardada na
+    // linha, nunca do índice: a tabela é ordenável e a linha 3 de agora não é
+    // a linha 3 de depois de um clique no cabeçalho.
+    std::optional<avaliacao::Efetiva> provaSelecionada() const;
+
+    void corrigirProva();
+    void confirmarProva();
+    void criarProva();
+    void desfazerCorrecao();
+    void verHistorico();
+    void avisarConflitos(const std::vector<avaliacao::Conflito>& cs);
+    void atualizarBotoesProva();
+
+    // Esconde os botões que agem sobre a prova selecionada quando a janela não
+    // os comporta. Eles continuam no menu do botão direito.
+    void ajustarBarraProvasAoEspaco();
     void montarAcoes();
     void montarStatus();
     void montarBandeja();
@@ -105,6 +177,7 @@ private:
     void abrirTurmaDaAgenda();  // a partir de uma aula da aba Agenda
     void abrirJanelaDaTurma(const Turma& turma);
     void sincronizar(bool comTurmas);
+    void sincronizar(const DialogoAtualizar::Escolha& escolha);
     void aoConcluir();
 
     // Ambiente > cofre > .env > diálogo. Devolve false se o usuário desistiu.
@@ -145,6 +218,49 @@ private:
 
     Trabalhador* trabalho_{nullptr};
     Snapshot snapshot_;
+
+    // As correções do aluno, e a lista de provas que resulta de aplicá-las.
+    //
+    // `provas_` é derivada: só existe para não recalcular `avaliacao::efetivas`
+    // em cada uma das quatro telas que precisam dela (tabela, calendário,
+    // cartões, contador da aba) e correr o risco de uma delas ficar para trás.
+    // Quem muda `ajustes_` chama `recalcularProvas()` e pronto.
+    std::vector<avaliacao::Ajuste> ajustes_;
+    std::vector<avaliacao::Efetiva> provas_;
+
+    // A última escolha do diálogo, reposta na próxima abertura: quem atualiza
+    // a mesma turma toda manhã não deve reconfigurar o diálogo todo dia.
+    DialogoAtualizar::Escolha ultimaEscolha_;
+
+    // UMA sessão para o app inteiro, reaproveitada enquanto o SIGAA a aceitar.
+    //
+    // Login custa 6 a 8 s e é a única operação que o SIGAA às vezes recusa
+    // quando já há outra sessão aberta na conta. Antes cada tarefa abria a
+    // sua: o diálogo de senha, a sincronização, a janela de turma. Agora o
+    // diálogo entrega a que abriu, e a sincronização continua de onde ela
+    // parou. Ver core/http/SessaoViva.h.
+    http::SessaoViva sessaoViva_;
+
+    // A release encontrada na última procura, enquanto não for instalada.
+    std::optional<atualizacao::Lancamento> lancamentoNovo_;
+
+    // Ações das provas, criadas em C++ (ver montarBotoesProva). São QAction e
+    // não botões porque cada uma aparece em DOIS lugares: na barra acima da
+    // lista e no menu do botão direito sobre a prova.
+    QAction* acNovaProva_{nullptr};
+    QAction* acConfirmarProva_{nullptr};
+    QAction* acCorrigirProva_{nullptr};
+    QAction* acDesfazerProva_{nullptr};
+    QAction* acHistoricoProva_{nullptr};
+
+    // Largura que a barra de provas pede com todos os botões, medida uma vez.
+    int larguraBarraProvas_{0};
+    // O que a janela estreita esconde. Só os que exigem uma prova selecionada.
+    std::vector<QWidget*> botoesProvaSecundarios_;
+
+    // Quanto o painel do calendário ocupa ao lado da lista. Entra na conta de
+    // `ajustarBarraProvasAoEspaco` porque a barra divide a largura com ele.
+    static constexpr int kLarguraCalendario = 380;
     QString relatorio_;   // caminho do último relatório gerado, ou vazio
 
     // Dia selecionado no calendário. Sobrevive ao sync de propósito: o filtro é

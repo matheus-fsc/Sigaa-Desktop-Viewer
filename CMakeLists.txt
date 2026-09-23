@@ -1,5 +1,20 @@
 cmake_minimum_required(VERSION 3.24)
-project(sigaa-viewer VERSION 0.1.2 LANGUAGES CXX)
+project(sigaa-viewer VERSION 0.2.0 LANGUAGES CXX)
+
+# O sufixo de pré-lançamento, que o `project(VERSION)` não aceita — ele só
+# entende número.
+#
+# EXISTE PARA CASAR COM A TAG. Até a v0.1.2 a tag era "v0.1.2-alpha" e o CMake
+# dizia "0.1.2", e pelo semver "0.1.2" é MAIS NOVA que "0.1.2-alpha" — o
+# atualizador (core/atualizacao/Atualizador.h) via o AppImage da release como
+# mais recente que a própria release e nunca ofereceria nada. Mudar um lado sem
+# o outro traz o problema de volta.
+set(SIGAA_SUFIXO "alpha" CACHE STRING "sufixo de pré-lançamento; vazio numa final")
+if(SIGAA_SUFIXO)
+  set(SIGAA_VERSAO_COMPLETA "${PROJECT_VERSION}-${SIGAA_SUFIXO}")
+else()
+  set(SIGAA_VERSAO_COMPLETA "${PROJECT_VERSION}")
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -62,10 +77,19 @@ add_library(sigaa_core STATIC
   src/core/http/Trafego.cpp
   src/core/parse/PortalParser.cpp
   src/core/report/HtmlReport.cpp
+  src/core/report/TurmaMd.cpp
   src/core/store/Database.cpp
   src/core/sync/DiffEngine.cpp
   src/core/parse/TurmaParser.cpp
+  src/core/http/CadeiaAia.cpp
+  src/core/http/SessaoViva.cpp
   src/core/parse/ArquivoParser.cpp
+  src/core/parse/FrequenciaParser.cpp
+  src/core/parse/ParticipanteParser.cpp
+  src/core/atualizacao/Atualizador.cpp
+  src/core/atualizacao/Sha256.cpp
+  src/core/avaliacao/Ajustes.cpp
+  src/core/frequencia/Presenca.cpp
   src/core/calendar/Calendario.cpp
   src/core/sync/Crawler.cpp
   src/core/sync/Materiais.cpp
@@ -86,6 +110,12 @@ target_link_libraries(sigaa_core
   PUBLIC  nlohmann_json::nlohmann_json
   PRIVATE CURL::libcurl ${LEXBOR_LIBRARY} spdlog::spdlog ${SIGAA_SQLITE}
 )
+
+# A versão do projeto chega ao código por AQUI, e não por uma constante
+# repetida num .h: duas fontes divergem, e a que mente é sempre a que ninguém
+# lembra de atualizar. É o número que o atualizador compara com a tag da
+# release (core/atualizacao/Atualizador.h).
+target_compile_definitions(sigaa_core PUBLIC SIGAA_VERSAO="${SIGAA_VERSAO_COMPLETA}")
 
 # ---------------------------------------------------------------------------
 # platform/ — a única parte que fala com o SO. Fica FORA de core/ de propósito:
@@ -154,7 +184,7 @@ if(SIGAA_UI)
   # ensina o QIcon a abrir SVG e o plugin iconengine deste modulo. Sem ele o
   # QIcon devolve pixmap nulo e a barra de ferramentas fica so com texto.
   # Linkar tambem e o que faz o windeployqt copiar o plugin para junto do .exe.
-  find_package(Qt6 6.5 QUIET COMPONENTS Widgets Svg)
+  find_package(Qt6 6.5 QUIET COMPONENTS Widgets Svg Network)
 endif()
 
 if(SIGAA_UI AND NOT Qt6_FOUND)
@@ -170,8 +200,15 @@ elseif(SIGAA_UI)
     src/ui/DialogoLogin.cpp
     src/ui/JanelaTurma.cpp
     src/ui/JanelaDiagnostico.cpp
+    src/ui/DialogoAtualizar.cpp
+    src/ui/DialogoOpcoes.cpp
+    src/ui/DialogosAvaliacao.cpp
+    src/ui/Copiar.cpp
+    src/ui/Distintivos.cpp
     src/ui/Icones.cpp
+    src/ui/InstanciaUnica.cpp
     src/ui/Modelos.cpp
+    src/ui/Tema.cpp
     src/ui/Trabalhador.cpp
 
     # Os .ui nao geram objeto: entram na lista para o AUTOUIC enxerga-los como
@@ -183,6 +220,11 @@ elseif(SIGAA_UI)
     src/ui/forms/JanelaDiagnostico.ui
 
     src/ui/recursos/recursos.qrc
+
+    # Só no Windows: o .rc é o que dá ícone ao ARQUIVO .exe. Em outras
+    # plataformas o CMake ignora a extensão, mas listá-lo incondicionalmente
+    # faria o Ninja rastrear uma dependência que não produz nada no Linux.
+    $<$<BOOL:${WIN32}>:${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/sigaa-ui.rc>
   )
   # AUTOMOC/AUTOUIC/AUTORCC no alvo, e nao via qt_standard_project_setup():
   # aquela funcao tambem mexe em CMAKE_CXX_STANDARD no escopo inteiro, e o
@@ -197,7 +239,7 @@ elseif(SIGAA_UI)
     AUTOUIC_SEARCH_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/forms"
     AUTORCC ON)
   target_link_libraries(sigaa-ui PRIVATE
-    sigaa_core sigaa_platform Qt6::Widgets Qt6::Svg)
+    sigaa_core sigaa_platform Qt6::Widgets Qt6::Svg Qt6::Network)
 
   if(WIN32)
     # WIN32_EXECUTABLE tira o console preto que apareceria atras da janela.
@@ -247,13 +289,19 @@ if(TARGET sigaa-ui)
   if(UNIX AND NOT APPLE)
     install(FILES packaging/linux/io.github.matheus_fsc.SigaaDesktopViewer.desktop
             DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-    # O SVG serve a qualquer tamanho e é o mesmo desenho do .qrc — uma fonte,
-    # não duas que divergem. O KDE e o GNOME leem SVG em hicolor sem plugin
-    # nenhum; o PNG só faria falta num ambiente sem suporte a SVG, que não
-    # existe mais entre os alvos deste app.
-    install(FILES src/ui/recursos/icones/app.svg
-            DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
-            RENAME io.github.matheus_fsc.SigaaDesktopViewer.svg)
+    # PNG em cada tamanho do hicolor, e NÃO só o SVG.
+    #
+    # O ícone do app é um desenho raster (build a partir de um PNG de 1254 px),
+    # então não há SVG dele para instalar em `scalable`. E mesmo houvesse: o
+    # hicolor com tamanhos fixos é o que a barra de tarefas do KDE e do GNOME
+    # consulta primeiro, e um desenho ajustado para 16 px é legível onde a
+    # redução automática de um vetor vira mancha.
+    foreach(TAM 16 24 32 48 64 128 256 512)
+      install(FILES src/ui/recursos/icones/app/app-${TAM}.png
+              DESTINATION
+                ${CMAKE_INSTALL_DATADIR}/icons/hicolor/${TAM}x${TAM}/apps
+              RENAME io.github.matheus_fsc.SigaaDesktopViewer.png)
+    endforeach()
 
     # NÃO instalamos AppStream (share/metainfo) ainda, de propósito: o formato
     # exige um <project_license> e este repositório não tem arquivo de licença.
@@ -274,10 +322,20 @@ if(BUILD_TESTING)
     tests/session_test.cpp
     tests/html_encoding_test.cpp
     tests/diff_engine_test.cpp
+    tests/ajustes_test.cpp
+    tests/turma_md_test.cpp
+    tests/cadeia_aia_test.cpp
+    tests/atualizador_test.cpp
+    tests/atualizador_windows_test.cpp
+    tests/sha256_test.cpp
+    tests/presenca_test.cpp
+    tests/sessao_viva_test.cpp
+    tests/frequencia_parser_test.cpp
     tests/calendario_test.cpp
     tests/aviso_test.cpp
     tests/database_test.cpp
     tests/arquivo_parser_test.cpp
+    tests/participante_parser_test.cpp
     tests/topico_parser_test.cpp
     tests/baixador_test.cpp
     tests/instituicao_test.cpp

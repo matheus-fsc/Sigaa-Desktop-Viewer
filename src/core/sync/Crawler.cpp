@@ -3,7 +3,9 @@
 #include "core/calendar/Calendario.h"
 #include "core/jsf/JsfForm.h"
 #include "core/parse/ArquivoParser.h"
+#include "core/parse/FrequenciaParser.h"
 #include "core/parse/Html.h"
+#include "core/parse/ParticipanteParser.h"
 #include "core/parse/PortalParser.h"
 #include "core/parse/TurmaParser.h"
 #include "core/sync/Materiais.h"
@@ -50,6 +52,55 @@ void coletarArquivos(http::SigaaSession& sessao, const html::Document& docTurma,
     }
 }
 
+// Abre a aba Participantes da turma corrente e junta a lista ao snapshot.
+//
+// Mesma regra de `coletarArquivos`: falhar aqui NÃO conta como turma com
+// falha. A aba pode nem estar no menu, e inflar `turmasComFalha` faria o
+// serviço classificar uma coleta boa como suspeita — o estado em que ele se
+// recusa a gravar, e aí o aluno perde também os prazos.
+void coletarParticipantes(http::SigaaSession& sessao, const html::Document& docTurma,
+                          const Turma& t, ResultadoColeta& res, const OpcoesColeta& op) {
+    html::Document doc;
+    if (!abrirAbaPorRotulo(sessao, docTurma, "Participantes", &doc, nullptr)) return;
+
+    const auto lista = parse::parseParticipantes(doc, t.idTurma, t.nome);
+    // Turma sem ninguém não existe — sempre há ao menos o professor. Aceitar a
+    // lista vazia aqui gravaria "coletei e não tem gente", que é falso, e o
+    // upsert acumulativo do banco esconderia o erro até alguém abrir a aba.
+    if (!lista.pareceAbaParticipantes || lista.participantes.empty()) return;
+
+    res.snapshot.participantes.insert(res.snapshot.participantes.end(),
+                                      lista.participantes.begin(),
+                                      lista.participantes.end());
+    avisar(op, "  " + std::to_string(lista.participantes.size()) + " participante(s)");
+}
+
+// Mapa de frequência da turma. Mesma regra das duas acima: falhar aqui NÃO
+// conta como turma com falha — nem toda turma tem o item no menu, e inflar
+// `turmasComFalha` faria o serviço classificar uma coleta boa como suspeita.
+//
+// Ao contrário dos participantes, a frequência VAZIA é guardada: "o professor
+// ainda não lançou nada" é informação que o aluno precisa ver, e é diferente
+// de "não fui olhar". Quem distingue é `temDados`.
+void coletarFrequencia(http::SigaaSession& sessao, const html::Document& docTurma,
+                       const Turma& t, ResultadoColeta& res, const OpcoesColeta& op) {
+    html::Document doc;
+    // "Frequ" e não "Frequência": o rótulo vem como "Frequ&#234;ncia", e o
+    // prefixo ASCII é único no menu da turma.
+    if (!abrirAbaPorRotulo(sessao, docTurma, "Frequ", &doc, nullptr)) return;
+
+    const auto r = parse::parseFrequencia(doc, t.idTurma, t.nome);
+    if (!r.pareceMapaDeFrequencia) return;
+
+    res.snapshot.frequencias.push_back(r.frequencia);
+    if (r.frequencia.temDados) {
+        avisar(op, "  frequencia: " + std::to_string(r.frequencia.faltas()) +
+                       " falta(s) de " + std::to_string(r.frequencia.limiteFaltas()));
+    } else {
+        avisar(op, "  frequencia: o professor ainda nao lancou nada");
+    }
+}
+
 } // namespace
 
 ResultadoColeta coletar(http::SigaaSession& sessao, const OpcoesColeta& op) {
@@ -88,6 +139,9 @@ ResultadoColeta coletar(http::SigaaSession& sessao, const OpcoesColeta& op) {
 
     for (const auto& t : turmas) {
         if (t.frontEndId.empty()) continue;
+        // O filtro é por id e não por nome: nome de turma repete entre períodos
+        // ("ADMINISTRAÇÃO" de 2025.2 e de 2026.2) e o aluno escolheu uma.
+        if (!op.apenasTurmas.empty() && !op.apenasTurmas.count(t.idTurma)) continue;
         avisar(op, "turma: " + t.nome);
 
         // O ViewState do portal envelhece a cada navegação, então relemos os
@@ -121,6 +175,10 @@ ResultadoColeta coletar(http::SigaaSession& sessao, const OpcoesColeta& op) {
                 ++res.turmasVisitadas;
 
                 if (op.incluirArquivos) coletarArquivos(sessao, dt, t, res, op);
+                if (op.incluirFrequencia) coletarFrequencia(sessao, dt, t, res, op);
+                if (op.incluirParticipantes) {
+                    coletarParticipantes(sessao, dt, t, res, op);
+                }
             } else {
                 ++res.turmasComFalha;
             }

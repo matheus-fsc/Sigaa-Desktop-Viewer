@@ -109,6 +109,48 @@ void baixarPendentes(http::SigaaSession& sess, const Snapshot& snap,
     }
 }
 
+// Confronta as correções do aluno com o que o SIGAA acabou de trazer.
+//
+// DEPOIS de gravar o snapshot, e só quando a coleta entrou nas turmas: um sync
+// sem `--turmas` traz zero avaliações, e `reconciliar` trataria isso como "o
+// professor apagou todas as provas" — aposentando de uma vez toda correção que
+// o aluno tinha feito.
+//
+// A POLÍTICA está em uma linha só: o SIGAA vence. Quando o professor finalmente
+// atualiza a plataforma com uma data diferente da corrigida, a dele passa a
+// valer. Mas o ajuste é APOSENTADO, nunca apagado — fica no histórico, e é dele
+// que a UI tira o botão "restaurar minha data". O alarme é obrigatório: esta é
+// a única coisa que o ciclo faz que descarta algo que o usuário digitou.
+void reconciliarAjustes(store::Database& db, Resultado& r, std::int64_t agora,
+                        const Log& log) {
+    if (r.snapshot.avaliacoes.empty()) return;
+
+    auto rec = avaliacao::reconciliar(r.snapshot.avaliacoes, db.carregarAjustes());
+    if (!rec.mudou) return;
+
+    if (!db.gravarAjustes(rec.ajustes)) {
+        diz(log, Nivel::Aviso, "falha ao atualizar as correcoes (" + db.erro() + ")");
+    }
+
+    for (const auto& c : rec.conflitos) {
+        avaliacao::Mudanca m;
+        m.idTurma = c.idTurma;
+        m.turmaNome = c.turmaNome;
+        m.descricao = c.descricao;
+        m.tipo = avaliacao::TipoMudanca::SigaaAtropelou;
+        m.de = c.doAluno.toIso();
+        m.para = c.doSigaaAgora.toIso();
+        m.nota = "o professor atualizou a plataforma";
+        m.quando = agora;
+        db.registrarMudanca(m);
+
+        diz(log, Nivel::Aviso, "a data que voce corrigiu em \"" + c.descricao +
+                                   "\" foi substituida pelo SIGAA: " +
+                                   c.doAluno.toIso() + " -> " + c.doSigaaAgora.toIso());
+    }
+    r.conflitosAvaliacao = std::move(rec.conflitos);
+}
+
 } // namespace
 
 Resultado executar(Opcoes op, const Log& log) {
@@ -117,20 +159,49 @@ Resultado executar(Opcoes op, const Log& log) {
         return falhar(Falha::Credenciais, "login ou senha vazios");
     }
 
-    // --- login ---------------------------------------------------------------
-    http::SigaaSession sess;
-    diz(log, Nivel::Passo, "autenticando...");
+    // --- sessão --------------------------------------------------------------
+    // Reusa a sessão de quem chamou, quando há uma. Login é a operação mais
+    // cara do ciclo, e repeti-la a cada tarefa era o que fazia o app parecer
+    // travado — o SIGAA não responde ao segundo login com outra sessão aberta.
+    http::SessaoViva propria;
+    http::SessaoViva& cofre = op.sessao ? *op.sessao : propria;
+
+    const bool jaTinha = cofre.viva();
+    diz(log, Nivel::Passo, jaTinha ? "reaproveitando a sessao aberta"
+                                   : "autenticando...");
 
     std::string erroLogin;
-    const bool autenticou = sess.login(op.login, op.senha, &erroLogin);
+    http::SigaaSession* psess = cofre.obter(op.login, op.senha, &erroLogin);
     limpar(op.senha);   // fora de escopo pelo resto do ciclo
 
-    if (!autenticou) return falhar(Falha::Login, std::move(erroLogin));
+    if (!psess) return falhar(Falha::Login, std::move(erroLogin));
+    http::SigaaSession& sess = *psess;
 
     // --- coleta --------------------------------------------------------------
+    // Participantes: decidido ANTES de coletar, e por isso o banco é aberto
+    // aqui num escopo próprio — a conexão de baixo, que faz o diff e grava, só
+    // nasce depois da rede. Duas conexões ao mesmo arquivo SQLite em WAL
+    // convivem sem problema, e abrir de novo custa microssegundos contra os
+    // ~1,5 s de UMA requisição que esta pergunta evita por turma.
+    bool buscarParticipantes = false;
+    if (op.incluirTurmas && op.participantesSeBancoVazio) {
+        store::Database espia(op.caminhoBanco);
+        // Banco indisponível NÃO liga a coleta: sem onde gravar, as
+        // requisições seriam gastas para preencher uma tela e jogar fora.
+        buscarParticipantes = espia.aberto() && espia.migrar() &&
+                              espia.participantesGuardados() == 0;
+        if (buscarParticipantes) {
+            diz(log, Nivel::Passo,
+                "banco sem participantes: esta coleta tambem le quem esta em cada turma");
+        }
+    }
+
     sync::OpcoesColeta oc;
     oc.incluirTurmas = op.incluirTurmas;
     oc.incluirArquivos = op.incluirArquivos;
+    oc.incluirParticipantes = buscarParticipantes;
+    oc.incluirFrequencia = op.incluirFrequencia;
+    oc.apenasTurmas = op.apenasTurmas;
     if (log) {
         oc.progresso = [&log](const std::string& m) { diz(log, Nivel::Passo, m); };
     }
@@ -194,6 +265,8 @@ Resultado executar(Opcoes op, const Log& log) {
         } else {
             diz(log, Nivel::Aviso, "falha ao gravar (" + db.erro() + ")");
         }
+
+        reconciliarAjustes(db, r, agora, log);
     }
 
     // --- material offline ----------------------------------------------------
@@ -203,6 +276,12 @@ Resultado executar(Opcoes op, const Log& log) {
     if (!op.pastaMateriais.empty() && !r.snapshot.arquivos.empty()) {
         baixarPendentes(sess, r.snapshot, op.pastaMateriais, r, log);
     }
+
+    // NAO baixamos mais retrato de participante. O bloco que ficava aqui
+    // copiava para o disco do aluno a foto de cada colega da turma — dado
+    // pessoal de 31 pessoas que nenhuma delas escolheu espalhar. Removido em
+    // 18/09/2026; a lista mostra as iniciais, que resolvem o mesmo problema
+    // (reconhecer alguem de relance) sem copiar o rosto de ninguem.
 
     // --- relatório -----------------------------------------------------------
     {
@@ -218,10 +297,19 @@ Resultado executar(Opcoes op, const Log& log) {
     // .ics ao lado do relatório: prazos e provas no calendário do celular.
     // Falhar aqui não derruba o ciclo — o relatório, que é o essencial, existe.
     {
+        // Relidas do banco, e não reaproveitadas da reconciliação: ela só roda
+        // quando a coleta entrou nas turmas, e o .ics é escrito em toda rodada.
+        // Sem esta leitura, um sync leve exportaria o calendário sem nenhuma
+        // das correções do aluno — apagando-as do celular dele.
+        const std::vector<avaliacao::Ajuste> ajustesParaIcs =
+            db.aberto() ? db.carregarAjustes() : std::vector<avaliacao::Ajuste>{};
         const std::string ics =
             op.caminhoIcs.empty() ? trocarParaIcs(op.caminhoRelatorio) : op.caminhoIcs;
         if (std::ofstream fi(ics, std::ios::binary); fi) {
-            fi << calendario::gerarIcs(r.snapshot);
+            // Com as correções do aluno: o .ics é o canal em que a data
+            // vira alarme no celular, e é onde ela será obedecida sem
+            // ninguém reconferir.
+            fi << calendario::gerarIcs(r.snapshot, {}, ajustesParaIcs);
             r.ics = absoluto(ics);
         } else {
             diz(log, Nivel::Aviso, "nao consegui escrever o calendario " + ics);

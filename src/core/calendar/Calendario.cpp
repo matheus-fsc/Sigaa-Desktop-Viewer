@@ -236,7 +236,8 @@ std::vector<Avaliacao> mesclarAvaliacoes(std::vector<Avaliacao> todas) {
 
 // ---------------------------------------------------------------------------
 
-std::string gerarIcs(const Snapshot& s, const OpcoesIcs& op) {
+std::string gerarIcs(const Snapshot& s, const OpcoesIcs& op,
+                     const std::vector<avaliacao::Ajuste>& ajustes) {
     std::string o;
     linha(o, "BEGIN:VCALENDAR");
     linha(o, "VERSION:2.0");
@@ -278,7 +279,8 @@ std::string gerarIcs(const Snapshot& s, const OpcoesIcs& op) {
     }
 
     // --- avaliações ----------------------------------------------------------
-    for (const auto& a : mesclarAvaliacoes(s.avaliacoes)) {
+    for (const auto& ef : avaliacao::efetivas(s.avaliacoes, ajustes)) {
+        const Avaliacao& a = ef.av;
         linha(o, "BEGIN:VEVENT");
         linha(o, "UID:" + op.prefixoUid + "-prova-" + a.idTurma + "-" +
                      dataIcs(a.quando) + "@sigaa");
@@ -292,11 +294,28 @@ std::string gerarIcs(const Snapshot& s, const OpcoesIcs& op) {
 
         std::string desc = "Avaliacao no SIGAA.";
         if (!a.horarioBruto.empty()) desc += " Horario: " + a.horarioBruto + ".";
-        if (a.fonte == FonteAvaliacao::TopicoAula) {
-            // Honestidade com o usuário: isto veio de heurística sobre o
-            // título do tópico, não de um agendamento formal do professor.
-            desc += " (inferido do topico de aula — confirme com o professor)";
+        // Honestidade com o usuário, agora com mais casos a distinguir: o
+        // evento no celular tem de dizer de onde veio a data, porque é lá que
+        // ela será obedecida sem ninguém reconferir.
+        switch (ef.estado) {
+            case avaliacao::Estado::Inferida:
+                desc += " (inferido do topico de aula — confirme com o professor)";
+                break;
+            case avaliacao::Estado::Editada:
+                desc += " (data corrigida por voce; o SIGAA ainda anuncia " +
+                        ef.quandoSigaa.toIso() + ")";
+                break;
+            case avaliacao::Estado::Criada:
+                desc += " (cadastrada por voce; o SIGAA nao tem esta prova)";
+                break;
+            case avaliacao::Estado::Confirmada:
+                desc += " (confirmada por voce)";
+                break;
+            case avaliacao::Estado::DoSigaa:
+            case avaliacao::Estado::Conflitada:
+                break;
         }
+        if (!ef.nota.empty()) desc += " Nota: " + ef.nota;
         linha(o, "DESCRIPTION:" + escaparTexto(desc));
         linha(o, "CATEGORIES:SIGAA,PROVA");
         alarme(o, "Prova amanha: " + a.turmaNome);

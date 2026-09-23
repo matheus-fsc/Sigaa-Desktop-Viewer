@@ -390,3 +390,111 @@ TEST_CASE("o cache encontra o que o sync gravou na mesma pasta", "[baixador]") {
     const sync::CacheLocal leitor(sync::pastaDaTurma(base.utf8(), "ADMINISTRACAO"));
     CHECK(leitor.temNoDisco("777"));
 }
+
+// ---------------------------------------------------------------------------
+// Conteudo repetido com id novo. O professor republica o mesmo PDF num topico
+// novo e o SIGAA da a ele outro id; o cache por id nao reconhece, baixa, e
+// caminhoLivre salva ao lado como "(2)". Foi assim que uma pasta real juntou
+// quatro pares byte a byte identicos.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// O que o canal de verdade faz: escreve os bytes num nome ainda livre.
+std::string gravarComo(const PastaTemp& pasta, const std::string& nome,
+                       const std::string& bytes) {
+    const auto p = util::caminhoLivre(pasta.path(), nome);
+    std::ofstream f(p, std::ios::binary);
+    f << bytes;
+    f.close();
+    return util::paraUtf8(p);
+}
+
+}  // namespace
+
+TEST_CASE("mesmo conteudo com id novo nao vira uma segunda copia", "[baixador]") {
+    PastaTemp pasta("republicado");
+
+    const std::string primeiro = gravarComo(pasta, "PROLOG.pdf", "%PDF-1.4 prolog");
+    sync::CacheLocal c(pasta.utf8());
+    CHECK(c.registrar("2689612", primeiro) == primeiro);
+
+    // O mesmo arquivo, id novo: o canal ja gravou "PROLOG (2).pdf" quando o
+    // cache e chamado — e e isso que ele tem de desfazer.
+    const std::string segundo = gravarComo(pasta, "PROLOG.pdf", "%PDF-1.4 prolog");
+    CHECK(segundo != primeiro);
+    CHECK(std::filesystem::exists(util::deUtf8(segundo)));
+
+    const std::string final = c.registrar("2699502", segundo);
+
+    CHECK(final == primeiro);
+    CHECK_FALSE(std::filesystem::exists(util::deUtf8(segundo)));
+    // Os dois ids continuam validos: o proximo ciclo nao rebaixa nenhum deles.
+    CHECK(c.caminho("2689612") == primeiro);
+    CHECK(c.caminho("2699502") == primeiro);
+}
+
+TEST_CASE("conteudo diferente com o mesmo nome fica", "[baixador]") {
+    // O contrario do teste acima, e o que impede a correcao de virar perda de
+    // material: dois arquivos so tem o nome em comum.
+    PastaTemp pasta("homonimos");
+
+    const std::string a = gravarComo(pasta, "Lista.pdf", "lista da aula 1");
+    const std::string b = gravarComo(pasta, "Lista.pdf", "lista da aula 2");
+
+    sync::CacheLocal c(pasta.utf8());
+    c.registrar("10", a);
+    CHECK(c.registrar("11", b) == b);
+    CHECK(std::filesystem::exists(util::deUtf8(a)));
+    CHECK(std::filesystem::exists(util::deUtf8(b)));
+}
+
+TEST_CASE("mesmo tamanho e conteudo diferente nao some", "[baixador]") {
+    // A marca comeca pelo tamanho; arquivos do mesmo tamanho caem na comparacao
+    // byte a byte, que e quem tem a ultima palavra.
+    PastaTemp pasta("mesmotamanho");
+
+    const std::string a = gravarComo(pasta, "x.bin", "AAAABBBB");
+    const std::string b = gravarComo(pasta, "y.bin", "AAAACCCC");
+
+    sync::CacheLocal c(pasta.utf8());
+    c.registrar("1", a);
+    CHECK(c.registrar("2", b) == b);
+    CHECK(std::filesystem::exists(util::deUtf8(b)));
+}
+
+TEST_CASE("baixar de novo conteudo igual nao empilha copia", "[baixador]") {
+    // "Baixar de novo" forca a rede de proposito, mas se o professor nao mudou
+    // nada o resultado e um clone. Era o outro caminho para "(3)".
+    PastaTemp pasta("rebaixar");
+
+    const std::string um = gravarComo(pasta, "Exercicios.pdf", "identico");
+    sync::CacheLocal c(pasta.utf8());
+    c.registrar("2689621", um);
+
+    const std::string dois = gravarComo(pasta, "Exercicios.pdf", "identico");
+    CHECK(c.registrar("2689621", dois) == um);
+    CHECK_FALSE(std::filesystem::exists(util::deUtf8(dois)));
+}
+
+TEST_CASE("manifesto sem a coluna de marca continua valendo", "[baixador]") {
+    // Quem ja usa o app tem manifesto de duas colunas. Ele nao pode virar
+    // "nada baixado" — seria a turma inteira descendo de novo.
+    PastaTemp pasta("manifestovelho");
+
+    const auto arq = pasta.path() / util::deUtf8("apostila.pdf");
+    { std::ofstream f(arq, std::ios::binary); f << "%PDF-1.4"; }
+    {
+        std::ofstream f(pasta.path() / sync::CacheLocal::nomeArquivo(),
+                        std::ios::binary);
+        f << "# sigaa-viewer\n123\tapostila.pdf\n";
+    }
+
+    sync::CacheLocal c(pasta.utf8());
+    CHECK(c.temNoDisco("123"));
+
+    // E a marca nasce sozinha: o clone com id novo ja e reconhecido.
+    const std::string clone = gravarComo(pasta, "apostila.pdf", "%PDF-1.4");
+    CHECK(c.registrar("456", clone) == util::paraUtf8(arq));
+    CHECK_FALSE(std::filesystem::exists(util::deUtf8(clone)));
+}

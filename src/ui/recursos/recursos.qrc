@@ -5,6 +5,20 @@
 <RCC version="1.0">
   <qresource prefix="/icones">
     <file alias="app.svg">icones/app.svg</file>
+    <!-- O icone do aplicativo em varios tamanhos, e nao so o SVG.
+         O Qt escolhe a resolucao mais proxima do que o sistema pede — barra de
+         tarefas, alt-tab, bandeja e decoracao de janela pedem tamanhos
+         diferentes — e reduzir um desenho de 256 px para 16 px em tempo de
+         execucao borra os tracos finos. Cada tamanho foi gerado do original em
+         1254 px, entao o de 16 px e um desenho legivel e nao uma miniatura
+         ilegivel. Ate 256: acima disso so a instalacao do Linux usa. -->
+    <file alias="app-16.png">icones/app/app-16.png</file>
+    <file alias="app-24.png">icones/app/app-24.png</file>
+    <file alias="app-32.png">icones/app/app-32.png</file>
+    <file alias="app-48.png">icones/app/app-48.png</file>
+    <file alias="app-64.png">icones/app/app-64.png</file>
+    <file alias="app-128.png">icones/app/app-128.png</file>
+    <file alias="app-256.png">icones/app/app-256.png</file>
     <file alias="atualizar.svg">icones/atualizar.svg</file>
     <file alias="atualizar-tudo.svg">icones/atualizar-tudo.svg</file>
     <file alias="relatorio.svg">icones/relatorio.svg</file>

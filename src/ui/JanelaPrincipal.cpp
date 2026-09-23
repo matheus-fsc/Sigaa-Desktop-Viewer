@@ -18,8 +18,14 @@
 #include <QSystemTrayIcon>
 #include <QTableView>
 #include <QTabWidget>
+#include <QResizeEvent>
+#include <QDateTime>
+#include <QDir>
+#include <QStandardPaths>
+#include <QItemSelectionModel>
 #include <QToolBar>
 #include <QPushButton>
+#include <QAction>
 #include <QToolButton>
 #include <QTimer>
 #include <QUrl>
@@ -30,11 +36,18 @@
 #include "core/store/Database.h"
 #include "platform/Credenciais.h"
 #include "ui/CalendarioProvas.h"
+#include "ui/DialogoAtualizar.h"
 #include "ui/DialogoLogin.h"
+#include "core/atualizacao/Atualizador.h"
+#include "ui/DialogoOpcoes.h"
+#include "ui/Copiar.h"
+#include "ui/DialogosAvaliacao.h"
+#include "ui/Distintivos.h"
 #include "ui/Icones.h"
 #include "ui/JanelaDiagnostico.h"
 #include "ui/JanelaTurma.h"
 #include "ui/Modelos.h"
+#include "ui/Tema.h"
 #include "ui/Trabalhador.h"
 #include "ui_JanelaPrincipal.h"
 
@@ -44,8 +57,17 @@ namespace {
 // Etiqueta com o servidor da universidade (docs/PLANO.md §2.4): 15–30 min,
 // nunca abaixo de 5. O ciclo caro é raro de propósito — prova quase nunca muda,
 // e entrar nas 7 turmas custa ~15 requisições contra 1 do portal.
-constexpr int kMinutosPortal = 20;
-constexpr int kMinutosTurmas = 6 * 60;
+// Os padrões da rotina automática, e o piso do que ela pode fazer.
+//
+// DUAS HORAS no portal: nada do que ele traz muda mais rápido que isso — prazo
+// é publicado com dias de antecedência, notícia de turma não é jornal. UMA VEZ
+// POR DIA nas turmas, porque o ciclo completo entra em cada uma (4 requisições
+// por turma) e o que ele busca muda em escala de dias.
+//
+// Os dois têm de existir na lista de `DialogoOpcoes`, senão a normalização em
+// `aplicarConfig` cairia num valor que a interface não sabe mostrar.
+constexpr int kMinutosPortal = 120;
+constexpr int kMinutosTurmas = 24 * 60;
 
 // A página da agenda é a semana — a unidade em que a grade horária existe e em
 // que o aluno pensa. Sete dias cabem na tela sem rolagem no tamanho padrão da
@@ -77,7 +99,11 @@ QString faixaDaSemana(QDate inicio, QDate fim) {
 
 // Troca o modelo da tabela preservando o proxy de ordenação, e destrói o
 // modelo velho — sem isto cada sync vazaria um QStandardItemModel.
-void trocarModelo(QTableView* tv, QStandardItemModel* novo, int colunaPadrao) {
+// Serve tabela e ÁRVORE: Prazos e Provas viraram árvores para ganhar as seções
+// recolhíveis, e Turmas/Atualizações continuam tabelas. A troca de modelo é a
+// mesma nos dois — quem muda é como se mede a largura das colunas.
+void trocarModelo(QAbstractItemView* tv, QStandardItemModel* novo, int colunaPadrao,
+                  int colunaElastica) {
     auto* proxy = qobject_cast<QSortFilterProxyModel*>(tv->model());
     if (!proxy) {
         proxy = new QSortFilterProxyModel(tv);
@@ -89,8 +115,29 @@ void trocarModelo(QTableView* tv, QStandardItemModel* novo, int colunaPadrao) {
     proxy->setSourceModel(novo);
     delete antigo;
 
-    tv->sortByColumn(colunaPadrao, Qt::AscendingOrder);
-    tv->resizeColumnsToContents();
+    if (auto* tabela = qobject_cast<QTableView*>(tv)) {
+        tabela->sortByColumn(colunaPadrao, Qt::AscendingOrder);
+        tabela->resizeColumnsToContents();
+    } else if (auto* arvore = qobject_cast<QTreeView*>(tv)) {
+        arvore->sortByColumn(colunaPadrao, Qt::AscendingOrder);
+
+        // MEDIR COM TUDO ABERTO, e só então recolher: `resizeColumnToContents`
+        // enxerga apenas as linhas visíveis, e medindo antes de expandir as
+        // colunas saíam do tamanho dos cabeçalhos de seção — "12/09/2026…" e
+        // "INTELIGÊN…" cortados enquanto sobrava meia tela à direita.
+        arvore->expandAll();
+        for (int c = 0; c < novo->columnCount(); ++c) arvore->resizeColumnToContents(c);
+
+        // A ÚLTIMA seção é sempre o histórico (a chave de ordenação do grupo é
+        // a posição). Ele existe para sair da frente; nascer aberto desfaria o
+        // ponto inteiro.
+        auto* mod = arvore->model();
+        const int linhas = mod ? mod->rowCount() : 0;
+        if (linhas > 1) arvore->setExpanded(mod->index(linhas - 1, 0), false);
+    }
+    // Depois do resize, e a cada troca de modelo: setSectionResizeMode morre
+    // junto com o cabeçalho do modelo velho.
+    tema::esticarColuna(tv, colunaElastica);
 }
 
 // Escala relativa à fonte do sistema, nunca em pt cravado: quem aumenta a
@@ -118,9 +165,19 @@ JanelaPrincipal::JanelaPrincipal(QWidget* pai)
     : QMainWindow(pai), formulario_(std::make_unique<Ui::JanelaPrincipal>()) {
     formulario_->setupUi(this);
 
+    montarListas();
+    montarAbaLembrada();
     montarAcoes();
     montarStatus();
     montarProvas();
+    // DEPOIS de `montarProvas`, e a ordem não é estilo.
+    //
+    // `montarProvas` chama `tvProvas->setModel`, e `setModel` CRIA um modelo de
+    // seleção novo — jogando fora qualquer conexão feita ao anterior. Com a
+    // ordem invertida, a view nem tinha modelo ainda: `selectionModel()` era
+    // nulo, o `connect` não fazia nada (silenciosamente), e "Corrigir data",
+    // "Confirmar" e "Desfazer" ficavam presos em desabilitado para sempre.
+    montarBotoesProva();
     montarTurmas();
     montarBarraAgenda();
     montarBandeja();
@@ -143,7 +200,19 @@ JanelaPrincipal::JanelaPrincipal(QWidget* pai)
     QTimer::singleShot(0, this, &JanelaPrincipal::aoAbrir);
 }
 
-JanelaPrincipal::~JanelaPrincipal() = default;
+JanelaPrincipal::~JanelaPrincipal() {
+    // Encerra a sessão no SIGAA ao fechar o app.
+    //
+    // Não é higiene: sem isto a sessão fica viva no servidor por até 30
+    // minutos depois que a janela some, e quem fecha e reabre o app nesse
+    // intervalo cai exatamente no problema que a SessaoViva veio resolver —
+    // um login novo com outra sessão ainda aberta na conta, que o SIGAA deixa
+    // sem resposta até estourar o timeout.
+    //
+    // Custa uma requisição no fechamento. É o único momento em que deslogar
+    // vale a pena: entre tarefas, reusar é sempre melhor.
+    sessaoViva_.encerrar();
+}
 
 void JanelaPrincipal::changeEvent(QEvent* ev) {
     QMainWindow::changeEvent(ev);
@@ -160,9 +229,408 @@ void JanelaPrincipal::aplicarIcones() {
     formulario_->acAtualizar->setIcon(icone(QStringLiteral("atualizar"), this));
     formulario_->acAtualizarTudo->setIcon(
         icone(QStringLiteral("atualizar-tudo"), this));
-    formulario_->acRelatorio->setIcon(icone(QStringLiteral("relatorio"), this));
-    formulario_->acAuto->setIcon(icone(QStringLiteral("automatico"), this));
+    // `acAuto` saiu da barra: ligar e desligar a rotina é uma decisão que se
+    // toma uma vez por semestre, e ela ocupava um lugar na barra ao lado de
+    // ações que se usam todo dia. Vive em Opções, junto dos intervalos que
+    // ela comanda — separar o interruptor da configuração dele era o que
+    // fazia alguém ligar o automático sem nunca ver de quanto em quanto tempo
+    // ele ia rodar.
     formulario_->acConta->setIcon(icone(QStringLiteral("conta"), this));
+}
+
+// Densidade e distintivos de todas as listas, num lugar só. Cada aba tem sua
+// função de montagem, mas acabamento de lista não é assunto de aba: se cada
+// uma decidisse por conta própria, a tabela de Prazos e a de Provas acabariam
+// com alturas de linha diferentes e ninguém saberia dizer por quê.
+void JanelaPrincipal::resizeEvent(QResizeEvent* ev) {
+    QMainWindow::resizeEvent(ev);
+    ajustarBarraAoEspaco();
+    ajustarBarraProvasAoEspaco();
+}
+
+void JanelaPrincipal::ajustarBarraProvasAoEspaco() {
+    if (larguraBarraProvas_ <= 0) return;
+
+    // A barra da aba Provas tem cinco botões, e junto com o calendário ao lado
+    // eles fixavam o tamanho MÍNIMO da janela inteira em ~1300 px: a aba não
+    // encolhia, e redimensionar não fazia nada.
+    //
+    // Abaixo do que cabe, os três botões que agem sobre a prova SELECIONADA
+    // somem da barra — eles continuam no menu do botão direito, que é onde se
+    // procura o que fazer com uma linha. Ficam "Nova prova" e "Histórico", que
+    // não dependem de seleção e não teriam outro caminho óbvio.
+    const bool cabe = width() >= larguraBarraProvas_ + kLarguraCalendario;
+    for (QWidget* b : botoesProvaSecundarios_) {
+        if (b) b->setVisible(cabe);
+    }
+}
+
+void JanelaPrincipal::ajustarBarraAoEspaco() {
+    auto* barra = formulario_->barraAcoes;
+    if (larguraBarraComTexto_ <= 0) return;   // ainda não medida
+
+    // Compara sempre contra a largura medida no estado COM texto, nunca contra
+    // a do estado atual: usar a atual criaria uma realimentação — encolher para
+    // só-ícone reduziria a largura pedida, o teste passaria a caber, o rótulo
+    // voltaria, não caberia de novo, e a barra piscaria a cada pixel.
+    const bool cabe = width() >= larguraBarraComTexto_;
+    const auto desejado =
+        cabe ? Qt::ToolButtonTextBesideIcon : Qt::ToolButtonIconOnly;
+    if (barra->toolButtonStyle() == desejado) return;
+
+    barra->setToolButtonStyle(desejado);
+    // O rótulo vira dica: em modo só-ícone, sem isto o aluno fica com seis
+    // desenhos e nenhuma palavra.
+    for (QAction* a : barra->actions()) {
+        if (a->toolTip().isEmpty()) a->setToolTip(a->text());
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// Correções de data de prova
+// ---------------------------------------------------------------------------
+
+void JanelaPrincipal::recalcularProvas() {
+    provas_ = avaliacao::efetivas(snapshot_.avaliacoes, ajustes_);
+}
+
+void JanelaPrincipal::recarregarAjustes() {
+    store::Database db;
+    if (!db.aberto() || !db.migrar()) return;
+    ajustes_ = db.carregarAjustes();
+}
+
+std::optional<avaliacao::Efetiva> JanelaPrincipal::provaSelecionada() const {
+    const auto sel = formulario_->tvProvas->selectionModel();
+    if (!sel || !sel->hasSelection()) return std::nullopt;
+
+    // Pela CHAVE guardada na linha, nunca pelo índice: a tabela é ordenável, e
+    // a linha 3 de agora não é a linha 3 de depois de um clique no cabeçalho.
+    const QModelIndex idx = sel->selectedRows(0).value(0);
+    if (!idx.isValid()) return std::nullopt;
+    const std::string idTurma = idx.data(PapelIdTurmaProva).toString().toStdString();
+    const std::string desc = idx.data(PapelDescricaoProva).toString().toStdString();
+
+    for (const auto& p : provas_) {
+        if (p.av.idTurma == idTurma && p.av.descricao == desc) return p;
+    }
+    return std::nullopt;
+}
+
+bool JanelaPrincipal::gravarAjuste(const avaliacao::Ajuste& a,
+                                   avaliacao::TipoMudanca tipo, const std::string& de) {
+    store::Database db;
+    if (!db.aberto() || !db.migrar()) {
+        status(QStringLiteral("Banco indisponível — a correção não foi salva."));
+        return false;
+    }
+    if (!db.gravarAjuste(a)) {
+        status(QStringLiteral("Não consegui salvar a correção: %1")
+                   .arg(QString::fromStdString(db.erro())));
+        return false;
+    }
+
+    // O histórico é gravado junto, sempre. Uma correção sem registro deixa a
+    // pergunta "por que esta data mudou?" sem resposta três semanas depois —
+    // que é exatamente o problema que este recurso existe para resolver.
+    avaliacao::Mudanca m;
+    m.idTurma = a.idTurma;
+    m.turmaNome = a.turmaNome;
+    m.descricao = a.descricao;
+    m.tipo = tipo;
+    m.de = de;
+    m.para = a.quando.toIso();
+    m.nota = a.nota;
+    m.quando = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
+    db.registrarMudanca(m);
+
+    recarregarAjustes();
+    mostrar(snapshot_);
+    return true;
+}
+
+void JanelaPrincipal::corrigirProva() {
+    const auto sel = provaSelecionada();
+    if (!sel) {
+        status(QStringLiteral("Selecione a prova cuja data você quer corrigir."));
+        return;
+    }
+
+    DialogoAvaliacao dlg(*sel, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const auto aj = dlg.resultado();
+    if (!aj.quando.valid()) return;
+
+    if (gravarAjuste(aj, avaliacao::TipoMudanca::AlunoCorrigiu, sel->av.quando.toIso())) {
+        status(QStringLiteral("Data corrigida. Ela vale no app, no calendário e no "
+                              ".ics — até o professor atualizar o SIGAA."));
+    }
+}
+
+void JanelaPrincipal::confirmarProva() {
+    const auto sel = provaSelecionada();
+    if (!sel) {
+        status(QStringLiteral("Selecione a prova que você quer confirmar."));
+        return;
+    }
+
+    avaliacao::Ajuste aj;
+    aj.idTurma = sel->av.idTurma;
+    aj.descricao = sel->av.descricao;
+    aj.turmaNome = sel->av.turmaNome;
+    aj.confirmada = true;
+    // Confirmar NÃO muda a data: guarda a mesma, e é isso que faz a prova sair
+    // da lista de "confirme com o professor" sem mexer no que ela anuncia.
+    aj.quando = sel->av.quando;
+    aj.quandoSigaaNaEpoca = sel->quandoSigaa;
+    aj.nota = sel->nota;
+
+    if (gravarAjuste(aj, avaliacao::TipoMudanca::AlunoConfirmou, {})) {
+        status(QStringLiteral("Confirmada. O app para de pedir confirmação para esta "
+                              "prova."));
+    }
+}
+
+void JanelaPrincipal::criarProva() {
+    if (snapshot_.turmas.empty()) {
+        status(QStringLiteral("Preciso conhecer suas turmas antes. Clique em Atualizar."));
+        return;
+    }
+
+    DialogoAvaliacao dlg(snapshot_.turmas, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const auto aj = dlg.resultado();
+    if (aj.descricao.empty() || !aj.quando.valid()) return;
+
+    if (gravarAjuste(aj, avaliacao::TipoMudanca::AlunoCriou, {})) {
+        status(QStringLiteral("Prova cadastrada. Ela entra no calendário e no .ics "
+                              "como qualquer outra."));
+    }
+}
+
+void JanelaPrincipal::desfazerCorrecao() {
+    const auto sel = provaSelecionada();
+    if (!sel) return;
+
+    store::Database db;
+    if (!db.aberto() || !db.migrar()) return;
+
+    avaliacao::Mudanca m;
+    m.idTurma = sel->av.idTurma;
+    m.turmaNome = sel->av.turmaNome;
+    m.descricao = sel->av.descricao;
+    m.tipo = avaliacao::TipoMudanca::AlunoDesfez;
+    m.de = sel->av.quando.toIso();
+    m.para = sel->quandoSigaa.toIso();
+    m.quando = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
+    // O histórico registra o desfazer ANTES de apagar a correção: depois do
+    // DELETE não há mais de onde tirar a data que estava valendo.
+    db.registrarMudanca(m);
+    db.removerAjuste(sel->av.idTurma, sel->av.descricao);
+
+    recarregarAjustes();
+    mostrar(snapshot_);
+    status(QStringLiteral("Correção desfeita. Voltou a valer o que o SIGAA diz."));
+}
+
+void JanelaPrincipal::verHistorico() {
+    store::Database db;
+    if (!db.aberto() || !db.migrar()) {
+        status(QStringLiteral("Banco indisponível — não consigo ler o histórico."));
+        return;
+    }
+
+    // Com uma prova selecionada, o histórico dela; sem seleção, o de todas. É
+    // a diferença entre "por que ESTA data mudou?" e "o que andou mudando?".
+    const auto sel = provaSelecionada();
+    const auto mudancas = sel ? db.historico(sel->av.idTurma, sel->av.descricao)
+                              : db.historico();
+    const QString titulo = sel ? QStringLiteral("Histórico — %1")
+                                     .arg(QString::fromStdString(sel->av.descricao))
+                               : QStringLiteral("Histórico de datas de prova");
+
+    DialogoHistorico(paraHistorico(mudancas), titulo,
+                     QStringLiteral(
+                         "Nenhuma mudança de data registrada ainda. O histórico "
+                         "começa na sua primeira correção, ou na primeira vez que "
+                         "um professor remarcar uma prova."),
+                     this)
+        .exec();
+}
+
+void JanelaPrincipal::avisarConflitos(const std::vector<avaliacao::Conflito>& cs) {
+    if (cs.empty()) return;
+
+    // Modal, e sem pedir desculpas por isso: o ciclo acabou de descartar uma
+    // data que o usuário digitou à mão. É a única coisa que o sync faz com o
+    // que ele escreveu, e uma linha na barra de status seria perdida.
+    QString corpo;
+    for (const auto& c : cs) {
+        corpo += QStringLiteral("• %1 (%2)\n    sua data: %3\n    agora no SIGAA: %4\n\n")
+                     .arg(QString::fromStdString(c.descricao),
+                          QString::fromStdString(c.turmaNome),
+                          QString::fromStdString(c.doAluno.toIso()),
+                          QString::fromStdString(c.doSigaaAgora.toIso()));
+    }
+
+    QMessageBox cx(this);
+    cx.setIcon(QMessageBox::Warning);
+    cx.setWindowTitle(QStringLiteral("O professor mudou a data da prova"));
+    cx.setText(cs.size() == 1
+                   ? QStringLiteral("O professor atualizou o SIGAA e a data dele "
+                                    "substituiu a sua correção.")
+                   : QStringLiteral("O professor atualizou o SIGAA em %1 provas e as "
+                                    "datas dele substituíram suas correções.")
+                         .arg(cs.size()));
+    cx.setInformativeText(
+        corpo + QStringLiteral("A data do SIGAA passou a valer. Sua correção ficou no "
+                               "histórico — se você souber que o professor está errado, "
+                               "corrija de novo."));
+    cx.addButton(QStringLiteral("Ver histórico"), QMessageBox::AcceptRole);
+    auto* ok = cx.addButton(QStringLiteral("Entendi"), QMessageBox::RejectRole);
+    cx.setDefaultButton(ok);
+    cx.exec();
+    if (cx.clickedButton() != ok) verHistorico();
+}
+
+void JanelaPrincipal::montarBotoesProva() {
+    auto* linha = formulario_->layoutFiltro;
+    if (!linha) return;
+
+    // QAction, e não QToolButton solto: a MESMA ação precisa aparecer em dois
+    // lugares — na barra acima da lista e no menu do botão direito sobre a
+    // prova. Com QAction, texto, dica e estado de habilitação existem uma vez
+    // só; com dois botões, "Corrigir data" ficaria habilitado num lugar e
+    // desabilitado no outro no dia em que alguém mexesse só num deles.
+    auto nova = [this, linha](const QString& texto, const QString& dica,
+                              void (JanelaPrincipal::*slot)(), bool secundario = false,
+                              bool naBarra = true) {
+        auto* a = new QAction(texto, this);
+        a->setToolTip(dica);
+        connect(a, &QAction::triggered, this, slot);
+        if (naBarra) {
+            auto* b = new QToolButton(this);
+            b->setDefaultAction(a);
+            linha->insertWidget(linha->count() - 1, b);
+            if (secundario) botoesProvaSecundarios_.push_back(b);
+        }
+        formulario_->tvProvas->addAction(a);
+        return a;
+    };
+
+    acCorrigirProva_ = nova(
+        QStringLiteral("Corrigir data"),
+        QStringLiteral("O professor remarcou e não atualizou o SIGAA? Ponha aqui a "
+                       "data certa. Vale no app, no calendário e no .ics."),
+        &JanelaPrincipal::corrigirProva, /*secundario=*/true);
+    acConfirmarProva_ = nova(
+        QStringLiteral("Confirmar"),
+        QStringLiteral("Dar a data como boa. Some o aviso de \"inferido — confirme\"."),
+        &JanelaPrincipal::confirmarProva, /*secundario=*/true);
+    acDesfazerProva_ = nova(
+        QStringLiteral("Desfazer correção"),
+        QStringLiteral("Remover sua correção e voltar ao que o SIGAA diz."),
+        &JanelaPrincipal::desfazerCorrecao, /*secundario=*/true);
+
+    auto* sep = new QAction(this);
+    sep->setSeparator(true);
+    formulario_->tvProvas->addAction(sep);
+
+    acNovaProva_ = nova(QStringLiteral("Nova prova"),
+                        QStringLiteral("Cadastrar uma prova que o professor anunciou "
+                                       "mas nunca colocou no SIGAA."),
+                        &JanelaPrincipal::criarProva);
+    acHistoricoProva_ = nova(QStringLiteral("Histórico"),
+                             QStringLiteral("Todas as mudanças de data, suas e do "
+                                            "professor, em ordem."),
+                             &JanelaPrincipal::verHistorico);
+
+    connect(formulario_->tvProvas->selectionModel(),
+            &QItemSelectionModel::selectionChanged, this,
+            [this] { atualizarBotoesProva(); });
+    atualizarBotoesProva();
+
+    // Medida DEPOIS que o laço de eventos assentar o layout, e uma vez só.
+    //
+    // `sizeHint()` logo após os `insertWidget` devolve o tamanho de antes dos
+    // botões: o layout ainda não recalculou. A primeira versão media aqui
+    // mesmo, ficava com um número pequeno demais, e por isso os botões nunca
+    // sumiam — a janela seguia sem conseguir encolher.
+    //
+    // Uma vez só porque comparar contra a largura corrente criaria a
+    // realimentação que faz a barra piscar (a armadilha de
+    // `ajustarBarraAoEspaco`).
+    QTimer::singleShot(0, this, [this, linha] {
+        larguraBarraProvas_ = linha->sizeHint().width();
+        ajustarBarraProvasAoEspaco();
+    });
+}
+
+void JanelaPrincipal::atualizarBotoesProva() {
+    // Guarda contra ordem de montagem: se um dia alguém chamar isto antes de
+    // `montarBotoesProva`, é melhor não fazer nada do que desreferenciar nulo.
+    if (!acCorrigirProva_) return;
+
+    const auto sel = provaSelecionada();
+    const bool tem = sel.has_value();
+
+    acCorrigirProva_->setEnabled(tem);
+    // Confirmar só faz sentido no que ainda não foi confirmado nem corrigido.
+    acConfirmarProva_->setEnabled(tem && sel->estado == avaliacao::Estado::Inferida);
+    // Desfazer só onde há o que desfazer.
+    acDesfazerProva_->setEnabled(
+        tem && (sel->estado == avaliacao::Estado::Editada ||
+                sel->estado == avaliacao::Estado::Confirmada ||
+                sel->estado == avaliacao::Estado::Criada));
+}
+
+void JanelaPrincipal::montarAbaLembrada() {
+    // A aba em que o app abre é a última em que o aluno estava.
+    //
+    // Quem entrou para conferir faltas volta ao app para conferir faltas; cair
+    // sempre na Agenda obriga um clique que não informa nada. Uma linha no
+    // QSettings, guardada na troca — barato, e some se o índice não existir
+    // mais numa versão futura com outras abas.
+    auto* abas = formulario_->abas;
+    const int lembrada = QSettings().value(QStringLiteral("ui/aba"), 0).toInt();
+    if (lembrada >= 0 && lembrada < abas->count()) abas->setCurrentIndex(lembrada);
+
+    connect(abas, &QTabWidget::currentChanged, this, [](int i) {
+        QSettings().setValue(QStringLiteral("ui/aba"), i);
+    });
+}
+
+void JanelaPrincipal::montarListas() {
+    auto* dist = new DelegadoDistintivo(this);
+
+    for (QAbstractItemView* v : {static_cast<QAbstractItemView*>(formulario_->tvPrazos),
+                                 static_cast<QAbstractItemView*>(formulario_->tvProvas),
+                                 static_cast<QAbstractItemView*>(formulario_->tvTurmas),
+                                 static_cast<QAbstractItemView*>(formulario_->tvAtualizacoes),
+                                 static_cast<QAbstractItemView*>(formulario_->arvoreHoje)}) {
+        tema::ajustarLista(v);
+        // Ctrl+C em toda lista: o resumo do semestre é a coisa que mais se
+        // quer levar para outro lugar — planilha, mensagem, prompt de IA.
+        habilitarCopia(v);
+    }
+    // Coluna "Faltas" da agenda: o "n/k" vira distintivo quando o número
+    // começa a importar. Ver celulaFaltas em Modelos.cpp.
+    // Instalado na VIEW inteira, não só na coluna de faltas: além de desenhar
+    // a etiqueta onde há uma, o delegate garante altura mínima em toda célula
+    // — e é dele que a árvore tira o respiro que a tabela recebe do
+    // `defaultSectionSize`. Célula sem distintivo cai no desenho padrão.
+    formulario_->arvoreHoje->setItemDelegate(dist);
+
+    // Só onde há coluna de estado. Instalar na tabela inteira é seguro (célula
+    // sem PapelDistintivo cai no desenho padrão), mas restringir deixa claro
+    // no código quais colunas carregam significado.
+    formulario_->tvPrazos->setItemDelegate(dist);
+    formulario_->tvProvas->setItemDelegate(dist);
+    formulario_->tvTurmas->setItemDelegate(dist);
+    formulario_->tvAtualizacoes->setItemDelegate(dist);
 }
 
 void JanelaPrincipal::montarAcoes() {
@@ -173,14 +641,21 @@ void JanelaPrincipal::montarAcoes() {
     // nos três.
     formulario_->acAtualizar->setShortcut(QKeySequence::Refresh);
 
+    // "Atualizar" agora PERGUNTA o que buscar. O ciclo só-portal continua
+    // existindo — é a opção marcada por padrão no diálogo — mas deixou de ser
+    // a única coisa que este botão sabe fazer.
     connect(formulario_->acAtualizar, &QAction::triggered, this,
-            [this] { sincronizar(false); });
+            &JanelaPrincipal::escolherEAtualizar);
+    connect(formulario_->acOpcoes, &QAction::triggered, this,
+            &JanelaPrincipal::abrirOpcoes);
     connect(formulario_->acAtualizarTudo, &QAction::triggered, this,
             [this] { sincronizar(true); });
-    connect(formulario_->acRelatorio, &QAction::triggered, this, [this] {
-        if (!relatorio_.isEmpty())
-            QDesktopServices::openUrl(QUrl::fromLocalFile(relatorio_));
-    });
+    // `acRelatorio` e `acDiagnostico` saíram da barra: são ferramentas de
+    // investigar o app, não de usá-lo, e ocupavam o lugar mais valioso da
+    // janela com telas que ninguém abre duas vezes. Vivem em Opções agora.
+    //
+    // `acDiagnostico` continua existindo pelo ATALHO — Ctrl+D é o que alguém
+    // no telefone com o suporte consegue seguir sem procurar menu.
 
     // Ctrl+D, e não F12: F12 é "ferramentas do desenvolvedor" em navegador, e
     // esta janela não é para desenvolvedor — é para o aluno responder "por que
@@ -188,18 +663,6 @@ void JanelaPrincipal::montarAcoes() {
     formulario_->acDiagnostico->setShortcut(QKeySequence(QStringLiteral("Ctrl+D")));
     connect(formulario_->acDiagnostico, &QAction::triggered, this,
             &JanelaPrincipal::abrirDiagnostico);
-
-    // Tooltip com os períodos reais: sai das constantes acima, então não pode
-    // estar cravado no .ui — mudar a constante e o texto mentir é pior do que
-    // não ter texto.
-    formulario_->acAuto->setToolTip(
-        QStringLiteral(
-            "Verifica o portal a cada %1 min e entra nas turmas a cada %2 h — "
-            "mas só enquanto esta janela estiver aberta. Fechou o app, nada roda.")
-            .arg(kMinutosPortal)
-            .arg(kMinutosTurmas / 60));
-    connect(formulario_->acAuto, &QAction::toggled, this,
-            &JanelaPrincipal::ligarAutomatico);
 
     connect(formulario_->acTrocarConta, &QAction::triggered, this,
             &JanelaPrincipal::trocarConta);
@@ -222,6 +685,12 @@ void JanelaPrincipal::montarAcoes() {
             formulario_->barraAcoes->widgetForAction(formulario_->acConta))) {
         botao->setPopupMode(QToolButton::InstantPopup);
     }
+
+    // Medida AQUI, com todas as ações já na barra e os ícones já aplicados, e
+    // enquanto ela ainda está no estado "texto ao lado do ícone". É o número
+    // contra o qual todo resize será comparado daqui em diante.
+    larguraBarraComTexto_ = formulario_->barraAcoes->sizeHint().width();
+    ajustarBarraAoEspaco();
 }
 
 void JanelaPrincipal::montarStatus() {
@@ -235,6 +704,18 @@ void JanelaPrincipal::montarStatus() {
 }
 
 void JanelaPrincipal::montarProvas() {
+    // O calendário tem tamanho natural (um mês cabe em ~330 px) e não ganha
+    // nada com mais largura; a lista ganha tudo. Sem os fatores, o splitter
+    // divide meio a meio e a coluna "Avaliação" fica com "Pro…" ao lado de um
+    // calendário com meia tela de vazio embaixo.
+    if (auto* div = formulario_->divisorProvas) {
+        div->setStretchFactor(0, 0);   // painel do calendário
+        div->setStretchFactor(1, 1);   // lista de provas
+    }
+    if (auto* painel = formulario_->painelCalendario) {
+        painel->setMaximumWidth(380);
+    }
+
     // O proxy desta tabela nasce aqui, e não no `trocarModelo`, porque ela
     // FILTRA além de ordenar — e o filtro precisa sobreviver à troca de modelo
     // que todo sync faz. Criar depois significaria perder o dia selecionado a
@@ -245,6 +726,10 @@ void JanelaPrincipal::montarProvas() {
     // texto é para o olho e muda com o locale; a chave é estável.
     proxy->setFilterRole(PapelOrdenacao);
     proxy->setFilterKeyColumn(0);
+    // As provas agora moram dentro de seções. Sem filtragem recursiva o proxy
+    // testaria só as linhas de topo — que são cabeçalhos sem data — e o filtro
+    // por dia esvaziaria a aba inteira.
+    proxy->setRecursiveFilteringEnabled(true);
     formulario_->tvProvas->setModel(proxy);
 
     for (QLabel* l : {formulario_->tituloCartaoProxima, formulario_->tituloCartaoTrinta,
@@ -280,8 +765,8 @@ void JanelaPrincipal::montarProvas() {
 }
 
 void JanelaPrincipal::atualizarResumoProvas(const Snapshot& s) {
-    const ResumoProvas r = resumoProvas(s);
-    formulario_->calProvas->definirProvas(provasPorDia(s));
+    const ResumoProvas r = resumoProvas(provas_);
+    formulario_->calProvas->definirProvas(provasPorDia(provas_));
 
     auto pintar = [](QLabel* l, const QColor& c) {
         QPalette p = l->palette();
@@ -346,9 +831,21 @@ void JanelaPrincipal::filtrarProvasPorDia(QDate dia) {
     // e o "contém" do proxy pega os dois sem precisar de regex.
     proxy->setFilterFixedString(dia.isValid() ? dia.toString(Qt::ISODate) : QString());
     formulario_->botaoTodasProvas->setEnabled(dia.isValid());
-    formulario_->tvProvas->resizeColumnsToContents();
+    for (int c = 0; c < proxy->columnCount(); ++c) {
+        formulario_->tvProvas->resizeColumnToContents(c);
+    }
+    // Expandir SÓ quando há filtro por dia. Sem filtro, `expandAll` desfazia o
+    // recolhimento que `trocarModelo` aplica ao histórico — "Provas antigas"
+    // nascia aberta, que é o oposto do ponto de existir uma seção para ela.
+    if (dia.isValid()) formulario_->tvProvas->expandAll();
 
-    const int n = proxy->rowCount();
+    // Conta as FOLHAS, não as linhas do topo: desde que as provas ganharam
+    // seções ("Próximas", "Antigas"), `rowCount()` no topo devolve o número de
+    // seções — e o rótulo diria "2 prova(s)" para um dia com dez.
+    int n = 0;
+    for (int g = 0; g < proxy->rowCount(); ++g) {
+        n += proxy->rowCount(proxy->index(g, 0));
+    }
     formulario_->rotuloFiltro->setText(
         dia.isValid()
             ? QStringLiteral("%1 prova(s) em %2")
@@ -450,6 +947,10 @@ void JanelaPrincipal::abrirJanelaDaTurma(const Turma& turma) {
     for (const auto& a : snapshot_.arquivos) {
         if (a.idTurma == alvo->idTurma) arquivos.push_back(a);
     }
+    std::vector<Participante> participantes;
+    for (const auto& p : snapshot_.participantes) {
+        if (p.idTurma == alvo->idTurma) participantes.push_back(p);
+    }
 
     // As credenciais vão junto mesmo sem uso imediato: a janela só fala com o
     // SIGAA se a pessoa pedir um arquivo que não está no disco, e pedi-las
@@ -461,8 +962,8 @@ void JanelaPrincipal::abrirJanelaDaTurma(const Turma& turma) {
     // o usuário disparar um "Atualizar" por trás dela criaria duas navegações
     // concorrentes na mesma conta — que é justamente o que o SIGAA pune
     // invalidando a view (RECON §2.2).
-    JanelaTurma d(*alvo, std::move(topicos), std::move(arquivos), std::move(login),
-                  std::move(senha), this);
+    JanelaTurma d(*alvo, std::move(topicos), std::move(arquivos),
+                  std::move(participantes), std::move(login), std::move(senha), this);
     d.exec();
 
     // A janela pode ter baixado material; o ✓ da aba Agenda vem do disco.
@@ -514,17 +1015,40 @@ bool JanelaPrincipal::recarregarDoBanco() {
     store::Database db;
     if (!db.aberto() || !db.migrar()) return false;
     snapshot_ = db.carregarUltimo();
+    // As correções vêm do banco junto com o snapshot, e ANTES de `mostrar`:
+    // exibir a lista de provas sem elas mostraria por um instante a data que o
+    // aluno já corrigiu — e essa é a data errada.
+    ajustes_ = db.carregarAjustes();
     mostrar(snapshot_);
     return true;
 }
 
 void JanelaPrincipal::mostrar(const Snapshot& s) {
     auto* abas = formulario_->abas;
-    trocarModelo(formulario_->tvPrazos, modeloPrazos(s, formulario_->tvPrazos), 0);
-    trocarModelo(formulario_->tvProvas, modeloProvas(s, formulario_->tvProvas), 0);
-    trocarModelo(formulario_->tvTurmas, modeloTurmas(s, formulario_->tvTurmas), 0);
+    // A lista resolvida é recalculada aqui, um lugar só, antes de qualquer
+    // tela tocá-la. Espalhar `efetivas()` pelas quatro telas que precisam dela
+    // é como a tabela e o calendário passariam a discordar sobre uma data.
+    recalcularProvas();
+    // A coluna elástica é sempre a que carrega o texto livre — o título da
+    // atividade, a descrição da prova, o nome da turma. É o que o aluno lê; as
+    // outras têm largura previsível e não ganham nada com espaço extra.
+    trocarModelo(formulario_->tvPrazos, modeloPrazos(s, formulario_->tvPrazos), 0, 3);
+    trocarModelo(formulario_->tvProvas, modeloProvas(provas_, formulario_->tvProvas), 0, 2);
+
+    // "SIGAA diz" só existe quando o SIGAA discorda de você — o que é raro. Uma
+    // coluna vazia ocupando um sexto da largura empurrava "Avaliação" para
+    // "Pro…" enquanto a tela tinha espaço de sobra à direita.
+    bool algumaDiscorda = false;
+    for (const auto& p : provas_) {
+        if (p.quandoSigaa.valid() && p.quandoSigaa.toIso() != p.av.quando.toIso()) {
+            algumaDiscorda = true;
+            break;
+        }
+    }
+    formulario_->tvProvas->setColumnHidden(kColunaSigaaDiz, !algumaDiscorda);
+    trocarModelo(formulario_->tvTurmas, modeloTurmas(s, formulario_->tvTurmas), 0, 0);
     trocarModelo(formulario_->tvAtualizacoes,
-                 modeloAtualizacoes(s, formulario_->tvAtualizacoes), 0);
+                 modeloAtualizacoes(s, formulario_->tvAtualizacoes), 0, 2);
 
     // Cartões e calendário depois de trocar o modelo: o filtro por dia é
     // reaplicado sobre o modelo novo, e precisa dele no lugar.
@@ -543,7 +1067,7 @@ void JanelaPrincipal::mostrar(const Snapshot& s) {
     // número na aba discorda da quantidade de linhas na tabela. E vem do modelo
     // FONTE, não do proxy: com um dia filtrado o proxy contaria só aquele dia, e
     // a aba passaria a dizer "Provas (1)" com 14 provas no semestre.
-    abas->setTabText(1, QStringLiteral("Provas (%1)").arg(resumoProvas(s).total));
+    abas->setTabText(1, QStringLiteral("Provas (%1)").arg(resumoProvas(provas_).total));
 }
 
 void JanelaPrincipal::montarBarraAgenda() {
@@ -638,6 +1162,9 @@ void JanelaPrincipal::montarAgenda() {
     }
     arvore->resizeColumnToContents(0);
     arvore->resizeColumnToContents(1);
+    // "Aula" absorve a sobra: é a coluna de texto livre, e era ela que ficava
+    // espremida enquanto metade da largura da janela sobrava à direita.
+    tema::esticarColuna(arvore, 1);
 
     // Título: a faixa de datas, e "esta semana" só quando for verdade. Um
     // rótulo que diz sempre a mesma coisa não avisa que a pessoa está paginada
@@ -697,23 +1224,65 @@ void JanelaPrincipal::montarAgenda() {
     formulario_->botaoHoje->setEnabled(delta != 0);
 }
 
+void JanelaPrincipal::escolherEAtualizar() {
+    if (trabalho_) return;
+
+    // Sem turma conhecida não há o que escolher: o diálogo abriria vazio e o
+    // aluno teria que adivinhar que precisa de uma coleta antes. Cai direto no
+    // ciclo completo, que é o que ele faria de qualquer jeito.
+    if (snapshot_.turmas.empty()) {
+        sincronizar(/*comTurmas=*/true);
+        return;
+    }
+
+    DialogoAtualizar dlg(snapshot_.turmas, ultimaEscolha_, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    ultimaEscolha_ = dlg.escolha();
+    sincronizar(ultimaEscolha_);
+}
+
 void JanelaPrincipal::sincronizar(bool comTurmas) {
+    // Atalho para quem não passou pelo diálogo (a bandeja, o automático, a
+    // primeira coleta): tudo ligado, todas as turmas.
+    DialogoAtualizar::Escolha e;
+    e.entrarNasTurmas = comTurmas;
+    sincronizar(e);
+}
+
+void JanelaPrincipal::sincronizar(const DialogoAtualizar::Escolha& escolha) {
     if (trabalho_) return;   // IgnoreNew: duas coletas em paralelo invalidam o
                              // ViewState do SIGAA (docs/RECON.md §2.2)
 
+    const bool comTurmas = escolha.entrarNasTurmas;
+
     servico::Opcoes op;
     op.incluirTurmas = comTurmas;
+    op.incluirArquivos = escolha.arquivos;
+    op.incluirFrequencia = escolha.frequencia;
+    op.apenasTurmas = escolha.turmas;
     // O ciclo completo já está dentro de cada turma e já sabe o que falta no
     // disco: baixar aqui é uma requisição por arquivo novo, e é o que faz a
     // janela da turma abrir sem rede depois. O ciclo só-portal não baixa —
     // ele nem sabe que existe arquivo.
-    if (comTurmas) op.pastaMateriais = pastaBaseMateriais().toStdString();
+    if (comTurmas && escolha.baixarMateriais) {
+        op.pastaMateriais = pastaBaseMateriais().toStdString();
+    }
     if (!obterCredenciais(op.login, op.senha)) return;
+    // A sessão do app. Se a verificação de senha já abriu uma, o ciclo
+    // continua nela em vez de pagar outro login.
+    op.sessao = &sessaoViva_;
 
     ocupado(true);
-    status(comTurmas
-               ? QStringLiteral("Entrando nas turmas e baixando o material novo…")
-               : QStringLiteral("Consultando o portal…"));
+    if (!comTurmas) {
+        status(QStringLiteral("Consultando o portal…"));
+    } else if (escolha.turmas.empty()) {
+        status(QStringLiteral("Entrando nas turmas…"));
+    } else if (escolha.turmas.size() == 1) {
+        status(QStringLiteral("Entrando em 1 turma…"));
+    } else {
+        status(QStringLiteral("Entrando em %1 turmas…").arg(escolha.turmas.size()));
+    }
 
     trabalho_ = new Trabalhador(std::move(op), this);
     connect(trabalho_, &Trabalhador::passo, this, &JanelaPrincipal::status);
@@ -770,7 +1339,6 @@ void JanelaPrincipal::aoConcluir() {
     }
 
     relatorio_ = QString::fromStdString(r.relatorio);
-    formulario_->acRelatorio->setEnabled(!relatorio_.isEmpty());
 
     // O que foi para o disco entra no mesmo texto: "baixei 3 arquivos" é a
     // parte que explica por que o ciclo demorou, e é o que diz ao aluno que a
@@ -803,6 +1371,12 @@ void JanelaPrincipal::aoConcluir() {
                                                : QSystemTrayIcon::Information,
                               20000);
     }
+
+    // POR ÚLTIMO, e modal: o ciclo acabou de descartar uma data de prova que o
+    // usuário digitou à mão. É a única coisa que o sync faz com o que ele
+    // escreveu, e vem depois do resto para não competir com a notificação
+    // comum — quando há conflito, é ele que a pessoa precisa ler.
+    avisarConflitos(r.conflitosAvaliacao);
 }
 
 bool JanelaPrincipal::obterCredenciais(std::string& login, std::string& senha) {
@@ -820,6 +1394,7 @@ bool JanelaPrincipal::obterCredenciais(std::string& login, std::string& senha) {
     }
 
     DialogoLogin d(this);
+    d.usarSessao(&sessaoViva_);
     if (d.exec() != QDialog::Accepted) return false;
 
     sessao_.login = d.login().toStdString();
@@ -829,18 +1404,257 @@ bool JanelaPrincipal::obterCredenciais(std::string& login, std::string& senha) {
     return true;
 }
 
+void JanelaPrincipal::procurarAtualizacao(DialogoOpcoes* dlg, bool silencioso) {
+    if (!silencioso && dlg) dlg->procurandoAtualizacao();
+
+    // Fora da thread da interface: é uma ida ao GitHub, e travar a janela numa
+    // conexão ruim seria transformar "procurar atualização" em "o app pendurou".
+    auto achado = std::make_shared<std::optional<atualizacao::Lancamento>>();
+    auto erro = std::make_shared<std::string>();
+
+    auto* th = QThread::create([achado, erro] {
+        *achado = atualizacao::ultimoLancamento(erro.get());
+    });
+    connect(th, &QThread::finished, th, &QObject::deleteLater);
+    connect(th, &QThread::finished, this, [this, dlg, silencioso, achado, erro] {
+        const std::string atual = atualizacao::versaoAtual();
+
+        if (!*achado) {
+            // Silencioso é silencioso mesmo no erro: quem abriu o app não
+            // pediu para saber que o GitHub estava fora do ar.
+            if (!silencioso && dlg) {
+                dlg->mostrarResultadoAtualizacao(
+                    QStringLiteral("Não consegui verificar: %1")
+                        .arg(QString::fromStdString(*erro)),
+                    false);
+            }
+            return;
+        }
+
+        const auto& l = **achado;
+        if (!atualizacao::maisNova(l.versao, atual)) {
+            if (!silencioso && dlg) {
+                dlg->mostrarResultadoAtualizacao(
+                    QStringLiteral("Você já está na versão mais recente."), false);
+            }
+            return;
+        }
+
+        lancamentoNovo_ = l;
+        const QString texto =
+            QStringLiteral("Versão %1 disponível (você tem a %2).")
+                .arg(QString::fromStdString(l.versao), QString::fromStdString(atual));
+
+        if (dlg) {
+            dlg->mostrarResultadoAtualizacao(texto, true);
+        } else if (silencioso) {
+            // Na abertura, sem diálogo aberto: a barra de status avisa sem
+            // interromper. Um modal na inicialização por causa de atualização
+            // é o tipo de coisa que ensina a fechar sem ler.
+            status(texto + QStringLiteral(" Veja em Opções."));
+        }
+    });
+    th->start();
+}
+
+void JanelaPrincipal::instalarAtualizacao(DialogoOpcoes* dlg) {
+    if (!lancamentoNovo_) return;
+    const auto l = *lancamentoNovo_;
+
+    const auto modo = atualizacao::comoInstalar();
+
+    // Instalação que não é nossa para mexer — pacote da distro, ou pasta sem
+    // permissão de escrita. Passar por cima do gerenciador de pacotes é como
+    // se quebra um sistema.
+    if (modo == atualizacao::Instalacao::Manual) {
+        QDesktopServices::openUrl(QUrl(QString::fromStdString(l.paginaUrl)));
+        if (dlg) {
+            dlg->mostrarResultadoAtualizacao(
+                QStringLiteral("Não dá para trocar esta instalação automaticamente "
+                               "(ela veio de um pacote do sistema, ou a pasta não "
+                               "aceita escrita). Abri a página da release no "
+                               "navegador."),
+                false);
+        }
+        return;
+    }
+
+    // No Windows a troca exige fechar o app: o sistema não deixa sobrescrever
+    // DLL carregada. Confirmar ANTES de baixar 40 MB é o mínimo — quem não
+    // pode fechar agora não deve gastar a banda.
+    if (modo == atualizacao::Instalacao::FecharParaTrocar) {
+        QMessageBox cx(this);
+        cx.setIcon(QMessageBox::Question);
+        cx.setWindowTitle(QStringLiteral("Atualizar para a versão %1")
+                              .arg(QString::fromStdString(l.versao)));
+        cx.setText(QStringLiteral("O app precisa fechar para trocar os arquivos."));
+        cx.setInformativeText(
+            QStringLiteral("Vou baixar o pacote, conferir a soma e só então fechar. "
+                           "O app reabre sozinho quando a troca terminar. Se algo "
+                           "falhar, a versão atual continua instalada."));
+        auto* seguir = cx.addButton(QStringLiteral("Baixar e atualizar"),
+                                    QMessageBox::AcceptRole);
+        cx.addButton(QStringLiteral("Agora não"), QMessageBox::RejectRole);
+        cx.exec();
+        if (cx.clickedButton() != seguir) return;
+    }
+
+    if (dlg) {
+        dlg->mostrarResultadoAtualizacao(QStringLiteral("Baixando %1…")
+                                             .arg(QString::fromStdString(l.arquivoNome)),
+                                         false);
+    }
+
+    const QString destino =
+        QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+            .filePath(QString::fromStdString(l.arquivoNome));
+
+    auto ok = std::make_shared<bool>(false);
+    auto erro = std::make_shared<std::string>();
+    auto* th = QThread::create([this, l, destino, modo, ok, erro] {
+        atualizacao::Progresso p = [this](std::int64_t agora, std::int64_t total) {
+            if (total <= 0) return;
+            // Da thread de download para a da interface, por fila.
+            QMetaObject::invokeMethod(
+                this,
+                [this, agora, total] {
+                    status(QStringLiteral("Baixando atualização: %1%")
+                               .arg(agora * 100 / total));
+                },
+                Qt::QueuedConnection);
+        };
+        *ok = atualizacao::baixarEVerificar(l, destino.toStdString(), p, erro.get());
+        if (!*ok) return;
+
+        // A soma bateu. Só agora o arquivo baixado pode virar programa.
+        *ok = modo == atualizacao::Instalacao::TrocaDireta
+                  ? atualizacao::instalarAppImage(destino.toStdString(), erro.get())
+                  : atualizacao::agendarTrocaWindows(destino.toStdString(), erro.get());
+    });
+    connect(th, &QThread::finished, th, &QObject::deleteLater);
+    connect(th, &QThread::finished, this, [this, dlg, ok, erro, l, modo] {
+        if (!*ok) {
+            const QString m = QStringLiteral("A atualização falhou: %1")
+                                  .arg(QString::fromStdString(*erro));
+            if (dlg) dlg->mostrarResultadoAtualizacao(m, true);
+            status(m);
+            return;
+        }
+        lancamentoNovo_.reset();
+
+        if (modo == atualizacao::Instalacao::FecharParaTrocar) {
+            // O auxiliar já está de pé, esperando este processo sumir para
+            // trocar os arquivos e reabrir o app. Fechar aqui é o passo dele.
+            status(QStringLiteral("Fechando para aplicar a versão %1…")
+                       .arg(QString::fromStdString(l.versao)));
+            if (dlg) dlg->accept();
+            close();
+            qApp->quit();
+            return;
+        }
+
+        // AppImage: a troca já aconteceu com o app de pé. NÃO reiniciamos
+        // sozinhos — trocar o arquivo é reversível enquanto o processo velho
+        // vive; matá-lo no meio de uma coleta não é.
+        const QString m =
+            QStringLiteral("Versão %1 instalada. Feche e abra o app para usá-la — "
+                           "a anterior ficou guardada ao lado, com final "
+                           "“.anterior”.")
+                .arg(QString::fromStdString(l.versao));
+        if (dlg) dlg->mostrarResultadoAtualizacao(m, false);
+        status(m);
+    });
+    th->start();
+}
+
+void JanelaPrincipal::abrirOpcoes() {
+    DialogoOpcoes dlg(configAtual(), this);
+    connect(&dlg, &DialogoOpcoes::pediuProcurarAtualizacao, this,
+            [this, &dlg] { procurarAtualizacao(&dlg, /*silencioso=*/false); });
+    connect(&dlg, &DialogoOpcoes::pediuInstalarAtualizacao, this,
+            [this, &dlg] { instalarAtualizacao(&dlg); });
+
+    // O diagnóstico e o relatório abrem SOBRE o diálogo, sem fechá-lo: quem
+    // foi ali investigar um problema quase sempre volta para mexer na rotina.
+    connect(&dlg, &DialogoOpcoes::pediuDiagnostico, this, [this, &dlg] {
+        JanelaDiagnostico(&dlg).exec();
+    });
+    connect(&dlg, &DialogoOpcoes::pediuRelatorio, this, [this] {
+        if (relatorio_.isEmpty()) {
+            status(QStringLiteral("Nenhum relatório ainda — atualize primeiro."));
+            return;
+        }
+        QDesktopServices::openUrl(QUrl::fromLocalFile(relatorio_));
+    });
+
+    if (dlg.exec() != QDialog::Accepted) return;
+    aplicarConfig(dlg.config());
+}
+
+DialogoOpcoes::Config JanelaPrincipal::configAtual() const {
+    QSettings cfg;
+    DialogoOpcoes::Config c;
+    c.automatico = cfg.value(QStringLiteral("sync/automatico"), true).toBool();
+    c.minutosPortal =
+        cfg.value(QStringLiteral("sync/minutosPortal"), kMinutosPortal).toInt();
+    c.minutosCompleto =
+        cfg.value(QStringLiteral("sync/minutosCompleto"), kMinutosTurmas).toInt();
+    c.arquivos = cfg.value(QStringLiteral("sync/arquivos"), true).toBool();
+    c.frequencia = cfg.value(QStringLiteral("sync/frequencia"), true).toBool();
+    c.baixarMateriais = cfg.value(QStringLiteral("sync/baixar"), true).toBool();
+    c.verificarAtualizacao =
+        cfg.value(QStringLiteral("app/verificarAtualizacao"), true).toBool();
+    return c;
+}
+
+void JanelaPrincipal::aplicarConfig(const DialogoOpcoes::Config& c) {
+    QSettings cfg;
+    // Os intervalos são normalizados contra a lista fechada ANTES de gravar.
+    // Um valor editado à mão no arquivo de configuração não pode virar um
+    // relógio de um minuto: o bloqueio cairia sobre a conta do aluno, e ele
+    // não teria como ligar uma coisa à outra.
+    const int portal = DialogoOpcoes::intervalosPortal().contains(c.minutosPortal)
+                           ? c.minutosPortal
+                           : kMinutosPortal;
+    const int completo =
+        DialogoOpcoes::intervalosCompleto().contains(c.minutosCompleto)
+            ? c.minutosCompleto
+            : kMinutosTurmas;
+
+    cfg.setValue(QStringLiteral("sync/minutosPortal"), portal);
+    cfg.setValue(QStringLiteral("sync/minutosCompleto"), completo);
+    cfg.setValue(QStringLiteral("sync/arquivos"), c.arquivos);
+    cfg.setValue(QStringLiteral("sync/frequencia"), c.frequencia);
+    cfg.setValue(QStringLiteral("sync/baixar"), c.baixarMateriais);
+    cfg.setValue(QStringLiteral("app/verificarAtualizacao"), c.verificarAtualizacao);
+
+    // A escolha da rotina é também a escolha padrão do diálogo de Atualizar:
+    // duas telas que configuram a mesma coisa e discordam seriam pior que uma.
+    ultimaEscolha_.arquivos = c.arquivos;
+    ultimaEscolha_.frequencia = c.frequencia;
+    ultimaEscolha_.baixarMateriais = c.baixarMateriais;
+
+    ligarAutomatico(c.automatico);
+    status(c.automatico
+               ? QStringLiteral("Rotina automática: portal a cada %1 min, turmas a "
+                                "cada %2 h.")
+                     .arg(portal)
+                     .arg(completo / 60)
+               : QStringLiteral("Rotina automática desligada."));
+}
+
 void JanelaPrincipal::ligarAutomatico(bool sim) {
     QSettings cfg;
     cfg.setValue(QStringLiteral("sync/automatico"), sim);
-    if (formulario_->acAuto->isChecked() != sim) formulario_->acAuto->setChecked(sim);
 
     if (!sim) {
         relogioPortal_->stop();
         relogioTurmas_->stop();
         return;
     }
-    relogioPortal_->start(kMinutosPortal * 60 * 1000);
-    relogioTurmas_->start(kMinutosTurmas * 60 * 1000);
+    const auto c = configAtual();
+    relogioPortal_->start(c.minutosPortal * 60 * 1000);
+    relogioTurmas_->start(c.minutosCompleto * 60 * 1000);
 }
 
 void JanelaPrincipal::agendarProxima() {
@@ -851,11 +1665,21 @@ void JanelaPrincipal::agendarProxima() {
     // sincronizar() já ignora o pedido quando há coleta em andamento, então
     // aqui basta não insistir.
     connect(relogioPortal_, &QTimer::timeout, this, [this] { sincronizar(false); });
-    connect(relogioTurmas_, &QTimer::timeout, this, [this] { sincronizar(true); });
+    connect(relogioTurmas_, &QTimer::timeout, this, [this] {
+        // Com o que foi configurado em Opções, não com tudo ligado: quem
+        // desmarcou "baixar material" não quer que a rotina baixe às 3h da
+        // manhã justamente porque ele desmarcou.
+        DialogoAtualizar::Escolha e;
+        e.entrarNasTurmas = true;
+        const auto c = configAtual();
+        e.arquivos = c.arquivos;
+        e.frequencia = c.frequencia;
+        e.baixarMateriais = c.baixarMateriais;
+        sincronizar(e);
+    });
 
     QSettings cfg;
     const bool auto_ = cfg.value(QStringLiteral("sync/automatico"), true).toBool();
-    formulario_->acAuto->setChecked(auto_);
     ligarAutomatico(auto_);
 
     // Ao abrir, buscar já: é para isso que o usuário abriu a janela. Coleta
@@ -865,12 +1689,20 @@ void JanelaPrincipal::agendarProxima() {
 }
 
 void JanelaPrincipal::aoAbrir() {
+    // Procura silenciosa por versão nova. Uma requisição ao GitHub, em outra
+    // thread, e sem dizer nada quando não há novidade — nem quando o GitHub
+    // está fora do ar. Quem abriu o app queria ver os prazos.
+    if (configAtual().verificarAtualizacao) {
+        procurarAtualizacao(nullptr, /*silencioso=*/true);
+    }
+
     const auto res = plat::resolverCredenciais();
 
     if (!res.ok()) {
         // Primeira execução: pedir a conta e já mostrar resultado. Um app que
         // abre vazio e só diz "configure em algum lugar" é abandonado ali.
         DialogoLogin d(this);
+    d.usarSessao(&sessaoViva_);
         if (d.exec() != QDialog::Accepted) {
             status(QStringLiteral("Sem conta configurada — use Conta ▸ Entrar."));
             return;
@@ -914,6 +1746,7 @@ void JanelaPrincipal::aoAbrir() {
 
 void JanelaPrincipal::trocarConta() {
     DialogoLogin d(this);
+    d.usarSessao(&sessaoViva_);
     if (d.exec() != QDialog::Accepted) return;
     sessao_.login = d.login().toStdString();
     sessao_.senha = d.senha().toStdString();

@@ -238,9 +238,22 @@ void DialogoLogin::tentar() {
     const std::string l = login.toStdString();
     const std::string s = senha.toStdString();
     auto* th = QThread::create([this, l, s] {
-        http::SigaaSession sess;
         std::string e;
-        loginOk_ = sess.login(l, s, &e);
+
+        // A sessão aberta aqui FICA VIVA e é a mesma que a sincronização vai
+        // usar. Antes o diálogo logava, descartava a sessão e a sincronização
+        // logava de novo: dois logins de 6 a 8 s para uma ação só — e o
+        // segundo não passava enquanto o primeiro seguia aberto no servidor.
+        if (cofre_) {
+            loginOk_ = cofre_->obter(l, s, &e) != nullptr;
+        } else {
+            // Sem cofre (ninguém chamou `usarSessao`): sessão descartável, e
+            // aí encerrar é o certo — deixá-la aberta é o que causava o
+            // travamento.
+            http::SigaaSession sess;
+            loginOk_ = sess.login(l, s, &e);
+            if (loginOk_) sess.logout();
+        }
         erroLogin_ = QString::fromStdString(e);
     });
     connect(th, &QThread::finished, this, [this, th] {

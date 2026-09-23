@@ -11,6 +11,7 @@
 // opcional: o portal sozinho já responde "o que vence essa semana".
 
 #include <functional>
+#include <set>
 #include <string>
 
 #include "core/http/SigaaSession.h"
@@ -31,6 +32,41 @@ struct OpcoesColeta {
     // Custa uma requisição a mais por turma (~1,5 s cada, pelo intervalo
     // mínimo). Só tem efeito com `incluirTurmas`.
     bool incluirArquivos{true};
+
+    // Abre também a aba Participantes de cada turma visitada.
+    //
+    // PADRÃO DESLIGADO, ao contrário de `incluirArquivos`: a lista de colegas
+    // muda no começo do semestre e depois fica parada, então pagar uma
+    // requisição por turma a cada ciclo seria comprar sempre a mesma resposta.
+    // Quem chama liga isto quando o banco ainda não tem ninguém guardado —
+    // é a primeira coleta completa que popula a aba, e daí em diante a janela
+    // da turma reatualiza sob demanda, só na turma que o aluno abriu.
+    //
+    // NÃO HÁ COLETA DE FOTO, aqui nem em lugar nenhum. O app já baixava o
+    // retrato de cada participante para uma pasta em disco; saiu em
+    // 18/09/2026, porque a imagem de alguém é dado dessa pessoa e os 31
+    // colegas de turma não escolheram tê-la copiada para a máquina de outro.
+    // A lista mostra as iniciais, que resolvem o mesmo problema.
+    bool incluirParticipantes{false};
+
+    // Abre o mapa de frequência de cada turma visitada.
+    //
+    // PADRÃO LIGADO, ao contrário de `incluirParticipantes`: custa a mesma uma
+    // requisição por turma, mas o dado MUDA toda semana e é o que responde
+    // "ainda posso faltar?" — enquanto a lista de colegas é a mesma o semestre
+    // inteiro e por isso só vale a pena buscar uma vez.
+    bool incluirFrequencia{true};
+
+    // Visita SÓ estas turmas (por `idTurma`). Vazio = todas, que é o padrão.
+    //
+    // O QUE ISTO COMPRA: o gargalo do app não é processar HTML, é esperar o
+    // SIGAA responder — cada turma custa de 2 a 4 requisições de ~1,5 s. Quem
+    // só quer saber se faltou na aula de hoje não tem por que pagar a visita
+    // às outras cinco turmas, e é a diferença entre 40 segundos e 6.
+    //
+    // O portal continua sendo lido por inteiro (é UMA requisição, e é de onde
+    // saem os prazos), então filtrar aqui nunca esconde uma atividade nova.
+    std::set<std::string> apenasTurmas;
 
     // Chamado a cada passo, para o CLI mostrar progresso.
     std::function<void(const std::string&)> progresso;

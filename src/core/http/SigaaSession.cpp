@@ -1,6 +1,10 @@
 #include "core/http/SigaaSession.h"
 
+#include "core/http/CadeiaAia.h"
+
 #include <curl/curl.h>
+
+#include <cstdlib>
 
 #include <mutex>
 #include <regex>
@@ -175,6 +179,28 @@ struct SigaaSession::Impl {
     char errbuf[CURL_ERROR_SIZE]{};   // mensagem detalhada; strerror so da a categoria
     int maxTentativas{3};             // retry de erros transitorios
 
+    // Bundle montado por AIA chasing, quando o servidor mandou uma cadeia
+    // incompleta. Vazio = nao foi preciso (o caso normal).
+    //
+    // UMA VEZ POR SESSAO: montar custa duas requisicoes, e um servidor mal
+    // configurado continua mal configurado na requisicao seguinte. `tentouAia`
+    // e o que impede o app de re-sondar a cada erro num servidor que esta fora
+    // do ar por outro motivo.
+    std::string bundleAia;
+    bool tentouAia{false};
+
+    // Corpo do portal, quando a ULTIMA requisicao foi o proprio portal.
+    //
+    // Existe por causa de uma redundancia real: `login` termina com o portal
+    // ja na mao, e a primeira coisa que todo fluxo faz depois e chamar
+    // `irParaPortal`, que buscava os mesmos ~95 KB de novo. Como nenhuma
+    // requisicao aconteceu no meio, a view do servidor e EXATAMENTE a que este
+    // corpo descreve — devolve-lo e equivalente ao GET, menos a ida e volta.
+    //
+    // Qualquer outra requisicao esvazia o campo. E o que garante que o
+    // ViewState guardado aqui nunca sobreviva a uma navegacao.
+    std::string portalNaMao;
+
     Response perform(std::string_view path, const std::string* body);
     CURLcode executar(const std::string& url, const std::string* body, Response& r);
 };
@@ -199,6 +225,42 @@ bool transitorio(CURLcode rc) {
         default:
             return false;
     }
+}
+
+// A verificação falhou por falta de peça na cadeia? É o erro que o AIA chasing
+// conserta — e só ele. Certificado expirado, host errado ou raiz desconhecida
+// não se resolvem baixando um intermediário, e tentar seria gastar duas
+// requisições para falhar igual.
+bool cadeiaIncompleta(CURLcode rc) {
+    return rc == CURLE_PEER_FAILED_VERIFICATION || rc == CURLE_SSL_CACERT;
+}
+
+// O texto que falta quando a verificação do certificado falha.
+//
+// A mensagem crua da libcurl ("unable to get local issuer certificate") manda
+// o usuário procurar defeito no computador dele — que é o lugar errado. A
+// causa quase sempre é o servidor apresentar uma cadeia INCOMPLETA: certificado
+// válido, raiz confiável, e o intermediário que liga os dois simplesmente não
+// é enviado. O navegador disfarça porque sai atrás do intermediário sozinho
+// (AIA chasing); a libcurl não faz isso, e por isso o site "funciona no
+// Chrome" enquanto o app falha — a pior forma de um erro se apresentar, porque
+// convence a pessoa de que o app é que está quebrado.
+//
+// Aconteceu com o SIGAA da UNIFEI em 16/09/2026 (docs/RECON.md §5).
+std::string explicarSeCadeiaIncompleta(CURLcode rc) {
+    if (rc != CURLE_PEER_FAILED_VERIFICATION && rc != CURLE_SSL_CACERT) return {};
+    return
+        "\n\nIsto quase sempre e o SERVIDOR, nao o seu computador. O app ja "
+        "tentou buscar sozinho o pedaco que falta na cadeia de certificados "
+        "(AIA chasing, o mesmo que o navegador faz) e nao resolveu — entao o "
+        "problema nao e so uma peca ausente.\n"
+        "Causas comuns: certificado vencido, relogio do computador errado, ou "
+        "uma rede que intercepta HTTPS (Wi-Fi corporativo, antivirus com "
+        "inspecao de TLS).\n"
+        "Se voce tem o certificado da CA que a sua rede usa, aponte "
+        "SIGAA_CA_BUNDLE para um arquivo com ele mais as CAs do sistema. O app "
+        "NAO desliga a verificacao: ele manda CPF e senha, e trocar um erro "
+        "visivel por um ataque silencioso seria o pior negocio disponivel.";
 }
 
 } // namespace
@@ -226,7 +288,24 @@ Response SigaaSession::Impl::perform(std::string_view path, const std::string* b
     for (int tentativa = 1; ; ++tentativa) {
         tentativas = tentativa;
         r = Response{};
-        const CURLcode rc = executar(url, body, r);
+        CURLcode rc = executar(url, body, r);
+
+        // Cadeia incompleta: buscar o intermediario que falta e tentar de novo,
+        // UMA vez. E o que o navegador faz, e e por isso que o site "funciona
+        // no Chrome" enquanto o app falha.
+        //
+        // A verificacao da segunda tentativa e INTEIRA: o intermediario entra
+        // ao lado das CAs do sistema, nao no lugar delas, e a cadeia continua
+        // tendo de terminar numa raiz auto-assinada. Ver core/http/CadeiaAia.h.
+        if (cadeiaIncompleta(rc) && !tentouAia && !std::getenv("SIGAA_SEM_AIA")) {
+            tentouAia = true;
+            if (auto b = montarBundleAia(baseUrl)) {
+                bundleAia = std::move(*b);
+                r = Response{};
+                rc = executar(url, body, r);
+            }
+        }
+
         if (rc == CURLE_OK || !transitorio(rc) || tentativa >= maxTentativas) {
             if (rc != CURLE_OK) {
                 r.error = (errbuf[0] ? std::string(errbuf) + " [" + curl_easy_strerror(rc) + "]"
@@ -234,6 +313,7 @@ Response SigaaSession::Impl::perform(std::string_view path, const std::string* b
                 if (tentativa > 1) {
                     r.error += " (apos " + std::to_string(tentativa) + " tentativas)";
                 }
+                r.error += explicarSeCadeiaIncompleta(rc);
             }
             break;
         }
@@ -263,8 +343,11 @@ Response SigaaSession::Impl::perform(std::string_view path, const std::string* b
         std::chrono::duration_cast<std::chrono::milliseconds>(ultimaReq - saiu).count());
     // Classificar custa quatro buscas de substring, e só faz sentido em HTML:
     // rodar isso sobre um PDF de 20 MB seria pagar caro por "Desconhecida".
+    portalNaMao.clear();
     if (r.error.empty() && !r.ehDownload() && !r.body.empty()) {
-        ev.pagina = std::string(toString(SigaaSession::classify(r.body)));
+        const auto tipo = SigaaSession::classify(r.body);
+        ev.pagina = std::string(toString(tipo));
+        if (tipo == PageKind::Portal) portalNaMao = r.body;
     }
     registrar(std::move(ev));
 
@@ -289,6 +372,33 @@ CURLcode SigaaSession::Impl::executar(const std::string& url, const std::string*
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10L);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");   // gzip/deflate
+    // Bundle de CAs alternativo, quando SIGAA_CA_BUNDLE está no ambiente.
+    //
+    // NÃO desliga verificação nenhuma — troca A LISTA de âncoras confiáveis,
+    // e a cadeia continua tendo de terminar num certificado auto-assinado
+    // dessa lista. Existe porque o servidor pode apresentar uma cadeia
+    // INCOMPLETA (foi o caso do SIGAA da UNIFEI em 16/09/2026, ver
+    // docs/RECON.md §5): o certificado da folha é válido e a raiz é confiável,
+    // mas o intermediário que liga os dois não é enviado, e a libcurl — ao
+    // contrário dos navegadores — não sai atrás dele.
+    //
+    // A saída honesta nesse caso é dar ao usuário o intermediário que falta,
+    // não `CURLOPT_SSL_VERIFYPEER 0`. Desligar a verificação num app que
+    // manda CPF e senha para o servidor é trocar um erro visível por um
+    // ataque silencioso.
+    if (const char* bundle = std::getenv("SIGAA_CA_BUNDLE"); bundle && *bundle) {
+        curl_easy_setopt(curl, CURLOPT_CAINFO, bundle);
+    } else if (!bundleAia.empty()) {
+        // O bundle montado por AIA chasing. Em memoria, nao em arquivo: nao ha
+        // por que deixar um .crt temporario no disco do usuario, e um arquivo
+        // teria que ser limpo em todo caminho de saida, inclusive nos que
+        // terminam em excecao.
+        curl_blob blob{};
+        blob.data = const_cast<char*>(bundleAia.data());
+        blob.len = bundleAia.size();
+        blob.flags = CURL_BLOB_COPY;
+        curl_easy_setopt(curl, CURLOPT_CAINFO_BLOB, &blob);
+    }
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 45L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCb);
@@ -349,7 +459,34 @@ Response SigaaSession::postForm(std::string_view path, std::string_view body) {
 
 bool SigaaSession::autenticado() const { return impl_->autenticado; }
 
+bool SigaaSession::logout() {
+    // Sessão que nunca logou não tem o que encerrar, e uma requisição aqui
+    // seria latência pura no caminho de erro — justamente onde o usuário já
+    // está esperando.
+    if (!impl_->autenticado) return false;
+
+    // Marca ANTES de ir à rede: se a requisição falhar, a sessão local está
+    // encerrada de qualquer forma, e tentar de novo no destrutor só somaria
+    // espera. O servidor expira sozinho em 30 minutos.
+    impl_->autenticado = false;
+    impl_->portalNaMao.clear();
+
+    auto r = get("/sigaa/logar.do?dispatch=logOff");
+    return r.ok();
+}
+
 Response SigaaSession::irParaPortal() {
+    // Atalho: a resposta anterior JA e o portal e nada aconteceu desde entao.
+    // Buscar de novo custaria ~95 KB e o intervalo minimo inteiro para receber
+    // byte por byte o que ja esta na memoria. Ver `Impl::portalNaMao`.
+    if (!impl_->portalNaMao.empty()) {
+        Response r;
+        r.status = 200;
+        r.body = std::move(impl_->portalNaMao);
+        impl_->portalNaMao.clear();
+        impl_->autenticado = true;
+        return r;
+    }
     auto r = get("/sigaa/verPortalDiscente.do");
     if (r.ok() && classify(r.body) == PageKind::Portal) impl_->autenticado = true;
     return r;
@@ -426,7 +563,13 @@ PageKind SigaaSession::classify(std::string_view html) {
     if (contains(html, "user.senha") && contains(html, "user.login")) {
         return PageKind::Login;
     }
-    if (contains(html, "id=\"formAva\"") || contains(html, "id='formAva'")) {
+    // #formAva e a pagina inicial da Turma Virtual. As ABAS internas
+    // (Participantes, por exemplo) nao tem esse form — so o menu lateral e a
+    // barra de acoes. Sem o segundo marcador elas caiam em "Desconhecida", e o
+    // diagnostico de trafego acusava uma tela desconhecida no meio de uma
+    // navegacao perfeitamente normal.
+    if (contains(html, "id=\"formAva\"") || contains(html, "id='formAva'") ||
+        contains(html, "id=\"formAcoesTurma\"") || contains(html, "id='formAcoesTurma'")) {
         return PageKind::TurmaVirtual;
     }
     if (contains(html, "formAtividades") || contains(html, "formAtualizacoesTurmas")) {
@@ -463,6 +606,8 @@ void SigaaSession::setIntervaloMinimo(std::chrono::milliseconds ms) {
     impl_->intervalo = ms;
 }
 void SigaaSession::setUserAgent(std::string ua) { impl_->userAgent = std::move(ua); }
+std::chrono::milliseconds SigaaSession::intervaloMinimo() const { return impl_->intervalo; }
+
 void SigaaSession::setMaxTentativasLogin(int n) { impl_->maxTentativasLogin = n; }
 
 } // namespace sigaa::http

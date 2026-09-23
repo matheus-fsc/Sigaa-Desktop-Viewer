@@ -44,6 +44,21 @@ namespace sigaa::sync {
 // recurso, porque leva a pessoa a fechar o app achando que tem o arquivo.
 //
 // Por isso toda leitura confere se o arquivo ainda existe no disco.
+//
+// SOBRE O ID NÃO SER SUFICIENTE — e por que o manifesto guarda uma impressão
+// digital do conteúdo:
+//
+//   O professor republica o mesmo PDF num tópico novo e o SIGAA dá a ele um id
+//   NOVO. Para o cache por id isso é um arquivo que nunca foi visto, então ele
+//   baixa — e `caminhoLivre`, que existe para não sobrescrever o que o aluno
+//   anotou, salva ao lado como "PROLOG (2).pdf". A pasta acumula cópias byte a
+//   byte idênticas e o aluno não sabe qual é a boa.
+//
+//   Por isso `registrar` compara o conteúdo: se o arquivo recém-baixado for
+//   IDÊNTICO a um que o manifesto já conhece, a cópia é apagada e o id novo
+//   passa a apontar para o arquivo que já estava lá. Idêntico de verdade —
+//   o hash só serve de índice, e o desempate é byte a byte, porque apagar
+//   arquivo por colisão de hash seria perder material do aluno.
 class CacheLocal {
 public:
     explicit CacheLocal(std::string diretorio);
@@ -55,7 +70,13 @@ public:
     }
 
     // Registra e grava o manifesto. `caminho` é absoluto, em UTF-8.
-    void registrar(const std::string& idArquivo, const std::string& caminho);
+    //
+    // Devolve o caminho DEFINITIVO do arquivo, que pode não ser o que entrou:
+    // quando o conteúdo já existia na pasta sob outro nome, a cópia recém
+    // baixada é removida e o retorno é a cópia antiga. Quem chama tem de usar
+    // este retorno para mostrar "salvo em X" e para abrir o arquivo — o
+    // caminho de entrada pode já não existir.
+    std::string registrar(const std::string& idArquivo, const std::string& caminho);
 
     // Quantos ids do manifesto ainda têm arquivo no disco.
     int quantosNoDisco() const;
@@ -64,8 +85,19 @@ public:
     static const char* nomeArquivo();
 
 private:
+    struct Item {
+        std::string id;
+        std::string nome;    // relativo ao diretório
+        std::string marca;   // impressão digital do conteúdo; "" em manifesto antigo
+    };
+
+    // Marca do arquivo de `it`, calculada e memorizada na primeira vez. Os
+    // manifestos gravados antes desta coluna existir sobem para o formato novo
+    // sem o aluno perceber, e sem rebaixar nada.
+    const std::string& marcaDe(Item& it) const;
+
     std::string diretorio_;
-    std::vector<std::pair<std::string, std::string>> itens_;   // id -> nome
+    mutable std::vector<Item> itens_;
 };
 
 // Onde o material de uma turma mora: <base>/<nome da turma saneado>.

@@ -5,12 +5,13 @@
 // que core/ ficou sem saber que UI existe.
 
 #include <QApplication>
-#include <QFile>
 #include <QSettings>
 
 #include "core/config/Instituicao.h"
 #include "ui/Icones.h"
+#include "ui/InstanciaUnica.h"
 #include "ui/JanelaPrincipal.h"
+#include "ui/Tema.h"
 
 namespace {
 
@@ -33,15 +34,6 @@ void restaurarInstituicao() {
     // app sempre fez.
 }
 
-// A folha de estilo vem do .qrc, não do disco: um arquivo solto ao lado do .exe
-// seria mais fácil de ajustar, mas viraria "o app abriu sem estilo" na primeira
-// vez que alguém copiasse só o executável.
-void aplicarEstilo(QApplication& app) {
-    QFile f(QStringLiteral(":/estilo/estilo.qss"));
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-    app.setStyleSheet(QString::fromUtf8(f.readAll()));
-}
-
 } // namespace
 
 int main(int argc, char** argv) {
@@ -54,12 +46,40 @@ int main(int argc, char** argv) {
     // grava num lugar diferente do que a próxima execução leria.
     restaurarInstituicao();
 
-    aplicarEstilo(app);
+    // Antes de construir qualquer janela: trocar de estilo depois faria o Qt
+    // reconstruir os widgets já criados, e alguns não sobrevivem a isso com o
+    // estado intacto.
+    sigaa::ui::tema::aplicar(app);
+
+    // Uma instância por usuário. Duas seriam duas sessões abertas na mesma
+    // conta do SIGAA — e é com uma sessão viva que o login da outra fica sem
+    // resposta (docs/RECON.md §6.0) — além de duas telas escrevendo no mesmo
+    // banco e mostrando estados diferentes do mesmo semestre.
+    //
+    // ANTES da janela: abrir e fechar a janela seria um piscar na tela de quem
+    // clicou no lançador duas vezes.
+    sigaa::ui::InstanciaUnica instancia;
+    if (!instancia.assumir()) {
+        // Já havia uma, e ela foi avisada para aparecer. Sair em silêncio é a
+        // resposta certa: o usuário pediu o app, e o app está na frente dele.
+        return 0;
+    }
 
     // O trabalho roda no diretório de onde o app foi aberto: é lá que estão o
     // .env e o sigaa-viewer.db que o sigaa-cli também usa. Compartilhar o banco
     // é o que faz a janela abrir já sabendo o que a última execução achou.
     sigaa::ui::JanelaPrincipal janela;
     janela.show();
+
+    // A segunda instância pediu para esta aparecer. `showNormal` desfaz a
+    // minimização, e `activateWindow` é o que tira o app de trás das outras
+    // janelas — `raise()` sozinho não rouba o foco em todos os gerenciadores.
+    QObject::connect(&instancia, &sigaa::ui::InstanciaUnica::pediramParaMostrar,
+                     &janela, [&janela] {
+                         janela.showNormal();
+                         janela.raise();
+                         janela.activateWindow();
+                     });
+
     return app.exec();
 }
