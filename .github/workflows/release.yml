@@ -143,6 +143,25 @@ jobs:
           echo "— somas publicadas —"
           cat SHA256SUMS
 
+      # `upload` exige uma release JÁ existente — e empurrar a tag não cria
+      # uma. Na v0.2.0-alpha o build inteiro passou e a publicação morreu aqui
+      # com "release not found", depois de 12 minutos de CI, porque até então
+      # a release vinha sendo criada à mão pela interface do GitHub.
+      - name: criar a release se ainda não existir
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+            >/dev/null 2>&1 && exit 0
+          # `--prerelease` quando a tag tem sufixo: é o que faz o GitHub não
+          # anunciar um alpha como versão estável na página do projeto.
+          extra=""
+          case "${GITHUB_REF_NAME}" in *-*) extra="--prerelease";; esac
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes $extra
+
       - name: anexar à release
         env:
           GH_TOKEN: ${{ github.token }}
