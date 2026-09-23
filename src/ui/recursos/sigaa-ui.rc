@@ -2,17 +2,17 @@
 // gruda o icone no proprio .exe, que e de onde o Explorer, a barra de tarefas
 // e o Alt+Tab tiram a imagem — antes de existir QApplication para ler o .qrc.
 //
-// O icone que o app usa em tempo de execucao continua vindo de
-// recursos/icones/app.svg via Icones.cpp. Os dois desenhos sao o mesmo;
-// tools/gerar_icone.py regrava o .ico.
+// O icone que o app usa em tempo de execucao vem de recursos/icones/app/
+// via Icones.cpp, em varios tamanhos. Este .ico e derivado do MESMO mestre
+// (icones/app/original-1254.png) — ver o README daquela pasta para regerar.
 
 // O primeiro ICON em ordem alfabetica de ID e o que o Windows mostra como
 // icone do executavel. Com um so, o ID nao importa; fica 1 por convencao.
 1 ICON "app.ico"
 
 1 VERSIONINFO
-FILEVERSION 0, 3, 0, 0
-PRODUCTVERSION 0, 3, 0, 0
+FILEVERSION 0, 2, 0, 0
+PRODUCTVERSION 0, 2, 0, 0
 FILEOS 0x40004L         // VOS_NT_WINDOWS32
 FILETYPE 0x1L           // VFT_APP
 BEGIN
@@ -24,11 +24,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "sigaa-viewer"
             VALUE "FileDescription",  "SIGAA Viewer - prazos e provas do SIGAA"
-            VALUE "FileVersion",      "0.3.0.0"
+            VALUE "FileVersion",      "0.2.0.0"
             VALUE "InternalName",     "sigaa-ui"
             VALUE "OriginalFilename", "sigaa-ui.exe"
             VALUE "ProductName",      "SIGAA Viewer"
-            VALUE "ProductVersion",   "0.3.0.0"
+            VALUE "ProductVersion",   "0.2.0.0"
         END
     END
     BLOCK "VarFileInfo"

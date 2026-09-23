@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Gera src/ui/recursos/app.ico a partir do desenho de app.svg.
+"""Gera src/ui/recursos/app.ico a partir do mestre em icones/app/.
 
 POR QUE EXISTE: o icone que aparece no Explorer e na barra de tarefas do
 Windows nao vem do .qrc — vem do resource do proprio .exe, que so aceita .ico.
 O Qt nunca le este arquivo; quem le e o Windows, antes de o app subir.
 
-POR QUE NAO CONVERTE O SVG: converter exigiria cairosvg/rsvg no ambiente de
-build so para gerar um arquivo que muda uma vez por ano. O desenho abaixo e
-uma reproducao deliberada de src/ui/recursos/icones/app.svg — MEXEU NUM,
-MEXA NO OUTRO. Rode com --check no pre-commit para saber se o .ico sumiu.
+DESDE 23/09/2026 o desenho e um PNG (icones/app/original-1254.png) e nao mais
+um vetor redesenhado a mao aqui dentro. As duas versoes deste arquivo viviam
+do aviso "MEXEU NUM, MEXA NO OUTRO", que e o tipo de acordo que ninguem
+cumpre: agora ha um mestre so, e tudo deriva dele.
 
     python tools/gerar_icone.py            # regrava o .ico
     python tools/gerar_icone.py --check    # so verifica que existe e abre
+
+Equivalente com ImageMagick, se o Pillow nao estiver a mao — ver o README em
+src/ui/recursos/icones/app/.
 """
 
 from __future__ import annotations
@@ -19,69 +22,42 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 RAIZ = Path(__file__).resolve().parent.parent
+MESTRE = RAIZ / "src" / "ui" / "recursos" / "icones" / "app" / "original-1254.png"
 DESTINO = RAIZ / "src" / "ui" / "recursos" / "app.ico"
 
-# Desenhamos grande e reduzimos: a suavizacao do LANCZOS num 1024 sai melhor
-# que qualquer antialiasing que o ImageDraw faria direto no 16x16.
-LADO = 1024
-S = LADO / 64.0  # o SVG usa viewBox 0 0 64 64
-
-AZUL = (0x1F, 0x6F, 0xB2, 255)
-AZUL_ESCURO = (0x0F, 0x4E, 0x80, 255)
-BRANCO = (0xFF, 0xFF, 0xFF, 255)
-AZUL_CLARO = (0x9C, 0xC4, 0xE4, 255)
-VERDE = (0x2E, 0x9E, 0x5B, 255)
-
-TAMANHOS = [(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (24, 24), (16, 16)]
+# Ate 256: o formato .ico nao define nada acima disso, e o Windows usa a maior
+# camada que encontrar. Cada tamanho e reduzido do mestre, e nao da camada
+# anterior — reduzir em cascata acumula borrao ate o 16 virar mancha.
+TAMANHOS = [16, 32, 48, 64, 128, 256]
 
 
-def e(*v: float) -> tuple[float, ...]:
-    """Converte coordenadas do viewBox do SVG para pixels da tela grande."""
-    return tuple(x * S for x in v)
+def gerar() -> None:
+    if not MESTRE.is_file():
+        sys.exit(f"mestre nao encontrado: {MESTRE}")
+
+    base = Image.open(MESTRE).convert("RGBA")
+    # `sizes=` sozinho: o Pillow gera cada camada a partir DESTA imagem. Juntar
+    # `append_images` aqui faz as duas vias brigarem e o arquivo sai com uma
+    # camada so — 900 bytes em vez de 100 KB, e o Windows escalando um 16x16
+    # para o tamanho do Explorer.
+    base.save(DESTINO, format="ICO", sizes=[(t, t) for t in TAMANHOS])
+    print(f"{DESTINO.relative_to(RAIZ)}  ({DESTINO.stat().st_size} bytes, "
+          f"{len(TAMANHOS)} tamanhos)")
 
 
-def desenhar() -> Image.Image:
-    img = Image.new("RGBA", (LADO, LADO), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-
-    d.rounded_rectangle(e(2, 2, 62, 62), radius=14 * S, fill=AZUL)
-
-    # Espiral do caderno: fica atras da folha, aparecendo so no topo.
-    d.rounded_rectangle(e(21, 9, 25, 19), radius=2 * S, fill=AZUL_ESCURO)
-    d.rounded_rectangle(e(39, 9, 43, 19), radius=2 * S, fill=AZUL_ESCURO)
-
-    d.rounded_rectangle(e(15, 15, 49, 53), radius=4 * S, fill=BRANCO)
-
-    for y in (26, 34):
-        d.line(e(21, y, 31, y), fill=AZUL_CLARO, width=int(3 * S))
-
-    d.line(
-        [e(31, 39), e(36, 44), e(46, 31)],
-        fill=VERDE,
-        width=int(5 * S),
-        joint="curve",
-    )
-    return img
-
-
-def main() -> int:
-    if "--check" in sys.argv:
-        if not DESTINO.exists():
-            print(f"FALTA: {DESTINO} — rode 'python tools/gerar_icone.py'")
-            return 1
-        with Image.open(DESTINO) as img:
-            img.verify()
-        print(f"ok: {DESTINO.relative_to(RAIZ)}")
-        return 0
-
-    DESTINO.parent.mkdir(parents=True, exist_ok=True)
-    desenhar().save(DESTINO, format="ICO", sizes=TAMANHOS)
-    print(f"gravado: {DESTINO.relative_to(RAIZ)} ({DESTINO.stat().st_size} bytes)")
-    return 0
+def checar() -> None:
+    if not DESTINO.is_file():
+        sys.exit(f"faltando: {DESTINO}")
+    with Image.open(DESTINO) as img:
+        # `.ico` que abre mas nao tem a camada grande passaria despercebido ate
+        # alguem ver o icone borrado na barra de tarefas.
+        if max(img.size) < 256:
+            sys.exit(f"{DESTINO} nao tem camada de 256 px")
+    print(f"ok: {DESTINO.relative_to(RAIZ)}")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    checar() if "--check" in sys.argv else gerar()

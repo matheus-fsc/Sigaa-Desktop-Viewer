@@ -14,8 +14,11 @@ done
 # .ico do Windows, montado a partir dos tamanhos já prontos.
 # Gerar direto do mestre com `icon:auto-resize` produz um arquivo 3x maior:
 # as camadas grandes saem como BMP sem compressão.
+#
+# O destino é `src/ui/recursos/app.ico` — um nível acima — porque é ali que
+# `sigaa-ui.rc` o procura, e esse .rc já existia antes deste ícone.
 magick app/app-16.png app/app-32.png app/app-48.png \
-       app/app-64.png app/app-128.png app/app-256.png -colors 256 app.ico
+       app/app-64.png app/app-128.png app/app-256.png -colors 256 ../app.ico
 ```
 
 ## Por que tantos tamanhos
@@ -35,7 +38,7 @@ Windows usa o maior que encontrar.
 |---|---|
 | `app-16` … `app-256` (no `.qrc`) | `ui::iconeApp()`, em tempo de execução |
 | `app-16` … `app-512` (instalados) | `share/icons/hicolor` no Linux, lido pelo KDE e pelo GNOME |
-| `app.ico` | `packaging/windows/sigaa-ui.rc`, que dá ícone ao `.exe` |
+| `../app.ico` | `src/ui/recursos/sigaa-ui.rc`, que dá ícone ao `.exe` |
 
 `app.svg` ao lado é o desenho ANTERIOR, mantido só porque ainda está no `.qrc`.
 Nada o carrega desde que `iconeApp()` passou a montar o ícone dos PNGs.
