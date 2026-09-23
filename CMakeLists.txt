@@ -220,12 +220,19 @@ elseif(SIGAA_UI)
     src/ui/forms/JanelaDiagnostico.ui
 
     src/ui/recursos/recursos.qrc
-
-    # Só no Windows: o .rc é o que dá ícone ao ARQUIVO .exe. Em outras
-    # plataformas o CMake ignora a extensão, mas listá-lo incondicionalmente
-    # faria o Ninja rastrear uma dependência que não produz nada no Linux.
-    $<$<BOOL:${WIN32}>:${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/sigaa-ui.rc>
   )
+  # O ícone do ARQUIVO .exe, que o Explorer e a barra de tarefas leem do
+  # recurso do binário — não do que o app define em tempo de execução.
+  #
+  # Em `if(WIN32)` com `target_sources`, e NÃO numa expressão geradora dentro
+  # do `add_executable`: o gerador do Visual Studio é multiconfiguração e
+  # materializa a expressão uma vez por configuração, o que fez o .rc ser
+  # compilado duas vezes no mesmo alvo — "CVT1100: duplicate resource,
+  # type:ICON, name:1", e o link morria logo depois.
+  if(WIN32)
+    target_sources(sigaa-ui PRIVATE packaging/windows/sigaa-ui.rc)
+  endif()
+
   # AUTOMOC/AUTOUIC/AUTORCC no alvo, e nao via qt_standard_project_setup():
   # aquela funcao tambem mexe em CMAKE_CXX_STANDARD no escopo inteiro, e o
   # padrao do projeto (C++20) ja esta definido no topo deste arquivo.

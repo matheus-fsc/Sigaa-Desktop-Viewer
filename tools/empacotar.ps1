@@ -139,6 +139,27 @@ if ($vazamento) {
 
 Compress-Archive -Path "$destino/*" -DestinationPath $zip
 
+# ---------------------------------------------------------------------------
+# Soma de verificacao.
+#
+# NAO e enfeite: e o que o atualizador automatico do app confere antes de
+# trocar os proprios arquivos (core/atualizacao/Atualizador.h). Sem ela o app
+# se recusa a instalar -- e a recusa e o comportamento certo, porque uma
+# atualizacao automatica que nao verifica nada e o melhor alvo que um programa
+# pode oferecer.
+#
+# Mesmo formato do sha256sum do Unix ("<hex>  <nome>"), porque o leitor do lado
+# do app e um so para as duas plataformas.
+# ---------------------------------------------------------------------------
+$hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+$linha = "$hash  " + (Split-Path $zip -Leaf)
+# Sem BOM: o leitor compara os 64 primeiros caracteres da linha, e um BOM os
+# desloca em tres bytes -- a soma nunca bateria, e a mensagem de erro falaria
+# de um arquivo adulterado que esta intacto.
+[IO.File]::WriteAllText((Join-Path $dist 'SHA256SUMS'), "$linha`n",
+                        (New-Object Text.UTF8Encoding $false))
+Write-Host "somas : $(Join-Path $dist 'SHA256SUMS')" -ForegroundColor Green
+
 $mb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
 Write-Host ''
 Write-Host "pacote: $destino" -ForegroundColor Green
