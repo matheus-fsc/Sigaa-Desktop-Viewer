@@ -1,6 +1,6 @@
 # SIGAA-Desktop-Viewer
 
-Cliente desktop multiplataforma para o **SIGAA da UNIFEI** — agrega prazos,
+Cliente desktop multiplataforma para o **SIGAA da UNIFEI**, agrega prazos,
 atualizações das turmas e calendário de provas num só lugar, com notificações
 nativas.
 
@@ -24,26 +24,26 @@ que não exige conhecer Qt. A interface é opcional no build.
 > engenharia reversa documentada em `docs/RECON.md` foi feita sobre o front-end
 > da UNIFEI (`sigaa.unifei.edu.br`). Outras instâncias **provavelmente** vão
 > precisar de ajustes nos endpoints, nos nomes de formulário e nos seletores
-> HTML — veja *Adaptando para outra universidade* abaixo.
+> HTML, veja *Adaptando para outra universidade* abaixo.
 >
 > O **endereço já é escolhível** na primeira tela (e por `--url` no CLI), e o
 > catálogo embutido tem só a UNIFEI, marcada como verificada. Isso é de
 > propósito: uma lista de vinte universidades onde dezenove falham no primeiro
 > login é pior do que uma lista de uma e um campo de endereço, porque no
-> primeiro caso o usuário culpa a própria senha — e tenta de novo, que é o
+> primeiro caso o usuário culpa a própria senha, e tenta de novo, que é o
 > caminho para o SIGAA bloquear a conta dele.
 
 **Estado: Fase 3 (interface).** O núcleo headless e o modo agendado estão prontos;
 a janela Qt mostra prazos, provas e atualizações e dispara sync em segundo plano.
 
-- [`docs/PLANO.md`](docs/PLANO.md) — plano técnico e roadmap
-- [`docs/RECON.md`](docs/RECON.md) — engenharia reversa do SIGAA (leitura obrigatória antes de mexer no scraper)
+- [`docs/PLANO.md`](docs/PLANO.md): plano técnico e roadmap
+- [`docs/RECON.md`](docs/RECON.md): engenharia reversa do SIGAA (leitura obrigatória antes de mexer no scraper)
 
 ---
 
 ## As telas
 
-Capturas do app com dados de exemplo. O tema acompanha o do sistema — as
+Capturas do app com dados de exemplo. O tema acompanha o do sistema; as
 imagens abaixo estão no escuro.
 
 ### Agenda
@@ -51,7 +51,7 @@ imagens abaixo estão no escuro.
 A semana de aulas em cima, os prazos embaixo. A coluna **Faltas** mostra
 `n/k`: quantas você tem e quantas pode ter antes de reprovar por frequência
 (25% da carga horária, a regra que a própria página do SIGAA enuncia). O traço
-significa que o professor não lançou nada — que é diferente de zero faltas.
+significa que o professor não lançou nada, o que é diferente de zero faltas.
 
 Nos prazos, só o que exige ação ganha etiqueta: atrasado, vence hoje, amanhã.
 "Em 8 dias" fica como texto simples, porque etiqueta em toda linha não é
@@ -78,8 +78,8 @@ explica, em outubro, por que a data é essa.
 
 <img src="docs/img/prova-editar.png" width="420" alt="Corrigir data da prova">
 
-Quando o professor finalmente atualiza a plataforma, a data dele passa a valer
-— com alerta, e a sua correção preservada no histórico com a data em que você
+Quando o professor finalmente atualiza a plataforma, a data dele passa a valer,
+com alerta, e a sua correção preservada no histórico com a data em que você
 a fez.
 
 ![Histórico de alterações](docs/img/prova-historico.png)
@@ -91,7 +91,7 @@ a fez.
 ### Dentro da turma
 
 Aulas com o material pendurado em cada uma. O `✓ offline` marca o que já está
-no seu disco — a janela abre sem rede depois da primeira vez.
+no seu disco: a janela abre sem rede depois da primeira vez.
 
 **Resumo .md** grava um `turma.md` na pasta da turma com aulas, datas,
 materiais e provas: é o arquivo para colar num assistente de IA junto com os
@@ -104,7 +104,7 @@ PDFs, para ele receber o fio da disciplina e não vinte arquivos soltos.
 O mapa de frequência do professor. Nos dias que ele deixou em branco, você
 registra que esteve lá.
 
-Isso **não altera a contagem do SIGAA** — é registro pessoal, com a data em que
+Isso **não altera a contagem do SIGAA**: é registro pessoal, com a data em que
 foi feito, para uma conversa com o professor ou a secretaria. Se ele depois
 lançar diferente, a dele vale e a sua fica no histórico, que é exatamente
 quando ela importa.
@@ -115,7 +115,7 @@ quando ela importa.
 
 O gargalo do app não é processar HTML, é esperar o SIGAA responder: cada turma
 custa de 2 a 4 requisições de ~1,5 s. O diálogo troca um clique por dezenas de
-segundos — marque só a turma que interessa. Duplo clique numa turma escolhe e
+segundos: marque só a turma que interessa. Duplo clique numa turma escolhe e
 confirma de uma vez.
 
 <img src="docs/img/atualizar.png" width="620" alt="Diálogo de atualização">
@@ -145,7 +145,7 @@ sigaa-cli --url sigaa.suafaculdade.edu.br sync
 Na interface, o endereço é o primeiro campo da tela de login ("Outra instituição
 → informar endereço"), e fica guardado para as próximas aberturas. O host também
 entra na chave do cofre de credenciais, então cada instituição tem a sua senha
-guardada em separado — trocar de faculdade não faz o app tentar a senha de uma
+guardada em separado, trocar de faculdade não faz o app tentar a senha de uma
 na outra, o que gastaria tentativa e aproxima o bloqueio da conta.
 
 Se o login funcionar mas a leitura falhar (é o desfecho provável), aí sim vale o
@@ -159,12 +159,12 @@ recon:
 
 2. **Ajuste os arquivos certos.** A arquitetura separa deliberadamente *o que
    se pede* de *como se interpreta a resposta*:
-   - `src/core/config/Instituicao` — o catálogo. Acrescentar a sua é uma linha,
+   - `src/core/config/Instituicao`: o catálogo. Acrescentar a sua é uma linha,
      depois de conferir contra o site; marque `verificada=true` só aí, e anote
      em `docs/RECON.md` qual versão do SIGAA você testou.
-   - `src/core/http/SigaaSession` — rotas de login e navegação.
-   - `src/core/jsf/JsfForm` — campos e `javax.faces.ViewState`.
-   - `src/core/parse/PortalParser` e `TurmaParser` — seletores CSS/XPath.
+   - `src/core/http/SigaaSession`: rotas de login e navegação.
+   - `src/core/jsf/JsfForm`: campos e `javax.faces.ViewState`.
+   - `src/core/parse/PortalParser` e `TurmaParser`: seletores CSS/XPath.
    - As fixtures em `tests/fixtures/` precisarão de HTML da sua instância
      (redatado com `tools/redact.py`).
 
@@ -172,8 +172,8 @@ recon:
    de conhecimento gerado pelo [graphify](https://github.com/nicholasgasior/graphify)
    (`graphify-out/`). Aponte qualquer agente de código (Copilot, Claude, Gemini,
    etc.) para esse grafo e ele consegue navegar a arquitetura, entender as
-   dependências entre módulos e propor as mudanças necessárias com contexto real
-   — sem precisar ler arquivo por arquivo.
+   dependências entre módulos e propor as mudanças necessárias com contexto real,
+sem precisar ler arquivo por arquivo.
 
 Contribuições que generalizem as rotas (e.g. um `SigaaProfile` por instituição)
 são muito bem-vindas. Abra uma issue descrevendo quais endpoints diferem na sua
@@ -184,7 +184,7 @@ universidade e podemos desenhar juntos a abstração.
 ## Build
 
 Requisitos: **CMake ≥ 3.24** e um compilador C++20 (MSVC 2022+, GCC 12+, Clang 15+).
-As dependências vêm do **vcpkg** ou do **gerenciador de pacotes da distro** — o
+As dependências vêm do **vcpkg** ou do **gerenciador de pacotes da distro**, o
 `CMakeLists.txt` aceita as duas procedências, e cada `find_package` tem plano B.
 
 ### Windows (vcpkg)
@@ -199,7 +199,7 @@ cmake --build --preset windows
 ctest --preset windows
 ```
 
-As dependências vêm do manifesto `vcpkg.json` — não é preciso instalar nada à mão.
+As dependências vêm do manifesto `vcpkg.json`, não é preciso instalar nada à mão.
 
 ### Linux (pacotes da distro)
 
@@ -209,7 +209,7 @@ continua existindo para quem quiser o vcpkg também no Linux.
 ```sh
 # Arch / CachyOS / Manjaro
 sudo pacman -S --needed base-devel cmake ninja curl sqlite nlohmann-json spdlog catch2 qt6-base qt6-svg
-# lexbor não está nos repos oficiais — vem do AUR:
+# lexbor não está nos repos oficiais, vem do AUR:
 yay -S lexbor          # ou paru -S lexbor
 
 # Debian / Ubuntu
@@ -224,14 +224,14 @@ ctest --preset linux-distro
 ```
 
 Em tempo de execução, o app usa dois programas externos e **degrada sozinho sem
-eles**: `secret-tool` (pacote `libsecret`) para guardar a senha no chaveiro —
-KWallet no KDE, GNOME Keyring no GNOME — e `notify-send` (`libnotify`) para as
-notificações. Sem o primeiro o app cai para o `.env` e avisa; sem o segundo a
+eles**: `secret-tool` (pacote `libsecret`) para guardar a senha no chaveiro do
+sistema (KWallet no KDE, GNOME Keyring no GNOME) e `notify-send`
+(`libnotify`) para as notificações. Sem o primeiro o app cai para o `.env` e avisa; sem o segundo a
 novidade aparece só na janela.
 
 ### Onde fica o release
 
-**`dist/`.** Um comando, um caminho — um script por plataforma:
+**`dist/`.** Um comando, um caminho, um script por plataforma:
 
 ```powershell
 pwsh -File tools/empacotar.ps1
@@ -249,7 +249,7 @@ O **portátil** existe porque o AppImage precisa de FUSE, e há duas situações
 comuns em que ele não está lá: container e máquina de laboratório com o módulo
 desabilitado. Nas duas o erro é `dlopen(): error loading libfuse.so.2`, que não
 diz a quem lê o que fazer. O tarball é o mesmo conteúdo sem a camada de
-montagem — descompacta e roda `./sigaa-viewer`.
+montagem, descompacta e roda `./sigaa-viewer`.
 
 O `SHA256SUMS` não é enfeite: é o que o app confere antes de se atualizar
 sozinho (veja abaixo).
@@ -261,17 +261,17 @@ recebe: descompactar e abrir o `sigaa-ui.exe`, sem Qt instalado.
 
 O do Linux faz o mesmo com **AppImage**: configura, compila, roda o `ctest`,
 instala num `AppDir` (`cmake --install`) e chama o `linuxdeploy`, que copia as
-bibliotecas do sistema para dentro do pacote. Os plugins do Qt — plataforma
-(xcb/wayland), iconengine de SVG, formatos de imagem — são copiados por uma
+bibliotecas do sistema para dentro do pacote. Os plugins do Qt (plataforma
+xcb/wayland, iconengine de SVG, formatos de imagem) são copiados por uma
 lista explícita, e **não** pelo `--plugin qt` do linuxdeploy: aquele plugin leva
 a pasta de plugins inteira, o que numa máquina com KDE inclui os `kimg_*` do
 kimageformats. Um deles tem dependência opcional que quase ninguém instala, o
-linuxdeploy não a encontra e aborta o empacotamento — ou seja, ele falha
+linuxdeploy não a encontra e aborta o empacotamento, ou seja, ele falha
 justamente na distro do desenvolvedor típico deste projeto. O resultado é **um arquivo**: `chmod +x`, duplo clique, sem
 sudo, sem repositório e sem depender da versão de Qt da distro de quem baixou.
 As ferramentas do linuxdeploy (~120 MB) ficam em `~/.cache/sigaa-viewer/`, não
 no repositório. AppImage não é o formato mais elegante para quem já sabe usar os
-repositórios da distro — mas o público aqui é aluno de graduação, cada um numa
+repositórios da distro, mas o público aqui é aluno de graduação, cada um numa
 distro diferente, e o `cmake --install` que o script usa é o mesmo que um
 PKGBUILD ou um `.deb` usaria no dia em que alguém quiser empacotar assim.
 
@@ -281,11 +281,11 @@ Nada dentro de `build/` é o release, e vale saber por quê antes de procurar l�
 |---|---|
 | `build/<preset>/Release/` | binários otimizados, **sem** as DLLs de terceiros arrumadas para distribuir |
 | `build/<preset>/Debug/` | binários de depuração; exigem `Qt6*d.dll` e não rodam fora da máquina de build |
-| `build/<preset>/*.dir/` | andaime do gerador do Visual Studio — `ALL_BUILD`, `ZERO_CHECK`, `Continuous`, `Nightly`, `RUN_TESTS`. Cada um com quatro subpastas **vazias** (uma por configuração). Não é código, não é saída, é ruído do MSBuild |
+| `build/<preset>/*.dir/` | andaime do gerador do Visual Studio: `ALL_BUILD`, `ZERO_CHECK`, `Continuous`, `Nightly`, `RUN_TESTS`. Cada um com quatro subpastas **vazias** (uma por configuração). Não é código, não é saída, é ruído do MSBuild |
 
 Duas coisas que o script se recusa a fazer, e o motivo: empacotar com teste
 falhando, e copiar `sigaa-viewer.db` ou `relatorio.*`. Esses dois aparecem
-dentro do diretório de build sempre que alguém roda o app pela IDE — e contêm
+dentro do diretório de build sempre que alguém roda o app pela IDE, e contêm
 os dados reais de quem compilou (ver *Dados pessoais* abaixo). Se algum escapar
 para a pasta montada, o script apaga o pacote e falha alto.
 
@@ -309,7 +309,7 @@ Três recusas deliberadas:
   quebra um sistema.
 
 No Windows o pacote é o `.exe` **mais as DLLs do Qt**, e o sistema não deixa
-sobrescrever DLL carregada — então o app baixa, confere, fecha, um auxiliar
+sobrescrever DLL carregada, então o app baixa, confere, fecha, um auxiliar
 troca os arquivos e reabre. Se algo falhar no meio, a versão atual continua
 instalada.
 
@@ -321,11 +321,11 @@ OpenSSL de carona para contar com ele.
 
 `src/core/` **não conhece nenhum framework de UI.** É C++20 puro + libcurl + lexbor + SQLite, então
 roda em CI sem display e é testável contra fixtures. A UI é Qt, mas o Qt só aparece
-em `src/ui/` — quatro arquivos. Trocar de toolkit custa esses quatro, e nada mais.
+em `src/ui/`, quatro arquivos. Trocar de toolkit custa esses quatro, e nada mais.
 
 ```
 src/core/parse/Html          wrapper sobre lexbor (o único arquivo que inclui lexbor)
-src/core/jsf/JsfForm         emula jsfcljs() — monta o POST que o browser mandaria
+src/core/jsf/JsfForm         emula jsfcljs(): monta o POST que o browser mandaria
 src/core/http/SigaaSession   cookies em memória, fila serializada, retry, login
 src/core/parse/PortalParser  turmas, atividades, atualizações
 src/core/store/Database      SQLite: último snapshot conhecido
@@ -335,14 +335,14 @@ src/core/servico/Servico     um ciclo inteiro: login → coleta → diff → rel
 src/core/config/DotEnv       .env, compartilhado por CLI e UI
 src/platform/Notify          notificação nativa (Shell_NotifyIcon/notify-send/osascript)
 src/app/                     sigaa-cli
-src/ui/                      sigaa-ui (Qt Widgets) — a única pasta que conhece Qt
+src/ui/                      sigaa-ui (Qt Widgets): a única pasta que conhece Qt
 ```
 
 ### `core/servico` existe para o CLI e a UI não divergirem
 
 A sequência login → coleta → diff → gravação → relatório → `.ics` morava dentro do
 `cmdSync()` do CLI. Com duas interfaces, isso viraria duas cópias da mesma
-sequência apodrecendo em ritmos diferentes — e a regra que mais importa (*coleta
+sequência apodrecendo em ritmos diferentes, e a regra que mais importa (*coleta
 suspeita não grava*) ficaria escrita duas vezes.
 
 O serviço **não** pergunta credenciais (prompt é decisão de interface; a UI vai ler
@@ -353,7 +353,7 @@ vira toast do agendador ou balão de bandeja da janela.
 ### Duas decisões do DiffEngine que não são óbvias
 
 **Primeira execução não é novidade.** Sem isso, o primeiro `sync` dispararia
-uma notificação por item já existente — dezenas de alertas que ensinam o
+uma notificação por item já existente, dezenas de alertas que ensinam o
 usuário a ignorá-los.
 
 **Coleta vazia é suspeita, não "nada mudou".** Se antes havia turmas e agora
@@ -365,27 +365,27 @@ comparação boa) e sai com código 1.
 
 ### Invariantes do SigaaSession
 
-Não são preferências — são consequências do recon, e quebrá-las tem custo real:
+Não são preferências, são consequências do recon, e quebrá-las tem custo real:
 
 | Invariante | Por quê |
 |---|---|
 | Uma requisição por vez | O SIGAA invalida a view ao detectar navegação concorrente |
 | Intervalo mínimo (1,5 s por padrão) | Não parecer ataque; é conta de aluno, não robô |
 | Limite rígido de tentativas de login | Senha errada em loop **bloqueia a conta do usuário** |
-| `JSESSIONID` só em memória | `CURLOPT_COOKIEFILE ""` — o cookie nunca toca o disco |
+| `JSESSIONID` só em memória | `CURLOPT_COOKIEFILE ""`, o cookie nunca toca o disco |
 
 Essas quatro invariantes têm um defeito em comum: **são invisíveis**. Um laço de
-navegação não trava o app nem levanta exceção — ele só faz o SIGAA ver um
+navegação não trava o app nem levanta exceção; ele só faz o SIGAA ver um
 cliente se comportando como robô, com a conta de um aluno de verdade. Por isso
 toda requisição passa por `core/http/Trafego`, que numera, guarda e publica o
 que saiu: `sigaa-cli --log-http` imprime no stderr e a interface tem a janela de
-**Diagnóstico** (`Ctrl+D`). Não entra corpo, cookie nem senha no registro — a
+**Diagnóstico** (`Ctrl+D`). Não entra corpo, cookie nem senha no registro, a
 janela tem botão de copiar, e é para colar em issue.
 
 ### Convenção de testes
 
 Nomes de `TEST_CASE` em **ASCII puro**. O CTest repassa o nome como filtro ao
-binário do Catch2 e, no Windows, o codepage do console corrompe acentos — o
+binário do Catch2 e, no Windows, o codepage do console corrompe acentos, o
 teste some com "No tests ran" em vez de falhar, que é pior que falhar.
 
 ---
@@ -421,10 +421,10 @@ responde "o que vence essa semana".
 
 O `.ics` sai ao lado do relatório e importa em Google Calendar / Outlook /
 calendário do celular. Avaliações vindas de heurística sobre o título do tópico
-são marcadas como *inferido — confirme com o professor*; as do painel formal do
+são marcadas como *inferido, confirme com o professor*; as do painel formal do
 professor, não.
 
-`SIGAA_DUMP=arquivo.html` grava o HTML cru da rede (portal e primeira turma) —
+`SIGAA_DUMP=arquivo.html` grava o HTML cru da rede (portal e primeira turma),
 é a forma **correta** de gerar fixture de parser. Ctrl+S no navegador salva o
 DOM pós-JavaScript, que é 2,7× maior e tem markup que o servidor nunca envia.
 
@@ -444,14 +444,14 @@ O ciclo de turmas **também baixa o material que falta**, para
 `Documentos/SIGAA/<turma>/`. É o que faz a janela da turma abrir offline depois:
 quando você entra nela, tudo já está no disco. O cache é por `idArquivo`, então
 a primeira execução baixa o semestre inteiro e as seguintes baixam só o PDF da
-aula da semana — e turma sem nada pendente não custa requisição nenhuma, porque
+aula da semana, e turma sem nada pendente não custa requisição nenhuma, porque
 a verificação é local.
 
 No CLI isso é opt-in (`--materiais <dir>`): uma tarefa agendada que enche o
 disco sem perguntar é diferente de um app que você abriu para ver a turma.
 
 O ciclo de turmas entra em cada turma e, dentro dela, abre a aba **Arquivos**.
-É o que faz o app perceber que o professor subiu o PDF da aula de hoje — a
+É o que faz o app perceber que o professor subiu o PDF da aula de hoje, a
 novidade mais frequente do semestre, e a única que o portal nunca mostra: as
 "Atualizações das Turmas" trazem um texto solto ("Novo Arquivo: …"), sem id,
 sem título confiável e sem o material. O evento aparece como *material novo* na
@@ -473,7 +473,7 @@ acervo inteiro de cada turma como "material novo". Travado em
 
 **O preço dessa escolha, explícito:** com o app fechado você não recebe aviso
 nenhum. Se ficar dias sem abrir, um prazo pode vencer sem ninguém te cutucar. O
-`.ics` existe justamente para cobrir esse buraco — as datas ficam no calendário
+`.ics` existe justamente para cobrir esse buraco, as datas ficam no calendário
 do celular, que você olha mesmo sem abrir isto aqui.
 
 ### Rodar em segundo plano (opcional, desligado)
@@ -484,14 +484,14 @@ conhecido: `sigaa-cli` é um binário de console, então cada execução pisca u
 janela preta na tela. `-Hidden` no agendador esconde a *tarefa na lista*, não a
 janela; e quando o nosso código roda para escondê-la, ela já apareceu. Consertar
 exigiria um segundo binário compilado no subsistema Windows (`/SUBSYSTEM:WINDOWS`),
-que é o que se faz de verdade — só não foi feito porque a decisão foi não rodar
+que é o que se faz de verdade, só não foi feito porque a decisão foi não rodar
 com o app fechado.
 
 `-Status`, `-Agora` e `-Remover` completam o script.
 
 ### `--quiet`
 
-O modo que o agendador usa. Ele **nunca pergunta nada** — um prompt de senha
+O modo que o agendador usa. Ele **nunca pergunta nada**, um prompt de senha
 numa janela oculta travaria a tarefa para sempre. Se as credenciais não
 estiverem no ambiente ou no `.env`, ele falha alto e registra no log.
 
@@ -503,7 +503,7 @@ Log em `sigaa-viewer.log` (`--log <arquivo>` muda o destino).
 
 ### Notificação nativa
 
-Ligada por padrão em `--quiet`, desligada no modo interativo — quando você está
+Ligada por padrão em `--quiet`, desligada no modo interativo, quando você está
 olhando o terminal, o toast é redundante. Force com `--notificar` ou
 `--sem-notificar`.
 
@@ -513,15 +513,15 @@ macOS. `sigaa-cli doctor --notificar` testa o caminho inteiro.
 Duas decisões que importam mais que a implementação:
 
 - **No máximo um aviso por ciclo.** Um toast por evento parece mais informativo,
-  mas oito numa manhã ensinam a fechar tudo sem ler — e aí o aviso que importava
+  mas oito numa manhã ensinam a fechar tudo sem ler, e aí o aviso que importava
   se perde junto. O ciclo agrega tudo num aviso só, com os mais urgentes no topo
   (prova remarcada > prazo alterado > prova nova > atividade nova > ...).
 - **Silêncio é resposta válida**, com uma exceção: coleta suspeita avisa. Aí o
-  perigo é o inverso — o usuário concluir que não há prazos porque o parser
+  perigo é o inverso, o usuário concluir que não há prazos porque o parser
   quebrou.
 
 Limitação honesta: um processo que roda e morre não mantém a notificação viva na
-Central de Ações do Windows — o balão morre junto com o ícone de bandeja. O
+Central de Ações do Windows, o balão morre junto com o ícone de bandeja. O
 registro durável são o relatório e o `.ics`, que ficam no disco. Notificação
 persistente exige processo residente, e isso é assunto da Fase 3.
 
@@ -529,7 +529,7 @@ persistente exige processo residente, e isso é assunto da Fase 3.
 
 ## Interface gráfica
 
-**Qt 6 Widgets**, em `src/ui/`. Qt não vem do vcpkg — compilar do fonte leva horas.
+**Qt 6 Widgets**, em `src/ui/`. Qt não vem do vcpkg, compilar do fonte leva horas.
 O caminho desatendido, sem instalador gráfico nem conta Qt:
 
 ```sh
@@ -563,28 +563,28 @@ continuam compilando. Quem só quer mexer no parser não precisa baixar 1,5 GB.
 Quatro abas, na ordem das perguntas que o aluno faz: **Agenda**, **Provas**,
 **Turmas** e **Atualizações**.
 
-**Agenda** é a tela inicial: em cima, as aulas da semana — o tópico que o
+**Agenda** é a tela inicial: em cima, as aulas da semana, o tópico que o
 professor registrou, a turma e quantos arquivos ele pendurou naquela aula;
 embaixo, a lista de prazos, com "em 2 dias" em laranja e atrasado em vermelho.
 Duplo clique numa aula entra na turma.
 
 A semana é a página, e ◀ / ▶ (ou `Alt+←` / `Alt+→`, ou rolagem horizontal sobre
 a lista) viram a página; **Hoje** volta para a semana atual. O semestre inteiro
-já está no banco depois do primeiro ciclo com turmas — mostrar dois dias jogava
+já está no banco depois do primeiro ciclo com turmas, mostrar dois dias jogava
 fora dado que custou ~22 requisições e mandava o aluno de volta ao SIGAA para
 "o que tem quarta que vem?". Os botões desligam na borda do que a coleta
 conhece: paginar para o vazio confundiria *não há aula* com *não temos esse
 pedaço do semestre*, e o rótulo diz qual dos dois é. Dentro da semana, só os
-dias com aula abrem — sete grupos abertos, cinco deles vazios, empurrariam a
+dias com aula abrem, sete grupos abertos, cinco deles vazios, empurrariam a
 quarta-feira para fora da tela.
 
 A aula da agenda nasce da **grade horária da turma** (`6M2345`, `24T34`), não do
 tópico que o professor registrou. A diferença apareceu em produção: Compiladores
 tem aula toda segunda e quarta, mas o professor não publicou tópico nenhum na
-Turma Virtual — e a agenda, que só desenhava tópicos, dizia que a quarta-feira
+Turma Virtual, e a agenda, que só desenhava tópicos, dizia que a quarta-feira
 tinha duas aulas quando tinha três. O aluno usa essa contagem para decidir se
 vai à faculdade; ela não pode depender de o professor ter preenchido a linha do
-tempo. Quando não há tópico, a linha aparece com *"sem tópico registrado"* —
+tempo. Quando não há tópico, a linha aparece com *"sem tópico registrado"*,
 informação diferente de "não há aula". O turno também ordena o dia: manhã antes
 de tarde antes de noite.
 
@@ -594,24 +594,24 @@ data, e é justamente o tipo de aula que não pode passar batido.
 
 Um tópico de aula tem um **intervalo**, e muito professor registra um bloco de
 semanas ("Desenvolvimento Móvel, 07/08 a 28/08"). Esse intervalo diz em que
-período a unidade corre, **não** que há aula todo dia dentro dele — tomá-lo ao
+período a unidade corre, **não** que há aula todo dia dentro dele, tomá-lo ao
 pé da letra colocava a mesma aula no sábado, no domingo e em toda quarta de uma
 turma que só encontra às sextas. Por isso o bloco é cruzado com o código de
 horário da turma (`6M2345` = sexta de manhã, `24M23` = segunda e quarta), que a
 coleta já trazia e a aba Turmas já mostrava. Sem código legível, o bloco vale
-inteiro — sem a grade, alargar é menos errado do que esconder uma aula. Tópico
+inteiro, sem a grade, alargar é menos errado do que esconder uma aula. Tópico
 de **um dia só** nunca é filtrado: reposição de sábado é exatamente o que não
 pode sumir. Travado em `tests/calendario_test.cpp`.
 
 Os prazos desceram para o rodapé de propósito. Prazo é o que *vence*; aula é o
-que *acontece hoje* — e era justamente essa a pergunta que o app não respondia,
+que *acontece hoje*, e era justamente essa a pergunta que o app não respondia,
 apesar de já ter o dado no banco. O divisor é arrastável, então quem prefere a
 lista de prazos grande a puxa para cima.
 
 A semana inteira aparece, e não só hoje, porque quem abre o app às 22h está se
 preparando para o dia seguinte e quem abre no domingo está planejando a semana:
 uma tela que diz "nenhuma aula hoje" àquela hora está certa e é inútil. E "ainda
-não coletei as aulas" é uma mensagem diferente de "não há aula hoje" — a primeira é a tela admitindo que não sabe, e confundir as duas
+não coletei as aulas" é uma mensagem diferente de "não há aula hoje", a primeira é a tela admitindo que não sabe, e confundir as duas
 faria o aluno concluir que está livre.
 
 Duas decisões que valem mais que o layout:
@@ -619,10 +619,10 @@ Duas decisões que valem mais que o layout:
 **A janela abre com dados, sempre.** O último snapshot vem do SQLite antes de
 qualquer requisição. Sem internet, ou com o SIGAA fora do ar, os prazos já
 conhecidos aparecem. Sincronizar é ação explícita, nunca pré-requisito para ver
-a tela — e o banco é o mesmo do agendador, então a janela já abre sabendo o que
+a tela, e o banco é o mesmo do agendador, então a janela já abre sabendo o que
 o sync das 07:30 encontrou.
 
-**Depois de sincronizar, a tela recarrega do banco — não do que a coleta trouxe.**
+**Depois de sincronizar, a tela recarrega do banco, não do que a coleta trouxe.**
 `Atualizar` é só-portal e volta sem avaliação nenhuma; pintar a tela com esse
 snapshot apagaria as provas conhecidas e diria ao aluno que ele não tem prova
 marcada. É o mesmo modo de falha que o banco (upsert, nunca `DELETE`) e o
@@ -630,8 +630,8 @@ DiffEngine já evitam, e a tela obedece à mesma regra. Travado em
 `tests/database_test.cpp`.
 
 A coluna **Origem** da aba Provas distingue o que veio do painel do professor do
-que foi deduzido por regex sobre título de tópico — este último aparece como
-*inferido — confirme*. As duas fontes divergem por professor (`docs/RECON.md` §1.6),
+que foi deduzido por regex sobre título de tópico, este último aparece como
+*inferido, confirme*. As duas fontes divergem por professor (`docs/RECON.md` §1.6),
 e esconder a diferença faria o aluno estudar para a data errada sem desconfiar.
 
 ### Provas: lista e calendário
@@ -641,7 +641,7 @@ nos próximos 30 dias, quantas ainda dependem de confirmação), calendário do 
 à esquerda e a lista completa à direita.
 
 Existem as duas vistas porque são duas perguntas diferentes. A lista responde
-"qual é a próxima?". O calendário responde "como está a minha semana?" — três
+"qual é a próxima?". O calendário responde "como está a minha semana?", três
 provas em quatro dias só aparecem como aglomeração quando se vê o mês; na lista
 são três linhas iguais a quaisquer outras.
 
@@ -651,7 +651,7 @@ sobrevivendo até o desenho. A cor é a urgência: cinza para o que já passou,
 laranja para os próximos 7 dias.
 
 Clicar num dia filtra a lista; clicar de novo desfaz. Clicar num dia **sem** prova
-não esvazia a tabela — diz "18 de agosto não tem prova" e mantém tudo à vista,
+não esvazia a tabela, diz "18 de agosto não tem prova" e mantém tudo à vista,
 porque uma tabela em branco depois de um clique parece defeito, não resposta.
 
 ### Diagnóstico: o tráfego com o SIGAA (`Ctrl+D`)
@@ -665,17 +665,17 @@ universidade?* Três coisas ficam explícitas, e cada uma existe por um modo de
 falha real:
 
 - **repetição** do mesmo endereço em sequência, pintada de vermelho a partir da
-  terceira — é a assinatura de laço de navegação, e o que o SIGAA responde a um
+  terceira, é a assinatura de laço de navegação, e o que o SIGAA responde a um
   laço é bloqueio de conta;
 - **ritmo** do último minuto, e não a média desde que o app abriu: a média
   dilui exatamente o pico que interessa;
 - **o que o SIGAA respondeu**. Uma sequência de `TurmaVirtual` que vira `Login`
-  no meio do crawl é sessão expirada — o modo de falha que devolve coleta vazia
+  no meio do crawl é sessão expirada, o modo de falha que devolve coleta vazia
   *sem erro nenhum*, e que sem esta tela é indistinguível de "o semestre acabou".
 
 O mesmo registro no CLI: `sigaa-cli --log-http sync --turmas`. Vale para
 qualquer subcomando, porque o que interessa observar é o que o comando faz por
-dentro — o login sozinho são duas requisições.
+dentro, o login sozinho são duas requisições.
 
 ### Turmas: entrar e baixar o material
 
@@ -683,11 +683,11 @@ A aba **Turmas** lista as disciplinas com horário, local e período. Duplo cliq
 (ou *Entrar na turma*) abre a turma como no SIGAA web, em duas abas.
 
 **A janela abre offline, pintada.** As aulas e os arquivos vêm do banco, onde o
-último ciclo com turmas já os depositou — nada de rede, nada de espera. Antes
+último ciclo com turmas já os depositou, nada de rede, nada de espera. Antes
 ela fazia login e três requisições toda vez que era aberta para mostrar dados
 que já estavam guardados; o "Entrando na turma…" era o app buscando o que já
 tinha. A sessão com o SIGAA só nasce quando alguém pede um arquivo que não está
-no disco, ou clica em **Atualizar** — que relê a turma na hora, para o caso de o
+no disco, ou clica em **Atualizar**, que relê a turma na hora, para o caso de o
 professor ter publicado algo nos últimos minutos.
 
 Sem internet, a janela continua abrindo e o material baixado continua abrindo
@@ -696,7 +696,7 @@ guardado, em vez de esvaziar a janela.
 
 As duas abas:
 
-**Aulas** é a linha do tempo que o professor registrou — uma árvore de tópicos,
+**Aulas** é a linha do tempo que o professor registrou, uma árvore de tópicos,
 cada um com o intervalo de datas e os materiais pendurados nele. É a tela por
 onde se entra na Turma Virtual do SIGAA, e é a pergunta que o aluno realmente
 tem: uma lista plana de PDFs responde *o que existe*; a árvore responde *o que
@@ -705,7 +705,7 @@ a coluna "Tópico de Aula" casa com o título do tópico (`docs/RECON.md` §1.6.
 o que não casar com aula nenhuma vai para um grupo no fim, porque sumir seria
 pior que desarrumado.
 
-Material em cinza é o que existe na aula mas não se baixa por aqui — tarefa,
+Material em cinza é o que existe na aula mas não se baixa por aqui, tarefa,
 fórum, vídeo. Um item só é oferecido para download quando o `id` dele aparece na
 aba Arquivos; deduzir pelo ícone seria chute, e daria erro na cara do aluno.
 
@@ -715,7 +715,7 @@ verdade para `Documentos/SIGAA/<turma>/`.
 O nome do arquivo salvo vem do `Content-Disposition`, não do título da tabela: o
 título é texto livre do professor ("Notas de Aula - Aula 01") e não tem extensão,
 então salvar com ele daria um arquivo que o Windows não sabe abrir. Arquivo que
-já existe ganha sufixo `(2)` em vez de sobrescrever — o SIGAA reaproveita nome
+já existe ganha sufixo `(2)` em vez de sobrescrever, o SIGAA reaproveita nome
 entre semestres.
 
 #### Baixar tudo, e ficar offline
@@ -727,24 +727,24 @@ tem produziria um arquivo idêntico e a faria esperar por isso.
 *Baixar tudo* pega o material que ainda não está no disco. O que já está não vai
 para a rede de novo: um manifesto (`.sigaa-offline.tsv`) mora na pasta da turma
 e o ✓ da árvore sai dele. O manifesto fica na pasta, e não no banco, porque a
-pasta é o que o aluno mexe — ele copia para o pendrive, renomeia, apaga. Por isso
+pasta é o que o aluno mexe, ele copia para o pendrive, renomeia, apaga. Por isso
 toda leitura confere se o arquivo ainda existe: "offline ✓" mentiroso faria a
 pessoa fechar o app achando que tem o material.
 
 A chave do cache é o `id` do SIGAA, não o nome do arquivo. O nome é texto livre
-do professor e muda sem que o conteúdo mude — usá-lo faria cada renomeação
+do professor e muda sem que o conteúdo mude, usá-lo faria cada renomeação
 disparar um download inútil. A brecha é o caso oposto: se o professor trocar o
 conteúdo mantendo o mesmo id, o app não percebe. Daí o botão **Baixar de novo**,
 que ignora o cache para a seleção. Um botão resolve isso; desligar o cache para
 todo mundo faria cada abertura puxar a turma inteira de novo.
 
 **Paralelismo, e onde ele para.** O invariante nº 1 do `SigaaSession` continua
-valendo: **uma requisição por vez dentro de uma sessão** — o SIGAA guarda a view
+valendo: **uma requisição por vez dentro de uma sessão**, o SIGAA guarda a view
 no servidor e duas navegações simultâneas no mesmo `JSESSIONID` a invalidam, o
 que faria o segundo download chegar como página de erro salva com extensão
 `.pdf`. O que dá para paralelizar é a *sessão*: cada canal do
 `core/sync/Baixador` tem o próprio login e a própria view. O preço é um login por
-canal, então o app usa 1 canal até 2 arquivos, 2 até 6 e no máximo 3 — para dois
+canal, então o app usa 1 canal até 2 arquivos, 2 até 6 e no máximo 3, para dois
 PDFs de 200 KB abrir sessão extra é perda pura, e o teto existe porque são logins
 simultâneos na conta do aluno.
 
@@ -753,7 +753,7 @@ Três coisas que essa janela faz de propósito:
 **Sessão própria com o SIGAA, separada do sync.** Custa um login a mais e remove
 uma classe inteira de bug: a navegação do SIGAA é uma máquina de estados no
 servidor, e um sync automático disparando no meio de um download invalidaria a
-view — o "PDF" chegaria como página de erro.
+view, o "PDF" chegaria como página de erro.
 
 **Recusa fechar durante um download.** A thread escreve em membros da janela;
 deixar a janela morrer antes dela seria use-after-free, e um PDF de 11 MB dá
@@ -764,8 +764,8 @@ tempo de sobra para alguém clicar no X.
 de procurar o material no site.
 
 O rodapé lista as outras abas que a turma tem no SIGAA (Notas, Frequência,
-Tarefas, Fóruns…) e diz que este app ainda não as abre — melhor do que deixar o
-aluno concluir que a turma só tem arquivos. O protocolo está em `docs/RECON.md`
+Tarefas, Fóruns…) e diz que este app ainda não as abre; é melhor do que
+deixar o aluno concluir que a turma só tem arquivos. O protocolo está em `docs/RECON.md`
 §1.6.1 (aba Arquivos) e §1.6.2 (materiais do tópico); as demais abas continuam
 por mapear.
 
@@ -802,7 +802,7 @@ O que **não** está no `.ui`, e por quê:
 | Atalho de `Atualizar` | `QKeySequence::Refresh` é F5 no Windows e Cmd+R no macOS; o `.ui` cravaria F5 nos três |
 
 Cores e espaçamento vêm de `src/ui/recursos/estilo.qss`, carregado do `.qrc` em
-`main.cpp`. **Regra do arquivo: nenhuma cor literal** — tudo sai de
+`main.cpp`. **Regra do arquivo: nenhuma cor literal**, tudo sai de
 `palette(...)`, senão o app fica com texto branco sobre branco assim que o
 Windows entra no tema escuro. As únicas cores literais do app são as semânticas
 (`atrasado`, `urgente`, `inferido`, `apagado`) em `Modelos.h`: significam algo
@@ -813,24 +813,24 @@ retinge quando o tema muda com o app aberto.
 
 O ícone do `.exe` é outra coisa: sai de `src/ui/recursos/app.ico` via
 `sigaa-ui.rc`, porque o Explorer lê o executável antes de existir `QApplication`
-para abrir o `.qrc`. Regravar com `python tools/gerar_icone.py` — e o desenho
+para abrir o `.qrc`. Regravar com `python tools/gerar_icone.py`, e o desenho
 está duplicado em `app.svg`, então mexeu num, mexa no outro.
 
 ### O que ainda não tem
 
 Preferências (o intervalo de 20 min é fixo), minimizar para a bandeja ao fechar,
-e cofre no macOS. Das abas da Turma Virtual só **Arquivos** está implementada —
+e cofre no macOS. Das abas da Turma Virtual só **Arquivos** está implementada;
 Notas, Frequência, Tarefas, Fóruns e Notícias continuam sem parser (a janela da
 turma lista os nomes delas para deixar isso explícito). Materiais de tópico que
 não são arquivo aparecem na árvore de aulas, mas em cinza: sabemos listá-los,
 não abri-los. O download passa inteiro pela memória antes de ir ao disco, o que
-serve para PDF de aula mas incharia com um vídeo de 1 GB — e com N canais são N
+serve para PDF de aula mas incharia com um vídeo de 1 GB, e com N canais são N
 arquivos na memória ao mesmo tempo, que é mais uma razão para o teto ser 3.
 Fora a UNIFEI, nenhuma instituição foi testada contra o site real. A aba Agenda
 depende de um ciclo com turmas ter rodado ao menos uma vez: antes disso ela diz
 que não sabe, em vez de afirmar que não há aula. O ícone da bandeja já existe e mostra o aviso agregado quando
 a janela não está em foco. As strings estão fixas em português, sem `tr()` nem
-`.ts` — o app tem um público de uma universidade brasileira e traduzir custaria
+`.ts`, o app tem um público de uma universidade brasileira e traduzir custaria
 tocar cada linha da UI para nada.
 
 ---
@@ -850,7 +850,7 @@ Na interface, o mesmo pela tela de entrada e pelo menu **Conta**.
 #### Até onde o cofre protege
 
 Backends: Gerenciador de Credenciais (Windows, DPAPI), libsecret via
-`secret-tool` (Linux). No macOS **não está implementado** — o caminho por linha
+`secret-tool` (Linux). No macOS **não está implementado**, o caminho por linha
 de comando (`security -w <senha>`) colocaria a senha em `argv`, e o caminho certo
 (Security.framework) não foi escrito ainda; o app avisa e cai para o `.env`.
 
@@ -858,7 +858,7 @@ de comando (`security -w <senha>`) colocaria a senha em `argv`, e o caminho cert
 `git add -A` distraído, outra conta de usuário na mesma máquina. É contra isso
 que o `.env` é frágil.
 
-**Não protege** contra programa malicioso rodando na *sua* conta — ele pede a
+**Não protege** contra programa malicioso rodando na *sua* conta, ele pede a
 decifragem ao sistema exatamente como o app pede. Não há truque que evite isso:
 qualquer chave que o app use sozinho, sem você digitar nada, outro programa seu
 também usa. Cifrar com chave embutida no binário seria pior, porque a chave
@@ -878,7 +878,7 @@ motivo o backend Linux escreve o segredo no **stdin** do `secret-tool`.
 
 `sigaa-cli login` e a tela de entrada **verificam no SIGAA antes de gravar**.
 Guardar senha errada não fica parado: o ciclo automático a tentaria de novo e de
-novo, e o SIGAA **bloqueia a conta** depois de algumas tentativas — o usuário
+novo, e o SIGAA **bloqueia a conta** depois de algumas tentativas, o usuário
 descobriria o bloqueio sem nenhuma pista de que veio daqui. O login tem limite
 de 3 tentativas pelo mesmo motivo.
 
@@ -899,7 +899,7 @@ python tools/redact.py bruto.html -o tests/fixtures/portal.html --name "SEU NOME
 python tools/redact.py --check tests/fixtures/*.html      # sai 1 se sobrou PII
 ```
 
-A redação é **idempotente** — reaplicar não altera nada —, o que é exatamente o que permite ao
+A redação é **idempotente**: reaplicar não altera nada, o que é exatamente o que permite ao
 `--check` funcionar como hook de pre-commit.
 
 ---
@@ -909,12 +909,12 @@ A redação é **idempotente** — reaplicar não altera nada —, o que é exat
 São os seus próprios dados, mas o cliente precisa se comportar:
 
 - poll de 15–30 min, **nunca** abaixo de 5
-- **uma requisição por vez** — o SIGAA invalida a view se detectar navegação concorrente
+- **uma requisição por vez**: o SIGAA invalida a view se detectar navegação concorrente
 - backoff exponencial com jitter; respeitar 429/503 e página de manutenção
 - `User-Agent` identificável
-- **limite rígido de tentativas de login** — senha errada em loop bloqueia a conta
+- **limite rígido de tentativas de login**: senha errada em loop bloqueia a conta
 - credenciais só no keychain do SO; nunca em disco ou log
 
 ## Licença
 
-MIT — veja [LICENSE](LICENSE).
+MIT, veja [LICENSE](LICENSE).
