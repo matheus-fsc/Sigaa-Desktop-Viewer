@@ -41,6 +41,98 @@ a janela Qt mostra prazos, provas e atualizações e dispara sync em segundo pla
 
 ---
 
+## As telas
+
+Capturas do app com dados de exemplo. O tema acompanha o do sistema — as
+imagens abaixo estão no escuro.
+
+### Agenda
+
+A semana de aulas em cima, os prazos embaixo. A coluna **Faltas** mostra
+`n/k`: quantas você tem e quantas pode ter antes de reprovar por frequência
+(25% da carga horária, a regra que a própria página do SIGAA enuncia). O traço
+significa que o professor não lançou nada — que é diferente de zero faltas.
+
+Nos prazos, só o que exige ação ganha etiqueta: atrasado, vence hoje, amanhã.
+"Em 8 dias" fica como texto simples, porque etiqueta em toda linha não é
+hierarquia, é ruído com cantos arredondados.
+
+![Agenda](docs/img/agenda.png)
+
+### Provas
+
+O que o SIGAA sabe, mais o que você corrigiu. A coluna **Origem** responde a
+uma pergunta só: quanto dá para confiar nesta data. `inferido — confirme` veio
+de uma regex sobre o título de um tópico de aula; `você corrigiu` é sua, e a
+coluna **SIGAA diz** mostra a data que ele ainda anuncia, para a correção poder
+ser conferida em vez de ter que ser acreditada.
+
+Provas cuja data já passou descem para uma seção recolhida.
+
+![Provas](docs/img/provas.png)
+
+### Corrigir a data de uma prova
+
+O professor remarcou em sala e não atualizou o SIGAA. A nota livre é o que
+explica, em outubro, por que a data é essa.
+
+<img src="docs/img/prova-editar.png" width="420" alt="Corrigir data da prova">
+
+Quando o professor finalmente atualiza a plataforma, a data dele passa a valer
+— com alerta, e a sua correção preservada no histórico com a data em que você
+a fez.
+
+![Histórico de alterações](docs/img/prova-historico.png)
+
+### Turmas
+
+![Turmas](docs/img/turmas.png)
+
+### Dentro da turma
+
+Aulas com o material pendurado em cada uma. O `✓ offline` marca o que já está
+no seu disco — a janela abre sem rede depois da primeira vez.
+
+**Resumo .md** grava um `turma.md` na pasta da turma com aulas, datas,
+materiais e provas: é o arquivo para colar num assistente de IA junto com os
+PDFs, para ele receber o fio da disciplina e não vinte arquivos soltos.
+
+![Janela da turma](docs/img/turma.png)
+
+### Presença
+
+O mapa de frequência do professor. Nos dias que ele deixou em branco, você
+registra que esteve lá.
+
+Isso **não altera a contagem do SIGAA** — é registro pessoal, com a data em que
+foi feito, para uma conversa com o professor ou a secretaria. Se ele depois
+lançar diferente, a dele vale e a sua fica no histórico, que é exatamente
+quando ela importa.
+
+![Aba Presença](docs/img/turma-presenca.png)
+
+### Atualizar
+
+O gargalo do app não é processar HTML, é esperar o SIGAA responder: cada turma
+custa de 2 a 4 requisições de ~1,5 s. O diálogo troca um clique por dezenas de
+segundos — marque só a turma que interessa. Duplo clique numa turma escolhe e
+confirma de uma vez.
+
+<img src="docs/img/atualizar.png" width="620" alt="Diálogo de atualização">
+
+### Opções
+
+Rotina automática, com **intervalos de lista fechada**: o SIGAA é o servidor da
+universidade, não uma API pública, e quem paga por uma conta que o consulta
+rápido demais é o aluno. O rótulo mostra a conta em requisições por dia, que é
+o número que faz alguém escolher um intervalo maior por vontade própria.
+
+Aqui também mora a atualização do app e o canto do desenvolvedor.
+
+<img src="docs/img/opcoes.png" width="560" alt="Opções">
+
+---
+
 ## Adaptando para outra universidade
 
 Comece pelo mais barato: **aponte o app para o seu SIGAA e veja o que quebra.**
@@ -149,7 +241,18 @@ pwsh -File tools/empacotar.ps1
 ```sh
 tools/empacotar.sh
 # -> dist/SIGAA-Desktop-Viewer-v<versão>-x86_64.AppImage
+#    dist/SIGAA-Desktop-Viewer-v<versão>-x86_64-portatil.tar.gz
+#    dist/SHA256SUMS
 ```
+
+O **portátil** existe porque o AppImage precisa de FUSE, e há duas situações
+comuns em que ele não está lá: container e máquina de laboratório com o módulo
+desabilitado. Nas duas o erro é `dlopen(): error loading libfuse.so.2`, que não
+diz a quem lê o que fazer. O tarball é o mesmo conteúdo sem a camada de
+montagem — descompacta e roda `./sigaa-viewer`.
+
+O `SHA256SUMS` não é enfeite: é o que o app confere antes de se atualizar
+sozinho (veja abaixo).
 
 O script do Windows compila em Release, **roda os testes antes de empacotar** e
 monta a pasta com os dois executáveis, as DLLs do Qt e do vcpkg, os plugins que
@@ -187,6 +290,32 @@ os dados reais de quem compilou (ver *Dados pessoais* abaixo). Se algum escapar
 para a pasta montada, o script apaga o pacote e falha alto.
 
 ---
+
+## Atualização automática
+
+Em **Opções → Atualização do aplicativo**. O app procura releases neste
+repositório, compara com a própria versão e oferece a troca.
+
+Três recusas deliberadas:
+
+- **Não instala sem conferir a soma.** Uma atualização automática é o melhor
+  alvo que um programa pode oferecer: ele baixa um executável e o roda, sem
+  ninguém olhar. Sem `SHA256SUMS` publicado, o download é descartado.
+- **Não reinicia sozinho no Linux.** Trocar o AppImage é reversível enquanto o
+  processo velho está de pé; matá-lo no meio de uma coleta não é. A versão
+  anterior fica guardada como `.anterior` ao lado.
+- **Não mexe em instalação de pacote da distro.** Ali o app só abre a página da
+  release: sobrescrever `/usr` pelas costas do gerenciador de pacotes é como se
+  quebra um sistema.
+
+No Windows o pacote é o `.exe` **mais as DLLs do Qt**, e o sistema não deixa
+sobrescrever DLL carregada — então o app baixa, confere, fecha, um auxiliar
+troca os arquivos e reabre. Se algo falhar no meio, a versão atual continua
+instalada.
+
+O SHA-256 é implementado no próprio projeto (`core/atualizacao/Sha256.h`) e
+conferido contra os vetores do NIST: no Windows a libcurl usa Schannel e não há
+OpenSSL de carona para contar com ele.
 
 ## Arquitetura em uma frase
 
