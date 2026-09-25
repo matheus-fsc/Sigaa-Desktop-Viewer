@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Info.plist do bundle. O CMake substitui os ${MACOSX_BUNDLE_*} a partir das
-  propriedades do alvo (ver o bloco APPLE no CMakeLists.txt).
+  Info.plist do bundle. O CMake substitui as variaveis MACOSX_BUNDLE_ a partir
+  das propriedades do alvo (ver o bloco APPLE no CMakeLists.txt).
+
+  NAO escrever cifrao-chave neste comentario: o arquivo inteiro passa pelo
+  configure do CMake, comentario XML incluido, e uma referencia com nome
+  invalido derruba a configuracao do macOS inteira ("Syntax error in cmake
+  code") — foi assim que o primeiro build deste arquivo quebrou.
 
   NSHighResolutionCapable E OBRIGATORIO aqui, e nao um detalhe: sem ele o
   macOS roda o app em modo compativel e escala a janela inteira de 1x, o que
