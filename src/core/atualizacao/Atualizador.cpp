@@ -2,13 +2,17 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>   // _NSGetExecutablePath
 #endif
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -325,6 +329,20 @@ std::string caminhoDoExecutavel() {
     // público deste app. É o mesmo cuidado de core/util/Caminho.h, que nasceu
     // de um bug igual nas pastas de turma.
     return util::paraUtf8(std::filesystem::path(std::wstring(buf, n)));
+#elif defined(__APPLE__)
+    // Não há /proc no macOS. `_NSGetExecutablePath` pode devolver um caminho
+    // com ".." e links no meio (é o que o dyld usou para carregar), então
+    // passa por `canonical` — sem isso, comparar com a pasta do app falharia
+    // justamente dentro de um .app, onde o caminho tem três níveis fixos.
+    std::uint32_t tamanho = 0;
+    _NSGetExecutablePath(nullptr, &tamanho);
+    std::string buf(tamanho, '\0');
+    if (_NSGetExecutablePath(buf.data(), &tamanho) != 0) return {};
+    buf.resize(std::strlen(buf.c_str()));
+
+    std::error_code ec;
+    const auto p = std::filesystem::canonical(buf, ec);
+    return ec ? buf : util::paraUtf8(p);
 #else
     std::error_code ec;
     const auto p = std::filesystem::read_symlink("/proc/self/exe", ec);
@@ -352,6 +370,18 @@ Instalacao comoInstalar() {
     { std::ofstream f(teste); if (!f) return Instalacao::Manual; }
     std::filesystem::remove(teste, ec);
     return Instalacao::FecharParaTrocar;
+#elif defined(__APPLE__)
+    // MANUAL no macOS, e é a resposta certa e não uma lacuna.
+    //
+    // O pacote é um .dmg, e instalar significa arrastar o .app para
+    // Applications. Um app que se troca sozinho ali faria duas coisas ruins:
+    // escreveria dentro de um bundle que o Gatekeeper validou pela assinatura
+    // (e a validação passaria a falhar), e mexeria numa pasta que costuma
+    // exigir autorização — no meio da troca, com metade dos arquivos novos.
+    //
+    // O app baixa, confere a soma e abre o .dmg no Finder. O passo final é de
+    // quem está no teclado.
+    return Instalacao::Manual;
 #else
     return caminhoDoAppImage().empty() ? Instalacao::Manual
                                        : Instalacao::TrocaDireta;

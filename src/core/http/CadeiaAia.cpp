@@ -155,9 +155,15 @@ std::optional<std::string> montarBundleAia(const std::string& baseUrl) {
     auto sistema = lerBundleDoSistema();
     if (!sistema) {
         // Sem o bundle do sistema em arquivo não dá para montar um substituto
-        // — e é o caso do Windows com Schannel, onde a loja é do sistema
-        // operacional. Lá isto nem é necessário: o próprio Windows faz AIA
-        // chasing, então o erro que motivou este arquivo não acontece.
+        // — e é o caso do Windows com Schannel e do macOS com Secure
+        // Transport, onde a loja de confiança é do sistema operacional e não
+        // um .pem em disco. Nos dois isto também não é necessário: o próprio
+        // sistema faz AIA chasing ao validar, então o erro que motivou este
+        // arquivo (docs/RECON.md §6.1) não chega a acontecer lá.
+        //
+        // Degradar em silêncio é correto AQUI, e só aqui: quem chama trata
+        // `nullopt` como "siga com a verificação padrão", que continua sendo
+        // verificação de verdade. Em nenhum caminho isto vira um TLS relaxado.
         return std::nullopt;
     }
 

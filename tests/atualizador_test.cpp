@@ -46,6 +46,21 @@ TEST_CASE("lancamento final vem depois do pre-lancamento", "[atualizador]") {
     CHECK_FALSE(maisNova("0.1.2-alpha", "0.1.2"));
 }
 
+TEST_CASE("quem esta num alpha recebe a 1.0 como atualizacao", "[atualizador]") {
+    // O caminho de upgrade que existe de verdade hoje: todo mundo que instalou
+    // este app esta numa 0.x-alpha. Se `maisNova` errasse aqui, a 1.0 sairia e
+    // ninguem seria avisado — e o silencio seria indistinguivel de "nao ha
+    // versao nova", que e o que o app diz quando esta em dia.
+    CHECK(maisNova("1.0.0", "0.2.0-alpha"));
+    CHECK(maisNova("v1.0.0", "v0.2.0-alpha"));
+    CHECK(maisNova("1.0.0", "0.2.0"));
+
+    // E a volta: ja na 1.0.0, um alpha antigo ainda listado na release nao
+    // pode ser oferecido como novidade.
+    CHECK_FALSE(maisNova("0.2.0-alpha", "1.0.0"));
+    CHECK_FALSE(maisNova("1.0.0", "1.0.0"));
+}
+
 TEST_CASE("entre pre-lancamentos, alpha vem antes de beta", "[atualizador]") {
     CHECK(maisNova("0.2.0-beta", "0.2.0-alpha"));
     CHECK(maisNova("0.2.0-rc1", "0.2.0-beta"));

@@ -69,6 +69,30 @@ void encher(QComboBox* c, const QList<int>& valores, int atual) {
     c->setCurrentIndex(c->count() - 1);
 }
 
+// O recado de baixo, nas suas duas formas. Ficam aqui, e não embutidos no
+// método, porque a reserva de altura precisa poder gerá-los TODOS sem que
+// nenhum apareça na tela — ver `reservarAlturaDoResumo`.
+QString recadoDesligado() {
+    return QObject::tr("Desligado: o app só fala com o SIGAA quando você clicar em "
+                       "Atualizar. Nada é buscado sozinho.");
+}
+
+// A CONTA APARECE, e é o ponto deste rótulo: "a cada 15 minutos" não diz nada
+// sobre o peso; "cerca de 100 requisições por dia" diz. É o número que deixa
+// alguém escolher um intervalo maior por vontade própria, em vez de descobrir
+// o problema quando a conta parar de logar.
+QString recadoLigado(int porDia, int completosPorDia, int porTurma) {
+    return QObject::tr(
+               "Cerca de %1 consultas ao portal por dia, mais %2 ciclo(s) completo(s) "
+               "— cada um custa ~%3 requisições por turma.\n"
+               "Os intervalos têm um mínimo definido pelo app: o SIGAA é o servidor "
+               "da universidade, e uma conta que o consulta rápido demais pode ser "
+               "bloqueada sem aviso.")
+        .arg(porDia)
+        .arg(completosPorDia)
+        .arg(porTurma);
+}
+
 } // namespace
 
 const QList<int>& DialogoOpcoes::intervalosPortal() {
@@ -263,38 +287,45 @@ DialogoOpcoes::DialogoOpcoes(const Config& atual, QWidget* pai) : QDialog(pai) {
     // do que cabe, inclusive quando a fonte do sistema for maior que a minha.
     raiz->setSizeConstraint(QLayout::SetMinimumSize);
     adjustSize();
+
+    // DEPOIS do adjustSize: a reserva mede na largura real do rótulo, e antes
+    // disso ele ainda não tem nenhuma. `activate()` resolve as geometrias sem
+    // esperar o próximo ciclo de eventos, e o segundo `adjustSize` deixa a
+    // janela já nascer com a altura que o maior recado vai pedir — sem isso
+    // ela abriria curta e daria um pulo no primeiro clique.
+    raiz->activate();
+    reservarAlturaDoResumo();
+    adjustSize();
 }
 
 void DialogoOpcoes::atualizarResumo() {
     if (!automatico_->isChecked()) {
-        resumo_->setText(QStringLiteral(
-            "Desligado: o app só fala com o SIGAA quando você clicar em "
-            "Atualizar. Nada é buscado sozinho."));
+        resumo_->setText(recadoDesligado());
         return;
     }
 
     const int portal = intervaloPortal_->currentData().toInt();
     const int completo = intervaloCompleto_->currentData().toInt();
 
-    // A CONTA APARECE, e é o ponto deste rótulo: "a cada 15 minutos" não diz
-    // nada sobre o peso; "cerca de 100 requisições por dia" diz. É o número
-    // que deixa alguém escolher um intervalo maior por vontade própria, em vez
-    // de descobrir o problema quando a conta parar de logar.
-    const int porDia = (24 * 60) / portal;
-    const int completosPorDia = (24 * 60) / completo;
-    const int porTurma = 2 + (arquivos_->isChecked() ? 1 : 0) +
-                         (frequencia_->isChecked() ? 1 : 0);
+    resumo_->setText(recadoLigado((24 * 60) / portal, (24 * 60) / completo,
+                                  2 + (arquivos_->isChecked() ? 1 : 0) +
+                                      (frequencia_->isChecked() ? 1 : 0)));
+}
 
-    resumo_->setText(
-        QStringLiteral(
-            "Cerca de %1 consultas ao portal por dia, mais %2 ciclo(s) completo(s) "
-            "— cada um custa ~%3 requisições por turma.\n"
-            "Os intervalos têm um mínimo definido pelo app: o SIGAA é o servidor "
-            "da universidade, e uma conta que o consulta rápido demais pode ser "
-            "bloqueada sem aviso.")
-            .arg(porDia)
-            .arg(completosPorDia)
-            .arg(porTurma));
+void DialogoOpcoes::reservarAlturaDoResumo() {
+    // TODOS os recados que este rótulo pode vir a mostrar — um por combinação
+    // de intervalos e de itens marcados. São menos de cem, medidos uma vez por
+    // largura de janela; o custo é invisível e a alternativa era escolher "o
+    // mais longo" no olho e errar no dia em que um deles crescesse.
+    QStringList textos{recadoDesligado()};
+    for (const int p : intervalosPortal()) {
+        for (const int c : intervalosCompleto()) {
+            for (int porTurma = 2; porTurma <= 4; ++porTurma) {
+                textos << recadoLigado((24 * 60) / p, (24 * 60) / c, porTurma);
+            }
+        }
+    }
+    tema::reservarAltura(resumo_, textos);
 }
 
 void DialogoOpcoes::procurandoAtualizacao() {

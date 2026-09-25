@@ -85,6 +85,25 @@ struct DiaEfetivo {
 std::vector<DiaEfetivo> efetivos(const Frequencia& f,
                                  const std::vector<Marcacao>& marcacoes);
 
+// Quantas HORAS-AULA o aluno perde ao faltar o encontro do dia `data`.
+//
+// POR QUE NÃO É 2. Era, e estava errado: a unidade da frequência do SIGAA é a
+// hora-aula, não o dia, e um encontro de laboratório com quatro horários
+// seguidos ("6M2345") lança 4. Gravar 2 registrava METADE do dia — e o erro
+// não era só cosmético: quando o professor lançasse as 4 de verdade, a
+// marcação do aluno viraria "conflito" por um número que ele nunca escolheu,
+// bem no dia em que ele precisava que o próprio registro batesse.
+//
+// A ORDEM DAS FONTES:
+//   1. a grade horária da turma no dia da semana daquela data — é o número que
+//      a universidade publicou, e é específico do dia;
+//   2. o próprio mapa: as aulas que o SIGAA já registrou divididas pelos dias
+//      em que registrou alguma coisa. Exato quando os encontros são iguais, e
+//      serve para a reposição em dia que a grade não prevê;
+//   3. 2, quando nada disso existe. É o encontro mais comum da grade e o menos
+//      pior dos chutes — mas só depois de as duas fontes falharem.
+int aulasDoEncontro(const Turma& turma, const Frequencia& f, const DateTime& data);
+
 // Uma marcação que o professor atropelou.
 struct Conflito {
     std::string idTurma;

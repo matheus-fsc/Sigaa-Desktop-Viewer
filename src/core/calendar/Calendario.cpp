@@ -177,6 +177,20 @@ bool blocoTemDiaDeAula(const DateTime& ini, const DateTime& fim,
 
 } // namespace
 
+int aulasNoDia(std::string_view horario, const DateTime& d) {
+    if (!d.valid()) return 0;
+    const int dia = diaDaSemanaIso(paraDias(d));
+
+    // SOMA dos blocos daquele dia, e não o primeiro que casar: uma turma pode
+    // ter manhã e tarde no mesmo dia ("2M12 2T34"), e nesse caso quem falta o
+    // dia inteiro perde as quatro.
+    int aulas = 0;
+    for (const auto& b : lerHorario(horario)) {
+        if (b.dias.count(dia)) aulas += static_cast<int>(b.horarios.size());
+    }
+    return aulas;
+}
+
 bool aulaOcorreEm(const TopicoAula& t, const DateTime& d, std::string_view horarioTurma) {
     if (!d.valid() || !t.inicio.valid()) return false;
 

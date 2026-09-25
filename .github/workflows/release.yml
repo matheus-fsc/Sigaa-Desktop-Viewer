@@ -1,13 +1,15 @@
-# Empacota Linux (AppImage) e Windows (zip) e anexa à release da tag.
+# Empacota Linux (AppImage), Windows (zip) e macOS (dmg) e anexa à release da tag.
 #
 # POR QUE EXISTE: o pacote do Windows não pode ser gerado numa máquina Linux —
-# ele precisa de MSVC, do windeployqt e das DLLs do Qt para Windows. Sem CI, a
-# única forma de publicar as duas plataformas seria manter uma máquina de cada,
-# e o release do Windows atrasaria até alguém ter uma por perto.
+# ele precisa de MSVC, do windeployqt e das DLLs do Qt para Windows. O do macOS
+# ainda menos: macdeployqt, codesign e hdiutil só existem no próprio macOS.
+# Sem CI, publicar as três plataformas exigiria manter uma máquina de cada, e
+# aqui só existe a de Linux — ou seja, Windows e macOS nunca sairiam.
 #
-# Os dois jobs chamam os MESMOS scripts que se roda à mão (tools/empacotar.sh e
-# tools/empacotar.ps1). Nada de uma receita paralela aqui dentro: no dia em que
-# ela divergisse, o pacote publicado deixaria de ser o pacote testado.
+# Os três jobs chamam os MESMOS scripts que se roda à mão (tools/empacotar.sh,
+# tools/empacotar.ps1 e tools/empacotar_macos.sh). Nada de uma receita paralela
+# aqui dentro: no dia em que ela divergisse, o pacote publicado deixaria de ser
+# o pacote testado.
 name: release
 
 on:
@@ -125,8 +127,40 @@ jobs:
             dist/*.zip
             dist/SHA256SUMS
 
+  macos:
+    # macos-14 e Apple Silicon (arm64). O runner Intel (macos-13) existe, e um
+    # .dmg arm64 NAO abre num Mac Intel — quando houver quem peca, o job vira
+    # uma matriz de duas arquiteturas e o nome do arquivo ja distingue as duas.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: dependencias
+        run: brew install ninja lexbor nlohmann-json spdlog catch2
+
+      # O mesmo Qt das outras duas plataformas: uma variavel a menos entre elas
+      # quando alguem reporta um bug de interface.
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: 'clang_64'
+          cache: true
+
+      - name: empacotar
+        run: |
+          versao="${{ github.event.inputs.versao }}"
+          [ -n "$versao" ] || versao="${GITHUB_REF_NAME#v}"
+          tools/empacotar_macos.sh --versao "$versao"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            dist/*.dmg
+            dist/SHA256SUMS
+
   publicar:
-    needs: [linux, windows]
+    needs: [linux, windows, macos]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     steps:
@@ -170,4 +204,4 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" --clobber \
             SHA256SUMS \
             $(find pacotes -type f \( -name '*.AppImage' -o -name '*.zip' \
-                                    -o -name '*.tar.gz' \))
+                                    -o -name '*.tar.gz' -o -name '*.dmg' \))

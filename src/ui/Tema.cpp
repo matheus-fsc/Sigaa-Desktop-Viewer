@@ -1,9 +1,13 @@
 #include "ui/Tema.h"
 
+#include <algorithm>
+
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QFile>
+#include <QEvent>
 #include <QHeaderView>
+#include <QLabel>
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QStyleHints>
@@ -282,6 +286,71 @@ void esticarColuna(QAbstractItemView* v, int coluna) {
 
     h->setSectionResizeMode(coluna, QHeaderView::Stretch);
     h->setStretchLastSection(false);
+}
+
+namespace {
+
+// Mede e fixa o mínimo. Separada do filtro de eventos porque roda duas vezes:
+// na instalação, para a janela já nascer do tamanho certo, e a cada mudança de
+// largura do rótulo.
+//
+// A ALTURA VEM DO PRÓPRIO QLabel (`heightForWidth`), e não de um cálculo com
+// QFontMetrics: o rótulo pode ter moldura e padding vindos da folha de estilo
+// — "recado" tem 10 px em cima e embaixo —, e refazer essa conta aqui seria a
+// mesma armadilha de kRespiroCelula, com um número duplicado que ninguém
+// atualiza junto. Trocar o texto para medir não pisca: o repintar só acontece
+// quando o laço devolve o controle ao Qt, e aí o texto verdadeiro já voltou.
+void medirEReservar(QLabel* r, const QStringList& textos) {
+    const int largura = r->width();
+    if (largura <= 0 || textos.isEmpty()) return;
+
+    const QString original = r->text();
+    int maior = 0;
+    for (const QString& t : textos) {
+        r->setText(t);
+        maior = std::max(maior, r->heightForWidth(largura));
+    }
+    r->setText(original);
+
+    if (maior > 0 && maior != r->minimumHeight()) r->setMinimumHeight(maior);
+}
+
+// Recalcula quando a largura muda — é a única coisa que muda a quebra de
+// linha, e portanto a altura. Vive como filho do rótulo, então morre com ele.
+class Reservador : public QObject {
+public:
+    Reservador(QLabel* r, QStringList textos)
+        : QObject(r), rotulo_(r), textos_(std::move(textos)) {
+        r->installEventFilter(this);
+    }
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* e) override {
+        if (obj == rotulo_ && e->type() == QEvent::Resize) {
+            const int agora = rotulo_->width();
+            // Só na mudança de LARGURA: fixar o mínimo dispara um novo Resize,
+            // e reagir à altura faria os dois se alimentarem em laço.
+            if (agora != ultimaLargura_) {
+                ultimaLargura_ = agora;
+                medirEReservar(rotulo_, textos_);
+            }
+        }
+        return QObject::eventFilter(obj, e);
+    }
+
+private:
+    QLabel* rotulo_;
+    QStringList textos_;
+    int ultimaLargura_{-1};
+};
+
+} // namespace
+
+void reservarAltura(QLabel* r, const QStringList& textos) {
+    if (!r || textos.isEmpty()) return;
+    r->setWordWrap(true);
+    new Reservador(r, textos);
+    medirEReservar(r, textos);
 }
 
 void aplicar(QApplication& app) {

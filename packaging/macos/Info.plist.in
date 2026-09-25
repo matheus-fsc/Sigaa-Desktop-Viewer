@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Info.plist do bundle. O CMake substitui os ${MACOSX_BUNDLE_*} a partir das
+  propriedades do alvo (ver o bloco APPLE no CMakeLists.txt).
+
+  NSHighResolutionCapable E OBRIGATORIO aqui, e nao um detalhe: sem ele o
+  macOS roda o app em modo compativel e escala a janela inteira de 1x, o que
+  deixa TODO o texto macio num MacBook. O app abriria "funcionando" e parecendo
+  quebrado, que e o pior par possivel.
+
+  LSApplicationCategoryType e o que o Finder usa para agrupar; educacao e o que
+  este app e.
+-->
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
+  <key>CFBundleDisplayName</key>
+  <string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
+  <key>CFBundleExecutable</key>
+  <string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+  <key>CFBundleIdentifier</key>
+  <string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>
+  <key>CFBundleIconFile</key>
+  <string>${MACOSX_BUNDLE_ICON_FILE}</string>
+  <key>CFBundleShortVersionString</key>
+  <string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
+  <key>CFBundleVersion</key>
+  <string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>12.0</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.education</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>

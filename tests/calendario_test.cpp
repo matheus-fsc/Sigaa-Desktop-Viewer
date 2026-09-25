@@ -317,6 +317,30 @@ TEST_CASE("codigo de horario do SIGAA vira dias da semana", "[calendario]") {
     CHECK(calendario::diasDeAula("8M12").empty());   // dia fora de 1..7
 }
 
+TEST_CASE("grade diz quantas horas-aula tem o encontro do dia", "[calendario]") {
+    // A unidade da frequencia do SIGAA e a hora-aula, nao o dia. Quem falta um
+    // encontro de laboratorio de quatro horarios seguidos perde 4, e o app
+    // gravava 2 para todo mundo — metade do dia, na turma que mais doi.
+    auto sexta = [] { DateTime d; d.year = 2026; d.month = 8; d.day = 7; return d; }();
+    auto quinta = [] { DateTime d; d.year = 2026; d.month = 8; d.day = 6; return d; }();
+
+    CHECK(calendario::aulasNoDia("6M2345", sexta) == 4);   // pratico: 4 horarios
+    CHECK(calendario::aulasNoDia("6T34", sexta) == 2);     // geminada comum
+    CHECK(calendario::aulasNoDia("35T34", quinta) == 2);
+
+    // Dia que a grade nao preve (reposicao, feriado compensado) e "nao sei",
+    // nao "zero aula": quem chama procura outra fonte.
+    CHECK(calendario::aulasNoDia("6M2345", quinta) == 0);
+    CHECK(calendario::aulasNoDia("A definir", sexta) == 0);
+    CHECK(calendario::aulasNoDia("6M2345", DateTime{}) == 0);
+
+    // Manha e tarde no MESMO dia somam: quem falta o dia inteiro perde as duas
+    // pontas, e devolver so a primeira registraria metade outra vez.
+    CHECK(calendario::aulasNoDia("2M12 2T345", quinta) == 0);
+    auto segunda = [] { DateTime d; d.year = 2026; d.month = 8; d.day = 3; return d; }();
+    CHECK(calendario::aulasNoDia("2M12 2T345", segunda) == 5);
+}
+
 TEST_CASE("horario tambem devolve turno e ordem dentro do dia", "[calendario]") {
     // O turno e o que ordena a agenda do dia: sem ele, a aula da tarde aparece
     // antes da aula da manha sempre que o crawler devolver as turmas nessa

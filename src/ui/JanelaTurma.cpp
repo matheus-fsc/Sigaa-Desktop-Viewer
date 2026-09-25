@@ -615,11 +615,12 @@ void JanelaTurma::marcarPresenca(SituacaoDia situacao) {
     m.idTurma = turma_.idTurma;
     m.data = dia->data;
     m.situacao = situacao;
-    // Duas faltas por encontro é o que o SIGAA lança para as aulas geminadas
-    // desta grade — e é o que o mapa mostra em todos os dias com falta da
-    // captura de rede. Chutar 1 daria ao aluno um registro que discorda do
-    // diário por um motivo que não é o dele.
-    m.faltas = situacao == SituacaoDia::Falta ? 2 : 0;
+    // Quantas horas-aula tem ESTE encontro — ver frequencia::aulasDoEncontro.
+    // Era 2 fixo, e ficava pela metade em toda turma com mais de dois horários
+    // seguidos no mesmo dia.
+    m.faltas = situacao == SituacaoDia::Falta
+                   ? frequencia::aulasDoEncontro(turma_, frequencia_, dia->data)
+                   : 0;
     m.situacaoSigaaNaEpoca = dia->situacaoSigaa;
     m.editadoEm = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
 

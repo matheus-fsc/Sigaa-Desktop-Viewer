@@ -28,8 +28,10 @@
 #include <QColor>
 #include <QFont>
 #include <QPalette>
+#include <QStringList>
 
 class QAbstractItemView;
+class QLabel;
 class QApplication;
 
 namespace sigaa::ui::tema {
@@ -116,6 +118,26 @@ void ajustarLista(QAbstractItemView* v);
 //
 // Chamar DEPOIS de `setModel`: um cabeçalho sem colunas ignora o pedido.
 void esticarColuna(QAbstractItemView* v, int coluna);
+
+// Reserva, num rótulo que quebra linha, a altura do MAIOR texto que ele pode
+// vir a ter — e não a do texto que ele tem agora.
+//
+// O QUE ISTO CONSERTA. Um QLabel com `setWordWrap(true)` informa ao layout uma
+// altura mínima de poucas linhas, seja qual for o texto. Quando o texto muda
+// para um mais longo, o rótulo passa a pedir mais altura do que pediu quando a
+// janela nasceu — e o layout, que não pode crescer a janela já aberta, tira a
+// altura de quem tem o menor mínimo. Foi o que quebrou o diálogo de Opções: ao
+// ligar a rotina automática o recado ia de duas para cinco linhas, e as duas
+// linhas do formulário acima colapsavam uma sobre a outra.
+//
+// A CURA É RESERVAR ANTES. Medindo todos os textos possíveis na largura atual
+// e fixando o mínimo no maior deles, mudar o texto deixa de mexer no layout:
+// não há o que redistribuir, porque o espaço já está lá. Recalcula a cada
+// mudança de largura do rótulo, que é quando a quebra de linha muda.
+//
+// `textos` são as variantes que o rótulo pode exibir — o chamador é quem as
+// conhece. Uma lista vazia não faz nada.
+void reservarAltura(QLabel* r, const QStringList& textos);
 
 // ---------------------------------------------------------------------------
 // Cores com significado

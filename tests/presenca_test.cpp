@@ -205,3 +205,58 @@ TEST_CASE("a contagem oficial de faltas nao muda com marcacao", "[presenca]") {
     CHECK(f.faltas() == antes);
     CHECK(f.limiteFaltas() == 16);
 }
+
+TEST_CASE("falta do aluno vale o tamanho do encontro, nao 2 fixo", "[presenca]") {
+    // O BUG QUE ESTE TESTE FECHA: a marcacao gravava 2 faltas sempre. Numa
+    // turma de quatro horarios seguidos ("6M2345", o pratico), faltar o dia
+    // inteiro virava 2 — metade. E quando o professor lancasse as 4 de
+    // verdade, a marcacao do aluno seria contada como CONFLITO por um numero
+    // que ele nunca escolheu, justamente no dia em que ele precisava que o
+    // proprio registro batesse com o diario.
+    Turma t;
+    t.idTurma = "T1";
+    t.horario = "6M2345";
+
+    // 07/08/2026 e uma sexta — o dia que a grade preve.
+    DateTime sexta; sexta.year = 2026; sexta.month = 8; sexta.day = 7;
+    CHECK(aulasDoEncontro(t, mapa({}), sexta) == 4);
+
+    Turma geminada;
+    geminada.horario = "6T34";
+    CHECK(aulasDoEncontro(geminada, mapa({}), sexta) == 2);
+}
+
+TEST_CASE("sem grade legivel o encontro sai da media do mapa", "[presenca]") {
+    // Reposicao num dia que a grade nao preve, ou turma cujo codigo de horario
+    // o portal nao trouxe. O mapa ainda sabe: o SIGAA registrou 20 aulas em 5
+    // dias lancados, entao o encontro tem 4.
+    Frequencia f = mapa({doSigaa(3, SituacaoDia::Presente),
+                         doSigaa(10, SituacaoDia::Presente),
+                         doSigaa(17, SituacaoDia::Presente),
+                         doSigaa(24, SituacaoDia::Falta, 4),
+                         doSigaa(31, SituacaoDia::Falta, 4),
+                         doSigaa(14, SituacaoDia::NaoRegistrada)});
+    f.aulasComRegistro = 20;
+    f.presencas = 12;
+
+    Turma semGrade;
+    semGrade.horario = "A definir";
+    CHECK(aulasDoEncontro(semGrade, f, dia(14)) == 4);
+
+    // O dia NAO REGISTRADO nao entra no divisor: ele nao consumiu aula
+    // nenhuma, e conta-lo daria 20/6 = 3 — um encontro menor do que qualquer
+    // um que existiu.
+    CHECK(aulasDoEncontro(semGrade, f, dia(14)) != 3);
+}
+
+TEST_CASE("sem grade e sem mapa a falta cai no encontro mais comum", "[presenca]") {
+    // Turma nova, professor que nunca abriu o diario, codigo de horario
+    // ausente. Nao ha o que consultar — 2 e o encontro mais comum da grade, e
+    // o unico chute que sobra. Fica DEPOIS das duas fontes, e nao no lugar
+    // delas, que era o bug.
+    Frequencia vazio;
+    vazio.idTurma = "T1";
+
+    Turma t;
+    CHECK(aulasDoEncontro(t, vazio, dia(17)) == 2);
+}

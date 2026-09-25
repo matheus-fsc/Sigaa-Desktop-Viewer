@@ -5,7 +5,10 @@
 // que core/ ficou sem saber que UI existe.
 
 #include <QApplication>
+#include <QDir>
+#include <QFileInfo>
 #include <QSettings>
+#include <QStandardPaths>
 
 #include "core/config/Instituicao.h"
 #include "ui/Icones.h"
@@ -34,6 +37,31 @@ void restaurarInstituicao() {
     // app sempre fez.
 }
 
+#ifdef Q_OS_MACOS
+// Onde o app grava o banco e procura o .env, no macOS.
+//
+// O PROBLEMA QUE ISTO RESOLVE: um .app aberto pelo Finder nasce com o
+// diretório de trabalho em "/". O app gravaria o sigaa-viewer.db na raiz do
+// disco, que é somente leitura desde o Catalina — ou seja, a versão do Mac
+// falharia na primeira coleta, e só na do usuário, porque quem desenvolve abre
+// pelo terminal e nunca vê isso.
+//
+// A REGRA: se o diretório atual já tem um banco, ele manda. É o caso de quem
+// abre pelo terminal dentro de uma pasta de trabalho, e é o que mantém a
+// promessa de o sigaa-cli e a interface compartilharem a coleta. Caso
+// contrário vale ~/Library/Application Support/SIGAA Viewer, que é onde o
+// macOS espera que um app guarde os dados dele.
+void escolherPastaDeTrabalho() {
+    if (QFileInfo::exists(QStringLiteral("sigaa-viewer.db"))) return;
+
+    const QString base =
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (base.isEmpty()) return;
+    QDir().mkpath(base);
+    QDir::setCurrent(base);
+}
+#endif
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -41,6 +69,12 @@ int main(int argc, char** argv) {
     QApplication::setApplicationName(QStringLiteral("SIGAA Viewer"));
     QApplication::setOrganizationName(QStringLiteral("sigaa-viewer"));
     QApplication::setWindowIcon(sigaa::ui::iconeApp());
+
+#ifdef Q_OS_MACOS
+    // Antes de tudo que toca disco, e depois de setApplicationName, de que o
+    // caminho do Application Support depende.
+    escolherPastaDeTrabalho();
+#endif
 
     // Depois de setOrganizationName/setApplicationName: sem eles o QSettings
     // grava num lugar diferente do que a próxima execução leria.

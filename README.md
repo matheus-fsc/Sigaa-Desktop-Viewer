@@ -229,6 +229,25 @@ sistema (KWallet no KDE, GNOME Keyring no GNOME) e `notify-send`
 (`libnotify`) para as notificações. Sem o primeiro o app cai para o `.env` e avisa; sem o segundo a
 novidade aparece só na janela.
 
+### macOS (Homebrew)
+
+```sh
+brew install cmake ninja qt lexbor nlohmann-json spdlog catch2
+
+cmake -S . -B build/macos -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/macos --parallel
+ctest --test-dir build/macos
+```
+
+`curl` e `sqlite3` vêm do próprio sistema. O cofre de senhas **não** está
+implementado no macOS: o caminho por linha de comando (`security
+add-generic-password -w <senha>`) colocaria a senha em `argv`, legível por
+outros processos, e o app não faz isso em plataforma nenhuma. `cofreDisponivel()`
+devolve falso, o app avisa e cai para o `.env`, que é uma degradação visível em
+vez de uma promessa quebrada em silêncio.
+
+As notificações usam `osascript`, que já vem instalado.
+
 ### Onde fica o release
 
 **`dist/`.** Um comando, um caminho, um script por plataforma:
@@ -244,6 +263,18 @@ tools/empacotar.sh
 #    dist/SIGAA-Desktop-Viewer-v<versão>-x86_64-portatil.tar.gz
 #    dist/SHA256SUMS
 ```
+
+```sh
+tools/empacotar_macos.sh
+# -> dist/SIGAA-Desktop-Viewer-v<versão>-macos-arm64.dmg
+#    dist/SHA256SUMS
+```
+
+O `.dmg` **não é notarizado**: não há conta de desenvolvedor Apple neste
+projeto. Na primeira abertura o macOS diz que o app não pôde ser verificado, e
+o contorno é clicar no app com o botão direito e escolher **Abrir** (o aviso
+passa a ter um botão que o menu de duplo clique não oferece). Vale uma vez por
+instalação.
 
 O **portátil** existe porque o AppImage precisa de FUSE, e há duas situações
 comuns em que ele não está lá: container e máquina de laboratório com o módulo
@@ -307,6 +338,10 @@ Três recusas deliberadas:
 - **Não mexe em instalação de pacote da distro.** Ali o app só abre a página da
   release: sobrescrever `/usr` pelas costas do gerenciador de pacotes é como se
   quebra um sistema.
+- **Não se troca sozinho no macOS.** Instalar ali é arrastar o `.app` para
+  Aplicativos, e um app que reescreve o próprio bundle invalida a assinatura
+  que o Gatekeeper validou, dentro de uma pasta que costuma pedir autorização.
+  O app abre a página da release e o último passo é de quem está no teclado.
 
 No Windows o pacote é o `.exe` **mais as DLLs do Qt**, e o sistema não deixa
 sobrescrever DLL carregada, então o app baixa, confere, fecha, um auxiliar
@@ -811,15 +846,16 @@ porque a tabela de provas e o calendário precisam concordar. Os ícones são SV
 runtime com a cor do tema (`Icones.cpp`), e `JanelaPrincipal::changeEvent`
 retinge quando o tema muda com o app aberto.
 
-O ícone do `.exe` é outra coisa: sai de `src/ui/recursos/app.ico` via
-`sigaa-ui.rc`, porque o Explorer lê o executável antes de existir `QApplication`
-para abrir o `.qrc`. Regravar com `python tools/gerar_icone.py`, e o desenho
-está duplicado em `app.svg`, então mexeu num, mexa no outro.
+O ícone de plataforma é outra coisa: `src/ui/recursos/app.ico` (lido pelo
+Explorer via `sigaa-ui.rc`) e `src/ui/recursos/app.icns` (lido pelo Finder via
+`Info.plist`), porque os dois sistemas leem o executável antes de existir
+`QApplication` para abrir o `.qrc`. Os dois saem do mesmo mestre
+(`icones/app/original-1254.png`) com `python tools/gerar_icone.py`, e não há
+cópia do desenho para manter em dia.
 
 ### O que ainda não tem
 
-Preferências (o intervalo de 20 min é fixo), minimizar para a bandeja ao fechar,
-e cofre no macOS. Das abas da Turma Virtual só **Arquivos** está implementada;
+Minimizar para a bandeja ao fechar, e cofre no macOS. Das abas da Turma Virtual só **Arquivos** está implementada;
 Notas, Frequência, Tarefas, Fóruns e Notícias continuam sem parser (a janela da
 turma lista os nomes delas para deixar isso explícito). Materiais de tópico que
 não são arquivo aparecem na árvore de aulas, mas em cinza: sabemos listá-los,

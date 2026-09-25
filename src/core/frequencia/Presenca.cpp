@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <map>
 
+#include "core/calendar/Calendario.h"
+
 namespace sigaa::frequencia {
 namespace {
 
@@ -102,6 +104,28 @@ std::vector<DiaEfetivo> efetivos(const Frequencia& f,
         return a.data < b.data;
     });
     return out;
+}
+
+int aulasDoEncontro(const Turma& turma, const Frequencia& f, const DateTime& data) {
+    if (const int daGrade = calendario::aulasNoDia(turma.horario, data); daGrade > 0) {
+        return daGrade;
+    }
+
+    // Sem grade para o dia: a média do que o SIGAA já lançou. Só os dias que
+    // ele REGISTROU entram na conta — "não registrada" não consumiu aula
+    // nenhuma, e incluí-la dividiria o total por dias que não contam,
+    // encolhendo o encontro.
+    int diasComRegistro = 0;
+    for (const auto& d : f.dias) {
+        if (d.situacao != SituacaoDia::NaoRegistrada) ++diasComRegistro;
+    }
+    if (diasComRegistro > 0 && f.aulasComRegistro > 0) {
+        // Arredonda para o mais perto: 20/5 = 4 exato, e uma turma com um
+        // encontro menor no meio (19/5 = 3,8) devolve 4 em vez de 3.
+        return (f.aulasComRegistro + diasComRegistro / 2) / diasComRegistro;
+    }
+
+    return 2;
 }
 
 Reconciliacao reconciliar(const Frequencia& f, std::vector<Marcacao> marcacoes) {

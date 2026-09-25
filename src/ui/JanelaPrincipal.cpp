@@ -1469,12 +1469,21 @@ void JanelaPrincipal::instalarAtualizacao(DialogoOpcoes* dlg) {
     if (modo == atualizacao::Instalacao::Manual) {
         QDesktopServices::openUrl(QUrl(QString::fromStdString(l.paginaUrl)));
         if (dlg) {
-            dlg->mostrarResultadoAtualizacao(
-                QStringLiteral("Não dá para trocar esta instalação automaticamente "
-                               "(ela veio de um pacote do sistema, ou a pasta não "
-                               "aceita escrita). Abri a página da release no "
-                               "navegador."),
-                false);
+            // A razão MUDA com a plataforma, e dizer a errada é pior do que
+            // não dizer nenhuma: no Mac não há pacote de sistema nenhum, e
+            // quem lesse isso iria procurar um problema que não existe.
+#ifdef Q_OS_MACOS
+            const QString porque = QStringLiteral(
+                "No macOS a troca é sua: abri a página da release no navegador. "
+                "Baixe o .dmg e arraste o app para a pasta Aplicativos, por "
+                "cima do antigo.");
+#else
+            const QString porque = QStringLiteral(
+                "Não dá para trocar esta instalação automaticamente (ela veio de "
+                "um pacote do sistema, ou a pasta não aceita escrita). Abri a "
+                "página da release no navegador.");
+#endif
+            dlg->mostrarResultadoAtualizacao(porque, false);
         }
         return;
     }

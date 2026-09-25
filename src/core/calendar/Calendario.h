@@ -53,6 +53,18 @@ std::vector<BlocoHorario> lerHorario(std::string_view horario);
 // Só os dias, de todos os blocos. Atalho para quem não precisa do turno.
 std::set<int> diasDeAula(std::string_view horario);
 
+// Quantas HORAS-AULA a grade prevê para a data `d`.
+//
+// A unidade da frequência do SIGAA é a hora-aula, e não o dia: quem falta um
+// encontro de "6M2345" perde quatro, e quem falta um de "6T34" perde duas. O
+// número está no próprio código de horário — são os dígitos depois do turno —,
+// então ele não precisa ser adivinhado.
+//
+// Zero quer dizer "a grade não põe aula nesse dia" (uma reposição de sábado)
+// ou "não consegui ler o código". Os dois casos são "não sei", e quem chama
+// trata como tal.
+int aulasNoDia(std::string_view horario, const DateTime& d);
+
 // A aula do tópico `t` acontece no dia `d`?
 //
 // Mora em core/, e não na camada de UI que desenha a agenda, porque é regra de

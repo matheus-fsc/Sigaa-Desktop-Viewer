@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(sigaa-viewer VERSION 0.2.0 LANGUAGES CXX)
+project(sigaa-viewer VERSION 1.0.0 LANGUAGES CXX)
 
 # O sufixo de pré-lançamento, que o `project(VERSION)` não aceita — ele só
 # entende número.
@@ -9,12 +9,43 @@ project(sigaa-viewer VERSION 0.2.0 LANGUAGES CXX)
 # atualizador (core/atualizacao/Atualizador.h) via o AppImage da release como
 # mais recente que a própria release e nunca ofereceria nada. Mudar um lado sem
 # o outro traz o problema de volta.
-set(SIGAA_SUFIXO "alpha" CACHE STRING "sufixo de pré-lançamento; vazio numa final")
+#
+# É CACHE, então um diretório de build ANTIGO mantém o valor que tinha quando
+# foi configurado: quem vinha da 0.2.0-alpha e só recompila fica com um binário
+# que se diz "1.0.0-alpha" enquanto o pacote ao lado se chama "1.0.0". Ao subir
+# a versão, reconfigure com `-DSIGAA_SUFIXO=` ou apague o build. O CI configura
+# do zero, então lá isso não acontece.
+set(SIGAA_SUFIXO "" CACHE STRING "sufixo de pré-lançamento; vazio numa final")
 if(SIGAA_SUFIXO)
   set(SIGAA_VERSAO_COMPLETA "${PROJECT_VERSION}-${SIGAA_SUFIXO}")
 else()
   set(SIGAA_VERSAO_COMPLETA "${PROJECT_VERSION}")
 endif()
+
+# --- coerência da versão ---------------------------------------------------
+#
+# O .rc do Windows carrega a versão em texto, porque o formato VERSIONINFO não
+# sabe ler uma variável do CMake. Duas fontes, e a segunda já ficou para trás
+# uma vez: o arquivo dizia 0.3.0.0 enquanto o projeto era 0.2.0, e nada quebrou
+# — só a aba Detalhes do Explorer passou a mentir, onde ninguém olha.
+#
+# Conferir em TODAS as plataformas, e não só no Windows: quem sobe a versão faz
+# isso no Linux, e um aviso que só aparece na máquina de outra pessoa não é
+# aviso. Falha na configuração, antes de compilar qualquer coisa.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/recursos/sigaa-ui.rc" _rc)
+string(REPLACE "." ", " _versao_rc "${PROJECT_VERSION}, 0")
+if(NOT _rc MATCHES "FILEVERSION ${_versao_rc}")
+  message(FATAL_ERROR
+    "src/ui/recursos/sigaa-ui.rc está desatualizado: o projeto é "
+    "${PROJECT_VERSION} e o .rc não traz FILEVERSION ${_versao_rc}. "
+    "Atualize FILEVERSION, PRODUCTVERSION, FileVersion e ProductVersion lá.")
+endif()
+if(NOT _rc MATCHES "\"${PROJECT_VERSION}\\.0\"")
+  message(FATAL_ERROR
+    "src/ui/recursos/sigaa-ui.rc: as strings FileVersion/ProductVersion não "
+    "dizem ${PROJECT_VERSION}.0.")
+endif()
+unset(_rc)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -259,6 +290,34 @@ elseif(SIGAA_UI)
     endif()
   endif()
 
+  if(APPLE)
+    # O entregavel do macOS e um BUNDLE, e nao um executavel solto: o Finder so
+    # mostra nome e icone decentes para um .app, o Dock so aceita um .app, e o
+    # macdeployqt (que copia os frameworks do Qt para dentro) recusa qualquer
+    # outra coisa. Um binario solto abriria sem icone, com o nome do arquivo na
+    # barra de menus, e so a partir do terminal.
+    set_target_properties(sigaa-ui PROPERTIES
+      MACOSX_BUNDLE ON
+      OUTPUT_NAME "SIGAA Viewer"
+      MACOSX_BUNDLE_INFO_PLIST
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/macos/Info.plist.in"
+      MACOSX_BUNDLE_BUNDLE_NAME "SIGAA Viewer"
+      MACOSX_BUNDLE_EXECUTABLE_NAME "SIGAA Viewer"
+      MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.matheus-fsc.SigaaDesktopViewer"
+      MACOSX_BUNDLE_ICON_FILE "app.icns"
+      # CFBundleShortVersionString aceita sufixo; CFBundleVersion e so numero, e
+      # o macOS recusa o bundle se vier "0.2.0-alpha" ali.
+      MACOSX_BUNDLE_SHORT_VERSION_STRING "${SIGAA_VERSAO_COMPLETA}"
+      MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}")
+
+    # O .icns entra como RECURSO do bundle. O Info.plist so aponta o NOME do
+    # arquivo — se ele nao estiver em Contents/Resources, o app abre com o
+    # icone generico e nenhum erro em lugar nenhum.
+    target_sources(sigaa-ui PRIVATE src/ui/recursos/app.icns)
+    set_source_files_properties(src/ui/recursos/app.icns PROPERTIES
+      MACOSX_PACKAGE_LOCATION Resources)
+  endif()
+
   if(MSVC)
     set_target_properties(sigaa-ui PROPERTIES
       VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -279,7 +338,12 @@ include(GNUInstallDirs)
 install(TARGETS sigaa-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 if(TARGET sigaa-ui)
-  install(TARGETS sigaa-ui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+  # BUNDLE DESTINATION e obrigatorio quando o alvo e um .app: sem ele o CMake
+  # recusa o install no macOS com "no BUNDLE DESTINATION". Nas outras
+  # plataformas a palavra e simplesmente ignorada.
+  install(TARGETS sigaa-ui
+          RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+          BUNDLE  DESTINATION .)
 
   if(UNIX AND NOT APPLE)
     install(FILES packaging/linux/io.github.matheus_fsc.SigaaDesktopViewer.desktop

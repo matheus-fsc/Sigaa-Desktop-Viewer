@@ -75,6 +75,10 @@ Q_SIGNALS:
 private:
     void atualizarResumo();
 
+    // Fixa no recado a altura do MAIOR texto que ele pode exibir, para que
+    // mudar de texto não tire altura do formulário acima. Ver tema::reservarAltura.
+    void reservarAlturaDoResumo();
+
     QCheckBox* automatico_{nullptr};
     QComboBox* intervaloPortal_{nullptr};
     QComboBox* intervaloCompleto_{nullptr};
