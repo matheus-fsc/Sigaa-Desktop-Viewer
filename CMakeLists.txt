@@ -114,6 +114,7 @@ add_library(sigaa_core STATIC
   src/core/parse/TurmaParser.cpp
   src/core/http/CadeiaAia.cpp
   src/core/http/SessaoViva.cpp
+  src/core/http/EntradaNoNavegador.cpp
   src/core/parse/ArquivoParser.cpp
   src/core/parse/FrequenciaParser.cpp
   src/core/parse/ParticipanteParser.cpp
@@ -234,6 +235,7 @@ elseif(SIGAA_UI)
     src/ui/DialogoAtualizar.cpp
     src/ui/DialogoOpcoes.cpp
     src/ui/DialogosAvaliacao.cpp
+    src/ui/EntrarNoSigaa.cpp
     src/ui/Copiar.cpp
     src/ui/Distintivos.cpp
     src/ui/Icones.cpp
@@ -389,6 +391,7 @@ if(BUILD_TESTING)
     tests/sha256_test.cpp
     tests/presenca_test.cpp
     tests/sessao_viva_test.cpp
+    tests/entrada_navegador_test.cpp
     tests/frequencia_parser_test.cpp
     tests/calendario_test.cpp
     tests/aviso_test.cpp

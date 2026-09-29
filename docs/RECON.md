@@ -765,3 +765,50 @@ silencioso é o pior negócio disponível.
 
 **Status.** Não reportado ainda. Contato: DTI/UNIFEI, (35) 3629-1080 (rodapé do
 próprio SIGAA).
+
+### 6.2 Login aceita POST de outra origem: CSRF de login (29/09/2026, UNIFEI)
+
+**O que foi observado.** O `POST /sigaa/logar.do?dispatch=logOn` não tem token
+anti-CSRF (§1.8). Nada do que o login envia precisa ser colhido de uma página
+do SIGAA antes, então um formulário servido de **outra origem** monta a mesma
+requisição. É o que o recurso "Entrar no SIGAA" do app faz: a página local
+posta com `Origin: null` e sem `Referer`, exatamente como qualquer site da
+internet conseguiria.
+
+**Confirmado em 29/09/2026**, com a conta do próprio autor e a senha certa: o
+Firefox postou de `http://127.0.0.1:<porta>` (`Origin: null`, sem `Referer`) e
+caiu em `/sigaa/portais/discente/discente.jsf` autenticado. O servidor não
+confere nem token nem origem.
+
+Não foi testado com credencial falsa, e não deve ser: seria gastar tentativas
+de login numa conta real, e não acrescenta nada ao que já está confirmado.
+
+**Como confirmar (para a TI).** Um formulário HTML servido de outro domínio,
+com os 8 campos de §1.8 e `action` apontando para `logar.do?dispatch=logOn`:
+se o navegador cair no portal, o servidor não confere origem nem token.
+
+**Impacto.** É o *login CSRF* clássico. Um site qualquer pode, sem a vítima
+perceber, deixar o navegador dela autenticado **na conta de outra pessoa**.
+No SIGAA isso importa porque o aluno envia coisas pelo navegador: a vítima que
+não notar a troca de conta entrega a tarefa, o trabalho ou a mensagem na conta
+errada, onde o dono da conta lê. Não expõe a senha da vítima; expõe o que ela
+fizer depois.
+
+**Correção (no servidor).** Token anti-CSRF no formulário de login, ou no
+mínimo recusar o POST cuja `Origin` não seja o próprio SIGAA. Cookie de sessão
+com `SameSite=Lax` não resolve sozinho: o login cria a sessão, então não há
+cookie anterior para o navegador deixar de enviar.
+
+**Consequência para o app.** O botão "Entrar no SIGAA"
+(`core/http/EntradaNoNavegador.h`) usa exatamente essa ausência. Quando a
+instituição corrigir, ele passa a cair na tela de login do SIGAA, e o aluno
+digita a senha como faria sem o app. O botão deixa de poupar a digitação e
+nada além disso quebra. A correção é mais importante que o atalho.
+
+Ainda não confirmado: se o Tomcat exige um `JSESSIONID` já existente antes do
+POST (o `SigaaSession::login` faz um GET antes por precaução). O teste acima
+não responde, porque o navegador usado provavelmente já tinha cookie do SIGAA
+de visitas anteriores. Se exigir, a primeira entrada de um navegador que nunca
+abriu o SIGAA cai na tela de login, e o aluno entra com a senha.
+
+**Status.** Não reportado ainda. Contato: DTI/UNIFEI, (35) 3629-1080.

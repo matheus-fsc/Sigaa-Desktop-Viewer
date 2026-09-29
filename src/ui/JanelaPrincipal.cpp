@@ -39,9 +39,11 @@
 #include "ui/DialogoAtualizar.h"
 #include "ui/DialogoLogin.h"
 #include "core/atualizacao/Atualizador.h"
+#include "core/config/Instituicao.h"
 #include "ui/DialogoOpcoes.h"
 #include "ui/Copiar.h"
 #include "ui/DialogosAvaliacao.h"
+#include "ui/EntrarNoSigaa.h"
 #include "ui/Distintivos.h"
 #include "ui/Icones.h"
 #include "ui/JanelaDiagnostico.h"
@@ -236,6 +238,7 @@ void JanelaPrincipal::aplicarIcones() {
     // fazia alguém ligar o automático sem nunca ver de quanto em quanto tempo
     // ele ia rodar.
     formulario_->acConta->setIcon(icone(QStringLiteral("conta"), this));
+    formulario_->acEntrarSigaa->setIcon(icone(QStringLiteral("abrir-sigaa"), this));
 }
 
 // Densidade e distintivos de todas as listas, num lugar só. Cada aba tem sua
@@ -664,6 +667,8 @@ void JanelaPrincipal::montarAcoes() {
     connect(formulario_->acDiagnostico, &QAction::triggered, this,
             &JanelaPrincipal::abrirDiagnostico);
 
+    connect(formulario_->acEntrarSigaa, &QAction::triggered, this,
+            &JanelaPrincipal::entrarNoSigaa);
     connect(formulario_->acTrocarConta, &QAction::triggered, this,
             &JanelaPrincipal::trocarConta);
     connect(formulario_->acEsquecerConta, &QAction::triggered, this,
@@ -1377,6 +1382,29 @@ void JanelaPrincipal::aoConcluir() {
     // escreveu, e vem depois do resto para não competir com a notificação
     // comum — quando há conflito, é ele que a pessoa precisa ler.
     avisarConflitos(r.conflitosAvaliacao);
+}
+
+void JanelaPrincipal::entrarNoSigaa() {
+    // Cada clique é um login na conta do aluno. Clicar de novo enquanto o
+    // navegador ainda abre dobraria isso sem ganho nenhum.
+    if (EntrarNoSigaa::emAndamento()) {
+        status(QStringLiteral("O navegador já está abrindo o SIGAA."));
+        return;
+    }
+
+    std::string login, senha;
+    if (!obterCredenciais(login, senha)) return;
+
+    // A sessão do app NÃO é encerrada nem reaproveitada: o navegador entra
+    // numa sessão só dele (ver core/http/EntradaNoNavegador.h). Dividir uma
+    // sessão entre os dois faria um derrubar o ViewState do outro.
+    QString erro;
+    if (!EntrarNoSigaa::abrir(config::selecionada().baseUrl, login, senha, this,
+                              &erro)) {
+        status(erro);
+        return;
+    }
+    status(QStringLiteral("Abrindo o SIGAA no navegador…"));
 }
 
 bool JanelaPrincipal::obterCredenciais(std::string& login, std::string& senha) {

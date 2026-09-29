@@ -598,6 +598,18 @@ continuam compilando. Quem só quer mexer no parser não precisa baixar 1,5 GB.
 Quatro abas, na ordem das perguntas que o aluno faz: **Agenda**, **Provas**,
 **Turmas** e **Atualizações**.
 
+**Entrar no SIGAA**, na barra, abre o SIGAA no navegador já com a conta, sem
+digitar a senha. O navegador faz o **próprio** login, numa sessão só dele: o
+app serve, uma única vez e só em `127.0.0.1`, uma página com o formulário de
+login preenchido que se envia sozinha. A senha não vai para arquivo nem para a
+URL (que ficaria no histórico), o endereço tem um segredo aleatório, a segunda
+busca é recusada e a porta fecha em 60 segundos se ninguém a usar. Dividir a
+sessão do app com o navegador não foi opção: os dois guardam ViewStates
+diferentes no servidor e se derrubariam. O atalho só existe porque o login do
+SIGAA não tem proteção contra CSRF, falha registrada em
+[`docs/RECON.md` §6.2](docs/RECON.md); se a instituição corrigir, o botão passa
+a abrir a tela de login normal.
+
 **Agenda** é a tela inicial: em cima, as aulas da semana, o tópico que o
 professor registrou, a turma e quantos arquivos ele pendurou naquela aula;
 embaixo, a lista de prazos, com "em 2 dias" em laranja e atrasado em vermelho.

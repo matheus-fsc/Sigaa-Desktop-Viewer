@@ -183,6 +183,7 @@ private:
     // Ambiente > cofre > .env > diálogo. Devolve false se o usuário desistiu.
     bool obterCredenciais(std::string& login, std::string& senha);
     void aoAbrir();          // onboarding na primeira execução
+    void entrarNoSigaa();
     void trocarConta();
     void esquecerConta();
 

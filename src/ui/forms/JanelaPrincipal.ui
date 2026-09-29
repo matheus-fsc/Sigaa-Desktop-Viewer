@@ -738,6 +738,7 @@
    <addaction name="acAtualizar"/>
    <addaction name="acAtualizarTudo"/>
    <addaction name="separator"/>
+   <addaction name="acEntrarSigaa"/>
    <addaction name="acOpcoes"/>
    <addaction name="acConta"/>
   </widget>
@@ -763,6 +764,14 @@
    </property>
    <property name="toolTip">
     <string>Mostra todas as requisições feitas ao SIGAA, ao vivo: ritmo, repetições e o que o servidor respondeu. É onde se vê um laço antes de ele virar bloqueio de conta.</string>
+   </property>
+  </action>
+  <action name="acEntrarSigaa">
+   <property name="text">
+    <string>Entrar no SIGAA</string>
+   </property>
+   <property name="toolTip">
+    <string>Abre o SIGAA no navegador já com a sua conta, sem digitar a senha. O navegador faz o próprio login, numa sessão separada da do app.</string>
    </property>
   </action>
   <action name="acOpcoes">
