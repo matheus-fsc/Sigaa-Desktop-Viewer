@@ -46,17 +46,77 @@ std::string paginaDeEntrada(std::string_view baseUrl, std::string_view login,
         {"user.login", login},      {"user.senha", senha},
     };
 
+    // O VISUAL. A página fica na tela de um a sete segundos — o tempo do login
+    // do SIGAA —, e nesse intervalo ela é a cara do app no navegador. Um
+    // parágrafo solto em fonte padrão parecia erro; um cartão com a barra
+    // andando diz "está funcionando, espere", que é tudo o que ela precisa
+    // dizer.
+    //
+    // Tudo inline, e não por acaso: a política da página (ver
+    // cabecalhosDaEntrada) só deixa carregar o que está DENTRO dela. SVG
+    // embutido no HTML não é um recurso buscado, então o ícone passa; uma
+    // imagem externa ou uma fonte da web seriam recusadas.
+    //
+    // A barra é INDETERMINADA de propósito: o app não tem como saber quanto
+    // falta — quem responde é o SIGAA —, e uma barra que enche até 90% e para
+    // é uma mentira que todo mundo já aprendeu a reconhecer.
+    static constexpr const char* kEstilo = R"CSS(
+:root{--fundo:#f3f5f8;--cartao:#fff;--texto:#1d2330;--suave:#5b6474;--borda:#e1e5ec;
+--acento:#2f6fed;--trilho:#e6ecf7;--aviso:#c77700;--aviso-fundo:#fff6e5;--erro:#c62828;--erro-fundo:#fdecec}
+@media (prefers-color-scheme:dark){:root{--fundo:#15181d;--cartao:#1e222a;--texto:#e7eaf0;
+--suave:#a0a8b8;--borda:#2c323d;--acento:#6c9bff;--trilho:#2a3140;--aviso:#f0b24a;
+--aviso-fundo:#2e2616;--erro:#ff7b7b;--erro-fundo:#321b1d}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--fundo);
+color:var(--texto);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:16px}
+.cartao{width:100%;max-width:440px;background:var(--cartao);border:1px solid var(--borda);
+border-radius:16px;padding:32px 28px;box-shadow:0 10px 30px rgba(0,0,0,.08);text-align:center}
+.icone{width:56px;height:56px;margin:0 auto 16px;border-radius:14px;display:grid;place-items:center;
+background:var(--trilho);color:var(--acento)}
+h1{font-size:1.25rem;margin:0 0 6px}
+p{margin:0;color:var(--suave)}
+.trilho{position:relative;height:6px;border-radius:3px;background:var(--trilho);overflow:hidden;margin:24px 0 8px}
+.barra{position:absolute;top:0;bottom:0;left:-40%;width:40%;border-radius:3px;background:var(--acento);
+animation:corre 1.2s ease-in-out infinite}
+@keyframes corre{0%{left:-40%}100%{left:100%}}
+@media (prefers-reduced-motion:reduce){.barra{animation:pulsa 1.6s ease-in-out infinite;left:0;width:100%}
+@keyframes pulsa{50%{opacity:.35}}}
+.aviso{margin-top:20px;padding:12px 14px;border-radius:10px;text-align:left;font-size:.93rem}
+.aviso.demora{background:var(--aviso-fundo);color:var(--texto);border:1px solid var(--aviso)}
+.aviso.bloqueio{background:var(--erro-fundo);color:var(--texto);border:1px solid var(--erro)}
+.aviso a{color:var(--acento);font-weight:600}
+code{font-size:.85em;word-break:break-all}
+button{font:inherit;margin-top:20px;padding:.6em 1.2em;border-radius:8px;border:0;
+background:var(--acento);color:#fff;cursor:pointer}
+body.lento .barra{background:var(--aviso);animation-duration:2.4s}
+body.parado .barra{animation:none;left:0;width:100%;background:var(--erro)}
+)CSS";
+
     std::string h;
     h += "<!doctype html>\n<html lang=\"pt-BR\"><head><meta charset=\"utf-8\">\n"
+         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
          "<meta name=\"referrer\" content=\"no-referrer\">\n"
          "<title>Entrando no SIGAA…</title>\n"
          // Ícone vazio embutido: sem ele o navegador pede /favicon.ico à porta
          // local, a política recusa, e o console do aluno ganha um erro que
          // parece problema de segurança e não é nada.
          "<link rel=\"icon\" href=\"data:,\">\n"
-         "<style>body{font:16px system-ui,sans-serif;margin:3em;color:#333}"
-         "button{font:inherit;padding:.5em 1em}</style>\n"
-         "</head><body>\n";
+         "<style>";
+    h += kEstilo;
+    h += "</style>\n</head><body>\n<main class=\"cartao\">\n";
+
+    // O mesmo desenho do botão na barra do app (icones/abrir-sigaa.svg): quem
+    // clicou reconhece de onde veio a página.
+    h += "<div class=\"icone\" aria-hidden=\"true\"><svg width=\"28\" height=\"28\" "
+         "viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" "
+         "stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M14 4h6v6\"/>"
+         "<path d=\"M20 4l-9 9\"/><path d=\"M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7"
+         "a1 1 0 0 1 1-1h5\"/></svg></div>\n";
+
+    h += "<h1>Entrando no SIGAA</h1>\n"
+         "<p>Aguarde enquanto seu navegador é redirecionado para o SIGAA.</p>\n"
+         "<div class=\"trilho\" role=\"progressbar\" aria-label=\"Entrando no SIGAA\">"
+         "<div class=\"barra\"></div></div>\n";
 
     // accept-charset windows-1252: é o que a tela de login do SIGAA declara
     // (RECON §1.10), e portanto o que o navegador mandaria se o aluno digitasse
@@ -73,8 +133,7 @@ std::string paginaDeEntrada(std::string_view baseUrl, std::string_view login,
     }
     // O botão existe para quem tem JavaScript desligado: sem ele a página
     // ficaria parada, com a senha dentro, sem dizer o que fazer.
-    h += "<p>Entrando no SIGAA…</p>\n"
-         "<noscript><button type=\"submit\">Entrar no SIGAA</button></noscript>\n"
+    h += "<noscript><button type=\"submit\">Entrar no SIGAA</button></noscript>\n"
          "</form>\n";
 
     // O AVISO DE DEMORA. Enquanto o POST não é respondido, o navegador segue
@@ -85,26 +144,37 @@ std::string paginaDeEntrada(std::string_view baseUrl, std::string_view login,
     // ao lado.
     const std::string telaLogin =
         escaparAtributo(std::string(semBarraFinal(baseUrl)) + "/sigaa/verTelaLogin.do");
-    h += "<p id=\"demora\" hidden>O SIGAA ainda não respondeu. Isso acontece "
-         "quando o servidor está lento ou quando ele segura um segundo login "
-         "enquanto o app está conectado na mesma conta. Você pode esperar mais um "
-         "pouco ou <a href=\"" + telaLogin + "\">abrir a tela de login do SIGAA"
-         "</a> e entrar com a senha.</p>\n";
+    h += "<div id=\"demora\" class=\"aviso demora\" hidden>O SIGAA ainda não "
+         "respondeu. Isso acontece quando o servidor está lento ou quando ele segura "
+         "um segundo login enquanto o app está conectado na mesma conta. Você pode "
+         "esperar mais um pouco ou <a href=\"" + telaLogin + "\">abrir a tela de "
+         "login do SIGAA</a> e entrar com a senha.</div>\n";
 
     // O AVISO DE BLOQUEIO. Se o navegador recusar o envio por alguma regra de
     // segurança, ele cancela em silêncio e a aba fica parada sem motivo
     // aparente. O evento abaixo transforma esse silêncio numa frase — e numa
     // pista de diagnóstico, com o endereço que foi barrado.
-    h += "<p id=\"bloqueio\" hidden>O navegador bloqueou a entrada: "
-         "<code id=\"barrado\"></code>. <a href=\"" + telaLogin +
-         "\">Abrir a tela de login do SIGAA</a>.</p>\n";
+    h += "<div id=\"bloqueio\" class=\"aviso bloqueio\" hidden>O navegador bloqueou "
+         "a entrada: <code id=\"barrado\"></code>. <a href=\"" + telaLogin +
+         "\">Abrir a tela de login do SIGAA</a>.</div>\n";
 
+    h += "</main>\n";
+
+    // A barra muda junto com o aviso: âmbar e mais lenta quando o SIGAA
+    // demora, vermelha e parada quando o navegador bloqueia. Uma barra que
+    // continua correndo feliz ao lado de "bloqueado" contradiz o texto.
     h += "<script nonce=\"" + escaparAtributo(nonce) + "\">\n"
          "document.addEventListener('securitypolicyviolation', function (e) {\n"
          "  document.getElementById('barrado').textContent = e.blockedURI || e.violatedDirective;\n"
          "  document.getElementById('bloqueio').hidden = false;\n"
+         "  document.getElementById('demora').hidden = true;\n"
+         "  document.body.className = 'parado';\n"
          "});\n"
-         "setTimeout(function () { document.getElementById('demora').hidden = false; }, 15000);\n"
+         "setTimeout(function () {\n"
+         "  if (document.body.className === 'parado') return;\n"
+         "  document.getElementById('demora').hidden = false;\n"
+         "  document.body.className = 'lento';\n"
+         "}, 15000);\n"
          "document.getElementById('entrar').submit();\n"
          "</script>\n";
     h += "</body></html>\n";

@@ -93,8 +93,15 @@ TEST_CASE("pagina explica quando o SIGAA demora ou o navegador bloqueia", "[entr
     // Parada em 127.0.0.1 parece defeito do app mesmo quando quem nao responde
     // e o SIGAA. A pagina tem de dizer qual dos dois, e oferecer a saida.
     const auto p = paginaDeEntrada("https://sigaa.x.br/", "1", "2", "n");
-    CHECK(contem(p, R"(id="demora" hidden)"));
-    CHECK(contem(p, R"(id="bloqueio" hidden)"));
+    CHECK(contem(p, R"(id="demora" class="aviso demora" hidden)"));
+    CHECK(contem(p, R"(id="bloqueio" class="aviso bloqueio" hidden)"));
+
+    // O que o aluno ve no segundo em que tudo da certo: o recado e a barra.
+    CHECK(contem(p, "Aguarde enquanto seu navegador"));
+    CHECK(contem(p, R"(role="progressbar")"));
+    // Tudo dentro da pagina: a politica recusa qualquer recurso buscado fora.
+    CHECK_FALSE(contem(p, "<img"));
+    CHECK_FALSE(contem(p, "fonts.googleapis"));
     CHECK(contem(p, "securitypolicyviolation"));
     CHECK(contem(p, R"(href="https://sigaa.x.br/sigaa/verTelaLogin.do")"));
 }
