@@ -805,6 +805,19 @@ instituição corrigir, ele passa a cair na tela de login do SIGAA, e o aluno
 digita a senha como faria sem o app. O botão deixa de poupar a digitação e
 nada além disso quebra. A correção é mais importante que o atalho.
 
+**Achado lateral, a verificar: o login redireciona para fora de
+`https://sigaa.unifei.edu.br`.** Com `form-action https://sigaa.unifei.edu.br`
+na página local, o Firefox chegou ao portal e o Chrome recusou. A diferença é
+que o Chrome aplica `form-action` também aos redirecionamentos depois do POST,
+e informa na mensagem o endereço ORIGINAL (a especificação esconde o destino
+de propósito). Logo, algum 302 da cadeia do login aponta para outro esquema,
+host ou porta. Se for `http://`, é rebaixamento de protocolo logo depois da
+autenticação: o cookie de sessão recém-criado viaja sem criptografia, a menos
+que tenha o atributo `Secure`. Para conferir: DevTools > Network com
+"Preserve log", entrar pela tela normal do SIGAA e ler o `Location` da
+resposta de `logar.do?dispatch=logOn` e dos redirecionamentos seguintes, junto
+com os atributos do `Set-Cookie`.
+
 Ainda não confirmado: se o Tomcat exige um `JSESSIONID` já existente antes do
 POST (o `SigaaSession::login` faz um GET antes por precaução). O teste acima
 não responde, porque o navegador usado provavelmente já tinha cookie do SIGAA

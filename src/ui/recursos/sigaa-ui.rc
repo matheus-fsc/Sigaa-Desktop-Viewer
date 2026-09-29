@@ -15,8 +15,8 @@
 // vez (dizia 0.3.0.0 enquanto o projeto era 0.2.0), e a unica consequencia
 // visivel era a aba Detalhes do Explorer, que ninguem abre. Agora o build para.
 1 VERSIONINFO
-FILEVERSION 1, 0, 0, 0
-PRODUCTVERSION 1, 0, 0, 0
+FILEVERSION 1, 0, 1, 0
+PRODUCTVERSION 1, 0, 1, 0
 FILEOS 0x40004L         // VOS_NT_WINDOWS32
 FILETYPE 0x1L           // VFT_APP
 BEGIN
@@ -28,11 +28,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "sigaa-viewer"
             VALUE "FileDescription",  "SIGAA Viewer - prazos e provas do SIGAA"
-            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "FileVersion",      "1.0.1.0"
             VALUE "InternalName",     "sigaa-ui"
             VALUE "OriginalFilename", "sigaa-ui.exe"
             VALUE "ProductName",      "SIGAA Viewer"
-            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "ProductVersion",   "1.0.1.0"
         END
     END
     BLOCK "VarFileInfo"
