@@ -124,6 +124,14 @@ RULES: list[tuple[str, re.Pattern[str], str]] = [
     ("nome-docente",
      re.compile(r"(RedirectDocente[^>]*>)[^<]+(</a>)"),
      r"\g<1>DOCENTE TESTE\g<2>"),
+    # Autor de uma noticia da turma: "Cadastrado por:  <i> NOME DO DOCENTE</i>",
+    # no bloco "Ultima Noticia" da pagina inicial da turma.
+    ("nome-autor-noticia",
+     # O primeiro caractere do nome nao pode ser espaco: sem isso o \s* devolve
+     # um espaco no backtracking, a regra casa o proprio placeholder e o
+     # --check acusa um arquivo ja limpo.
+     re.compile(r"(Cadastrado por:\s*<i>\s*)(?!DOCENTE TESTE)[^<\s][^<]*(</i>)"),
+     r"\g<1>DOCENTE TESTE\g<2>"),
     # TLD opcional de proposito: no HTML do SIGAA o e-mail aparece truncado
     # ("d2023013362@unifei....") e as vezes quebrado por tags, entao exigir
     # dominio completo faz a regra nunca casar. "@media" e afins nao casam

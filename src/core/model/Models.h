@@ -82,6 +82,27 @@ struct Atualizacao {
     std::string texto;          // "Nova tarefa: ...", "Novo Arquivo: ..."
 };
 
+// Uma notícia publicada pelo professor na turma (menu "Notícias").
+//
+// DUAS ORIGENS, a mesma notícia: a página inicial da turma traz a última, com
+// texto e hora, de graça (a coleta já abre essa página); a aba Notícias traz a
+// lista de todas, com o `id` de cada uma, e o texto de cada uma custa uma
+// requisição a mais. A chave que junta as duas é (turma, título, dia) — a
+// "Última Notícia" não traz `id` — e é ela que o banco usa.
+struct Noticia {
+    std::string idTurma;
+    std::string turmaNome;
+    std::string idNoticia;      // "130428096"; vazio se veio só da página da turma
+    std::string titulo;
+    DateTime data;              // com hora quando o SIGAA a deu (detalhe, última)
+    // HTML já limpo (ver parse::limparHtmlNoticia): parágrafos, negrito,
+    // listas e links, sem a fonte e o tamanho que o editor do SIGAA cola em
+    // cada <span>. Vazio = o texto ainda não foi buscado, que é diferente de
+    // notícia sem texto.
+    std::string conteudoHtml;
+    std::string autor;          // "Cadastrado por", quando a página diz
+};
+
 // Um item publicado DENTRO de um tópico de aula (docs/RECON.md §1.6.2).
 //
 // A chave é o mesmo `id` avulso do jsfcljs que a aba Arquivos usa (§1.6.1).
@@ -265,6 +286,9 @@ struct Snapshot {
     // Material publicado nas turmas. Só é preenchido quando a coleta entra nas
     // turmas (`incluirTurmas`): o portal não sabe que estes arquivos existem.
     std::vector<ArquivoTurma> arquivos;
+    // Notícias das turmas visitadas. Como `arquivos`, só vem quando a coleta
+    // entra nas turmas; e o texto de cada uma só quando foi buscado.
+    std::vector<Noticia> noticias;
     // Colegas e professores das turmas. Como `arquivos`, só vem quando a coleta
     // entra nas turmas.
     std::vector<Participante> participantes;

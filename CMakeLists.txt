@@ -116,6 +116,7 @@ add_library(sigaa_core STATIC
   src/core/http/SessaoViva.cpp
   src/core/http/EntradaNoNavegador.cpp
   src/core/parse/ArquivoParser.cpp
+  src/core/parse/NoticiaParser.cpp
   src/core/parse/FrequenciaParser.cpp
   src/core/parse/ParticipanteParser.cpp
   src/core/atualizacao/Atualizador.cpp
@@ -399,6 +400,7 @@ if(BUILD_TESTING)
     tests/aviso_test.cpp
     tests/database_test.cpp
     tests/arquivo_parser_test.cpp
+    tests/noticia_parser_test.cpp
     tests/participante_parser_test.cpp
     tests/topico_parser_test.cpp
     tests/baixador_test.cpp
