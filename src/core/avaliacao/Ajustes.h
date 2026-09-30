@@ -61,6 +61,12 @@ struct Ajuste {
     bool criadaPeloAluno{false};
     bool confirmada{false};    // inferida que o aluno deu como boa
 
+    // "Isto não é prova." Para a data deduzida de um título de tópico que só
+    // mencionava prova — "Revisão para a prova", "Correção da P1". Some de
+    // tudo (tabela, calendário, .ics, notificações), mas a linha fica: é dela
+    // que sai o "Restaurar", e sem ela o próximo sync traria a prova de volta.
+    bool descartada{false};
+
     // Falso = o SIGAA mudou a data depois desta correção e venceu. A linha
     // continua no banco porque é o histórico, e porque é dela que sai o botão
     // "restaurar minha data".
@@ -147,6 +153,7 @@ enum class TipoMudanca {
     AlunoConfirmou,     // o aluno deu uma inferida como boa
     AlunoCriou,         // o aluno cadastrou uma prova que o SIGAA não tem
     AlunoDesfez,        // o aluno removeu a própria correção
+    AlunoDescartou,     // o aluno disse que a data deduzida não é prova
     SigaaAtropelou,     // o SIGAA mudou e aposentou a correção do aluno
 };
 

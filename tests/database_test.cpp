@@ -612,3 +612,54 @@ TEST_CASE("banco antigo ganha as tabelas novas sem perder nada", "[database]") {
     CHECK(db.historico().empty());
     CHECK(db.gravarAjuste(ajusteDeTeste()));
 }
+
+TEST_CASE("descarte de prova sobrevive ao fechar e reabrir o banco", "[database]") {
+    BancoTemp b;
+    {
+        store::Database db(b.str());
+        REQUIRE(db.migrar());
+        auto a = ajusteDeTeste();
+        a.confirmada = false;
+        a.descartada = true;
+        REQUIRE(db.gravarAjuste(a));
+    }
+    store::Database db(b.str());
+    REQUIRE(db.migrar());
+    const auto as = db.carregarAjustes();
+    REQUIRE(as.size() == 1);
+    CHECK(as[0].descartada);
+}
+
+TEST_CASE("banco anterior a coluna descartada migra sem perder correcoes", "[database]") {
+    // Quem instalou antes desta coluna tem a tabela SEM ela, e `CREATE TABLE
+    // IF NOT EXISTS` nao a acrescenta. Sem a migracao, o SELECT que cita a
+    // coluna falharia — e o app mostraria as provas sem NENHUMA correcao.
+    BancoTemp b;
+    {
+        sqlite3* raw = nullptr;
+        REQUIRE(sqlite3_open(b.str().c_str(), &raw) == SQLITE_OK);
+        REQUIRE(sqlite3_exec(raw,
+                    "CREATE TABLE ajuste_avaliacao ("
+                    " id_turma TEXT NOT NULL, descricao TEXT NOT NULL, turma_nome TEXT,"
+                    " quando TEXT, horario_bruto TEXT, nota TEXT,"
+                    " criada_pelo_aluno INTEGER NOT NULL DEFAULT 0,"
+                    " confirmada INTEGER NOT NULL DEFAULT 0,"
+                    " ativo INTEGER NOT NULL DEFAULT 1, quando_sigaa TEXT, editado_em INTEGER,"
+                    " PRIMARY KEY (id_turma, descricao));"
+                    "INSERT INTO ajuste_avaliacao (id_turma, descricao, quando, confirmada)"
+                    " VALUES ('T1', 'Prova 1', '2026-09-27', 1);",
+                    nullptr, nullptr, nullptr) == SQLITE_OK);
+        sqlite3_close(raw);
+    }
+
+    store::Database db(b.str());
+    REQUIRE(db.migrar());
+    const auto as = db.carregarAjustes();
+    REQUIRE(as.size() == 1);
+    CHECK(as[0].quando.toIso() == "2026-09-27");
+    CHECK(as[0].confirmada);
+    CHECK_FALSE(as[0].descartada);
+
+    // E migrar de novo nao tenta acrescentar a coluna duas vezes.
+    REQUIRE(db.migrar());
+}

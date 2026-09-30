@@ -28,6 +28,7 @@ std::string_view toString(TipoMudanca t) {
         case TipoMudanca::AlunoConfirmou:  return "aluno-confirmou";
         case TipoMudanca::AlunoCriou:      return "aluno-criou";
         case TipoMudanca::AlunoDesfez:     return "aluno-desfez";
+        case TipoMudanca::AlunoDescartou:  return "aluno-descartou";
         case TipoMudanca::SigaaAtropelou:  return "sigaa-atropelou";
     }
     return "?";
@@ -59,6 +60,11 @@ std::vector<Efetiva> efetivas(const std::vector<Avaliacao>& doSigaa,
         const auto it = porChave.find(chave(av.idTurma, av.descricao));
         if (it != porChave.end()) {
             const Ajuste& aj = *it->second;
+            // Descartada sai AQUI, antes de virar Efetiva: filtrar depois
+            // seria confiar que cada consumidor (tabela, .ics, notificação)
+            // lembra de filtrar — e o que esquecesse avisaria de uma prova
+            // que o aluno já disse que não existe.
+            if (aj.descartada) continue;
             e.nota = aj.nota;
 
             if (aj.quando.valid() && !mesmaData(aj.quando, av.quando)) {
@@ -112,7 +118,10 @@ Reconciliacao reconciliar(const std::vector<Avaliacao>& doSigaa,
     for (const auto& av : mescladas) agora[chave(av.idTurma, av.descricao)] = &av;
 
     for (auto& aj : ajustes) {
-        if (!aj.ativo || aj.criadaPeloAluno) continue;
+        // Descartada não tem data a defender: se o tópico mudar de semana, a
+        // resposta do aluno ("não é prova") continua valendo, e aposentá-la
+        // como conflito faria a prova ressuscitar sozinha.
+        if (!aj.ativo || aj.criadaPeloAluno || aj.descartada) continue;
 
         const auto it = agora.find(chave(aj.idTurma, aj.descricao));
         if (it == agora.end()) continue;   // o SIGAA não falou desta prova agora

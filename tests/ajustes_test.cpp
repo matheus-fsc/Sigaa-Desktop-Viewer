@@ -285,3 +285,66 @@ TEST_CASE("ajuste aposentado nao afeta a lista", "[ajustes]") {
     CHECK(v[0].av.quando.toIso() == "2026-10-04");
     CHECK(v[0].estado == Estado::DoSigaa);
 }
+
+// ---------------------------------------------------------------------------
+// Descartar: "isto nao e prova"
+//
+// A data deduzida sai de um titulo de topico que MENCIONA prova — e "Revisao
+// para a prova" menciona. O aluno precisa poder dizer que nao e, e a resposta
+// tem de valer em todo lugar e sobreviver ao proximo sync.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("descartada some das efetivas", "[ajustes]") {
+    const std::vector<Avaliacao> sigaa = {
+        prova("T1", "Revisao para prova", dia(2026, 10, 7), FonteAvaliacao::TopicoAula),
+        prova("T1", "Prova 1", dia(2026, 10, 14)),
+    };
+    Ajuste aj;
+    aj.idTurma = "T1";
+    aj.descricao = "Revisao para prova";
+    aj.quando = dia(2026, 10, 7);
+    aj.quandoSigaaNaEpoca = dia(2026, 10, 7);
+    aj.descartada = true;
+
+    const auto ef = efetivas(sigaa, {aj});
+    CHECK(acha(ef, "Revisao para prova") == nullptr);
+    REQUIRE(acha(ef, "Prova 1") != nullptr);
+    CHECK(ef.size() == 1);
+}
+
+TEST_CASE("descartada volta quando o ajuste e removido", "[ajustes]") {
+    // "Restaurar" apaga o ajuste. Sem ele a prova tem de reaparecer como
+    // inferida, pedindo confirmacao de novo — e nao como confirmada.
+    const std::vector<Avaliacao> sigaa = {
+        prova("T1", "Revisao para prova", dia(2026, 10, 7), FonteAvaliacao::TopicoAula),
+    };
+    const auto ef = efetivas(sigaa, {});
+    const Efetiva* e = acha(ef, "Revisao para prova");
+    REQUIRE(e != nullptr);
+    CHECK(e->estado == Estado::Inferida);
+}
+
+TEST_CASE("topico que muda de data nao ressuscita a descartada", "[ajustes]") {
+    // O topico andou uma semana. Para uma CORRECAO isso seria conflito; para
+    // um descarte nao ha data a defender, e aposentar o ajuste traria de volta
+    // uma prova que o aluno ja disse que nao existe.
+    const std::vector<Avaliacao> sigaa = {
+        prova("T1", "Revisao para prova", dia(2026, 10, 14), FonteAvaliacao::TopicoAula),
+    };
+    Ajuste aj;
+    aj.idTurma = "T1";
+    aj.descricao = "Revisao para prova";
+    aj.quando = dia(2026, 10, 7);
+    aj.quandoSigaaNaEpoca = dia(2026, 10, 7);
+    aj.descartada = true;
+
+    const auto r = reconciliar(sigaa, {aj});
+    CHECK(r.conflitos.empty());
+    REQUIRE(r.ajustes.size() == 1);
+    CHECK(r.ajustes[0].ativo);
+    CHECK(acha(efetivas(sigaa, r.ajustes), "Revisao para prova") == nullptr);
+}
+
+TEST_CASE("tipo de mudanca de descarte tem texto proprio", "[ajustes]") {
+    CHECK(toString(TipoMudanca::AlunoDescartou) == "aluno-descartou");
+}

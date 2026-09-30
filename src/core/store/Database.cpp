@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS ajuste_avaliacao (
   criada_pelo_aluno INTEGER NOT NULL DEFAULT 0,
   confirmada        INTEGER NOT NULL DEFAULT 0,
   ativo             INTEGER NOT NULL DEFAULT 1,
+  descartada        INTEGER NOT NULL DEFAULT 0,
   -- O que o SIGAA dizia quando o aluno corrigiu. Sem isto nao da para
   -- distinguir "eu corrigi o professor" de "o professor acabou de me corrigir".
   quando_sigaa      TEXT,
@@ -317,6 +318,26 @@ struct Database::Impl {
         }
         return true;
     }
+
+    // A coluna já existe? `PRAGMA table_info` e não tentar o ALTER e engolir o
+    // erro: "duplicate column" e "disco cheio" chegam pelo mesmo caminho, e só
+    // um deles é inofensivo.
+    bool temColuna(const char* tabela, const char* coluna) {
+        const std::string sql = std::string("PRAGMA table_info(") + tabela + ")";
+        sqlite3_stmt* st = nullptr;
+        bool tem = false;
+        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &st, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(st) == SQLITE_ROW) {
+                const auto* nome = reinterpret_cast<const char*>(sqlite3_column_text(st, 1));
+                if (nome && std::string(nome) == coluna) {
+                    tem = true;
+                    break;
+                }
+            }
+        }
+        sqlite3_finalize(st);
+        return tem;
+    }
 };
 
 Database::Database(const std::string& caminho) : impl_(std::make_unique<Impl>()) {
@@ -338,7 +359,28 @@ const std::string& Database::erro() const { return impl_->erro; }
 
 bool Database::migrar() {
     if (!aberto()) return false;
-    return impl_->exec(kEsquema);
+    if (!impl_->exec(kEsquema)) return false;
+
+    // Colunas que chegaram depois da tabela. `CREATE TABLE IF NOT EXISTS` não
+    // mexe numa tabela que já existe, então quem instalou antes ficaria sem
+    // a coluna — e o primeiro SELECT que a citasse falharia, levando junto
+    // TODAS as correções de data do aluno. Uma entrada por coluna, nunca
+    // removida: um banco pode pular várias versões de uma vez.
+    struct Coluna {
+        const char* tabela;
+        const char* nome;
+        const char* definicao;
+    };
+    static const Coluna kColunasTardias[] = {
+        {"ajuste_avaliacao", "descartada", "INTEGER NOT NULL DEFAULT 0"},
+    };
+    for (const auto& c : kColunasTardias) {
+        if (impl_->temColuna(c.tabela, c.nome)) continue;
+        const std::string sql = std::string("ALTER TABLE ") + c.tabela + " ADD COLUMN " +
+                                c.nome + " " + c.definicao;
+        if (!impl_->exec(sql.c_str())) return false;
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -921,6 +963,7 @@ avaliacao::TipoMudanca textoParaTipo(const std::string& t) {
     if (t == "aluno-confirmou") return T::AlunoConfirmou;
     if (t == "aluno-criou")     return T::AlunoCriou;
     if (t == "aluno-desfez")    return T::AlunoDesfez;
+    if (t == "aluno-descartou") return T::AlunoDescartou;
     return T::SigaaAtropelou;
 }
 
@@ -933,8 +976,8 @@ std::vector<avaliacao::Ajuste> Database::carregarAjustes() {
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2(impl_->db,
             "SELECT id_turma, descricao, turma_nome, quando, horario_bruto, nota,"
-            " criada_pelo_aluno, confirmada, ativo, quando_sigaa, editado_em"
-            " FROM ajuste_avaliacao", -1, &st, nullptr) == SQLITE_OK) {
+            " criada_pelo_aluno, confirmada, ativo, quando_sigaa, editado_em,"
+            " descartada FROM ajuste_avaliacao", -1, &st, nullptr) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             avaliacao::Ajuste a;
             a.idTurma = txt(st, 0);
@@ -948,6 +991,7 @@ std::vector<avaliacao::Ajuste> Database::carregarAjustes() {
             a.ativo = sqlite3_column_int(st, 8) != 0;
             a.quandoSigaaNaEpoca = deIso(txt(st, 9));
             a.editadoEm = sqlite3_column_int64(st, 10);
+            a.descartada = sqlite3_column_int(st, 11) != 0;
             out.push_back(std::move(a));
         }
     }
@@ -963,13 +1007,14 @@ bool Database::gravarAjuste(const avaliacao::Ajuste& a) {
     if (sqlite3_prepare_v2(impl_->db,
             "INSERT INTO ajuste_avaliacao (id_turma, descricao, turma_nome, quando,"
             " horario_bruto, nota, criada_pelo_aluno, confirmada, ativo,"
-            " quando_sigaa, editado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+            " quando_sigaa, editado_em, descartada) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
             " ON CONFLICT(id_turma, descricao) DO UPDATE SET"
             "   turma_nome=excluded.turma_nome, quando=excluded.quando,"
             "   horario_bruto=excluded.horario_bruto, nota=excluded.nota,"
             "   criada_pelo_aluno=excluded.criada_pelo_aluno,"
             "   confirmada=excluded.confirmada, ativo=excluded.ativo,"
-            "   quando_sigaa=excluded.quando_sigaa, editado_em=excluded.editado_em",
+            "   quando_sigaa=excluded.quando_sigaa, editado_em=excluded.editado_em,"
+            "   descartada=excluded.descartada",
             -1, &st, nullptr) != SQLITE_OK) {
         impl_->erro = sqlite3_errmsg(impl_->db);
         return false;
@@ -988,6 +1033,7 @@ bool Database::gravarAjuste(const avaliacao::Ajuste& a) {
     sqlite3_bind_int(st, 9, a.ativo ? 1 : 0);
     sqlite3_bind_text(st, 10, sigaa.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(st, 11, a.editadoEm);
+    sqlite3_bind_int(st, 12, a.descartada ? 1 : 0);
 
     const bool ok = sqlite3_step(st) == SQLITE_DONE;
     if (!ok) impl_->erro = sqlite3_errmsg(impl_->db);
