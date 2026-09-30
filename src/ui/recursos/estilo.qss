@@ -1,73 +1,133 @@
 /* ---------------------------------------------------------------------------
  * Folha de estilo do sigaa-ui.  Carregada por ui/Tema.cpp a partir do .qrc.
  *
- * REGRA DESTE ARQUIVO: nenhuma cor literal.  Tudo sai de palette(...).
+ * REGRA DESTE ARQUIVO: nenhuma cor literal.  Toda cor e um TOKEN — `@surface`,
+ * `@line-strong`, `@accent-fill` — com os mesmos nomes do design system das
+ * telas de referencia.  tema::aplicar troca cada `@nome` pela cor do tema em
+ * vigor (claro ou escuro) antes de entregar a folha ao Qt; a tabela de cores
+ * mora em Tema.cpp e so la.
  *
- * O que mudou: a paleta agora e NOSSA (ui/Tema.cpp define uma clara e uma
- * escura e escolhe pelo tema do sistema), entao palette(base), palette(mid) e
- * companhia resolvem contra cores escolhidas, nao contra o que o Qt achou no
- * sistema.  A regra fica mais forte, nao mais fraca: continua existindo UM
- * lugar onde cor e decidida, e ele nao e aqui.
- *
- * Consequencia pratica: cravar um "#2F62E8" nesta folha nao so quebraria o
- * tema escuro como sairia do ar na hora em que o azul do app mudasse.
+ * Consequencia pratica: cravar um "#3d6fd6" aqui nao so quebraria o tema claro
+ * como sairia do ar na hora em que o azul do app mudasse.  Um token com erro
+ * de digitacao vira aviso no console ("tema: token desconhecido").
  *
  * TAMBEM NAO HA "font-size" AQUI.  Tamanho de fonte sai de tema::fonte(), que
  * deriva da fonte do sistema; um "10pt" cravado ignoraria a escala de
  * acessibilidade de quem aumentou a fonte no Windows para enxergar.
  *
- * Espacamento segue o ritmo de 4px de tema::esp().
+ * Espacamento segue o ritmo de 4px de tema::esp().  Raios: 8px em controle,
+ * 10px em lista e cartao, 999 (pilula) nao existe em QSS — use metade da
+ * altura.
  * ------------------------------------------------------------------------- */
 
 /* --- Base ---------------------------------------------------------------- */
 
 QMainWindow,
 QDialog {
-    background: palette(window);
+    background: @bg;
 }
 
 /* O Fusion desenha uma moldura afundada em volta de area de rolagem.  E o
  * detalhe que mais data a aparencia de um app Qt: caixa dentro de caixa dentro
- * de caixa.  A separacao fica por conta do contraste entre base e window. */
+ * de caixa.  Quem precisa de moldura (as listas) declara a sua, abaixo. */
 QAbstractScrollArea {
     border: none;
 }
 
-/* --- Barra de acoes ------------------------------------------------------ */
-
-QToolBar#barraAcoes {
-    border: none;
-    border-bottom: 1px solid palette(mid);
-    background: palette(base);
-    padding: 8px 12px;
-    spacing: 4px;
+QLabel {
+    background: transparent;
 }
 
+/* --- Barra de acoes ------------------------------------------------------ */
+
+/* O cabecalho do prototipo (SIGAA Web.dc.html), numa linha: abas
+ * (ui/Cabecalho.cpp) e as acoes a direita.  Fundo de superficie, filete
+ * embaixo.  Altura (56) e respiro lateral (20) ficam em
+ * JanelaPrincipal::montarAcoes: aqui eles pintariam sem mover os itens. */
+QToolBar#barraAcoes {
+    border: none;
+    border-bottom: 1px solid @line;
+    background: @surface;
+    spacing: 8px;
+}
+
+/* Botoes de 34px: 32 de conteudo + a borda.  Discretos (sem moldura) por
+ * padrao — "Entrar no SIGAA" e "Opcoes"; `Atualizar tudo` e secundario,
+ * `Atualizar` e o UNICO primario e `Conta` e a pilula com avatar.  Quem marca
+ * cada um e JanelaPrincipal::montarAcoes. */
 QToolBar#barraAcoes QToolButton {
     border: 1px solid transparent;
     border-radius: 8px;
-    padding: 8px 12px;
+    padding: 0 12px;
+    min-height: 32px;
+    background: transparent;
+    color: @text-2;
+    font-weight: 600;
 }
 
 QToolBar#barraAcoes QToolButton:hover {
-    background: palette(alternate-base);
-    border-color: palette(mid);
+    background: @surface-2;
+    color: @text;
 }
 
 QToolBar#barraAcoes QToolButton:pressed {
-    background: palette(mid);
+    background: @surface-3;
+}
+
+QToolBar#barraAcoes QToolButton[papel="secundario"] {
+    background: @surface;
+    border-color: @line-strong;
+    color: @text;
+}
+
+QToolBar#barraAcoes QToolButton[papel="secundario"]:hover {
+    background: @surface-2;
+}
+
+QToolBar#barraAcoes QToolButton[papel="primario"] {
+    background: @accent-fill;
+    border-color: @accent-fill;
+    color: @on-accent;
+    padding: 0 14px;
+    font-weight: bold;
+}
+
+QToolBar#barraAcoes QToolButton[papel="primario"]:hover {
+    background: @accent-fill-hover;
+    border-color: @accent-fill-hover;
+}
+
+/* Pilula da conta: avatar de 26px encostado a esquerda (4px), "Conta" e a
+ * setinha do menu a direita. */
+QToolBar#barraAcoes QToolButton[papel="conta"] {
+    border-color: @line;
+    border-radius: 17px;
+    padding: 0 24px 0 4px;
+    color: @text;
+}
+
+QToolBar#barraAcoes QToolButton[papel="conta"]::menu-indicator {
+    image: @seta-baixo-texto;
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 8px;
+    height: 6px;
+    right: 10px;
+}
+
+QToolBar#barraAcoes QToolButton:disabled,
+QToolBar#barraAcoes QToolButton[papel="primario"]:disabled {
+    background: @surface-2;
+    border-color: @line;
+    color: @text-off;
 }
 
 /* Ligado ("Automatico").  O icone tem uma variante On tingida com
  * highlighted-text em Icones.cpp — sem ela o desenho sumiria contra o azul. */
 QToolBar#barraAcoes QToolButton:checked {
-    background: palette(highlight);
-    color: palette(highlighted-text);
-    border-color: palette(highlight);
-}
-
-QToolBar#barraAcoes QToolButton:disabled {
-    color: palette(mid);
+    background: @accent-fill;
+    color: @on-accent;
+    border-color: @accent-fill;
 }
 
 QToolBar#barraAcoes QToolButton::menu-indicator {
@@ -76,76 +136,157 @@ QToolBar#barraAcoes QToolButton::menu-indicator {
     right: 4px;
 }
 
-/* --- Abas ---------------------------------------------------------------- */
-
-QTabWidget#abas::pane {
-    border: none;
-    border-top: 1px solid palette(mid);
+QToolBar::separator {
+    background: @line;
+    width: 1px;
+    margin: 6px 4px;
 }
 
-QTabWidget#abas::tab-bar {
+/* --- Abas ---------------------------------------------------------------- */
+
+QTabWidget::pane {
+    border: none;
+    border-top: 1px solid @line;
+}
+
+/* As abas da janela principal moram no cabecalho (ui/Cabecalho.cpp); o
+ * QTabWidget dela fica so com as paginas, sem filete — o do cabecalho basta. */
+QTabWidget#abas::pane {
+    border: none;
+}
+
+QTabWidget::tab-bar {
     left: 12px;
 }
 
 /* Sublinhado no lugar de "aba fisica": a contagem no titulo ("Prazos (12)")
  * ja muda de largura a cada sync, e moldura sombreada so soma ruido. */
 QTabBar::tab {
+    background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
-    padding: 10px 16px;
-    margin-right: 2px;
-    color: palette(placeholder-text);
+    padding: 10px 14px;
+    margin-right: 4px;
+    color: @text-2;
 }
 
 QTabBar::tab:hover {
-    color: palette(window-text);
+    color: @text;
 }
 
 QTabBar::tab:selected {
-    color: palette(window-text);
-    border-bottom-color: palette(highlight);
+    color: @text;
+    font-weight: bold;
+    border-bottom-color: @accent;
 }
 
 /* --- Botoes -------------------------------------------------------------- */
 
-QPushButton {
-    background: palette(base);
-    border: 1px solid palette(mid);
+/* Secundario e o padrao: moldura forte, fundo de superficie. */
+QPushButton,
+QToolButton {
+    background: @surface;
+    border: 1px solid @line-strong;
     border-radius: 8px;
-    padding: 8px 16px;
+    padding: 6px 14px;
+    color: @text;
 }
 
-QPushButton:hover {
-    background: palette(alternate-base);
+QPushButton:hover,
+QToolButton:hover {
+    background: @surface-2;
 }
 
-QPushButton:pressed {
-    background: palette(mid);
+QPushButton:pressed,
+QToolButton:pressed {
+    background: @surface-3;
 }
 
-QPushButton:disabled {
-    background: palette(window);
-    color: palette(mid);
+QPushButton:disabled,
+QToolButton:disabled {
+    background: @surface-2;
+    border-color: @line;
+    color: @text-off;
+}
+
+QToolButton::menu-indicator {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    right: 4px;
 }
 
 /* A acao principal do dialogo.  O Qt marca sozinho o botao Default, entao isto
  * pega "Entrar" e "Baixar" sem ninguem precisar etiquetar nada no .ui. */
 QPushButton:default {
-    background: palette(highlight);
-    border-color: palette(highlight);
-    color: palette(highlighted-text);
+    background: @accent-fill;
+    border-color: @accent-fill;
+    color: @on-accent;
+    font-weight: bold;
 }
 
 QPushButton:default:hover {
-    /* Sem cor propria para hover: qualquer tom escolhido aqui seria uma cor
-     * literal disfarcada.  O contorno da o retorno de que o botao respondeu. */
-    border-color: palette(window-text);
+    background: @accent-fill-hover;
+    border-color: @accent-fill-hover;
 }
 
 QPushButton:default:disabled {
-    background: palette(alternate-base);
-    border-color: palette(mid);
-    color: palette(mid);
+    background: @surface-2;
+    border-color: @line;
+    color: @text-off;
+}
+
+/* Foco visivel, e visivel de longe.  E acessibilidade antes de ser estetica:
+ * quem navega por Tab precisa saber onde esta. */
+QPushButton:focus,
+QToolButton:focus {
+    border-color: @focus;
+}
+
+/* Navegacao da semana na Agenda: setas quadradas (32px, fixadas em C++) e o
+ * "Hoje", com o canto de 7px e o cinza de apoio da referencia. */
+QToolButton#botaoSemanaAnterior,
+QToolButton#botaoSemanaSeguinte {
+    padding: 0;
+    border-radius: 7px;
+    color: @text-2;
+}
+
+QToolButton#botaoSemanaAnterior:hover,
+QToolButton#botaoSemanaSeguinte:hover {
+    color: @text;
+}
+
+/* Setas e "Periodo inteiro" da carga por semana: pequenos, no titulo da
+ * coluna, para nao competir com o grafico. */
+QToolButton#setaCarga {
+    padding: 0;
+    border-radius: 6px;
+    color: @text-2;
+    font-weight: bold;
+}
+
+QToolButton#setaCarga:hover {
+    color: @text;
+}
+
+QToolButton#botaoCargaCompleta {
+    padding: 2px 10px;
+    border-radius: 6px;
+    color: @text-2;
+}
+
+QToolButton#botaoCargaCompleta:hover {
+    color: @text;
+}
+
+QToolButton#botaoHoje {
+    padding: 0 12px;
+    border-radius: 7px;
+    font-weight: 600;
+}
+
+QLabel#rotuloResumoDia {
+    color: @text-2;
 }
 
 /* --- Campos -------------------------------------------------------------- */
@@ -167,31 +308,32 @@ QPushButton:default:disabled {
  */
 QLineEdit,
 QSpinBox,
+QDateTimeEdit,
 QPlainTextEdit,
 QTextEdit {
-    background: palette(base);
-    border: 1px solid palette(mid);
+    background: @bg;
+    border: 1px solid @line-strong;
     border-radius: 8px;
     padding-left: 10px;
     padding-right: 10px;
-    selection-background-color: palette(highlight);
-    selection-color: palette(highlighted-text);
+    color: @text;
+    selection-background-color: @accent-fill;
+    selection-color: @on-accent;
 }
 
-/* Foco visivel, e visivel de longe.  E acessibilidade antes de ser estetica:
- * quem navega por Tab precisa saber onde esta, e o anel pontilhado do Fusion
- * some contra fundo claro. */
 QLineEdit:focus,
 QSpinBox:focus,
+QDateTimeEdit:focus,
 QPlainTextEdit:focus,
 QTextEdit:focus {
-    border-color: palette(highlight);
+    border-color: @focus;
 }
 
 QLineEdit:disabled,
-QSpinBox:disabled {
-    background: palette(window);
-    color: palette(mid);
+QSpinBox:disabled,
+QDateTimeEdit:disabled {
+    background: @surface-2;
+    color: @text-off;
 }
 
 /* O QComboBox NAO e estilizado, e a ausencia custou tres tentativas:
@@ -210,39 +352,57 @@ QSpinBox:disabled {
  * tambem embutir a imagem da seta, porque `::down-arrow` sem `image` some.
  *
  * O preco de deixar o Fusion desenhar e um canto menos arredondado que o dos
- * outros campos.  O preco da alternativa foi um campo ilegivel em tres formas
- * diferentes.  A paleta do tema continua valendo: as cores saem dela, nao
- * daqui.
+ * outros campos.  A paleta do tema continua valendo: as cores saem dela.
  */
 
 /* A lista que desce do combo e uma janela separada: sem estas regras ela abre
  * com a moldura crua do Fusion, destoando do campo que a abriu. */
 QComboBox QAbstractItemView {
-    background: palette(base);
-    border: 1px solid palette(mid);
+    background: @surface;
+    border: 1px solid @line-strong;
     border-radius: 8px;
     padding: 4px;
     outline: none;
-    selection-background-color: palette(highlight);
-    selection-color: palette(highlighted-text);
+    selection-background-color: @accent-soft;
+    selection-color: @text;
 }
 
-/* --- Tabelas ------------------------------------------------------------- */
+/* Grupos das Opcoes e dos dialogos: cartao com titulo de secao, sem a moldura
+ * afundada do Fusion. */
+QGroupBox {
+    background: @surface;
+    border: 1px solid @line;
+    border-radius: 10px;
+    margin-top: 22px;
+    padding: 12px;
+}
 
-/* QHeaderView::section NAO e estilizado aqui, de proposito.  Qualquer regra
- * sobre ::section faz o Qt desenhar o cabecalho inteiro pelo QSS e o
- * indicador de ordenacao (a setinha) some — e as tres tabelas sao ordenaveis,
- * entao perder a seta e perder a unica pista de por qual coluna a lista esta
- * ordenada.  Padding de cabecalho nao vale esse preco. */
-QTableView {
-    background: palette(base);
-    border: none;
-    /* Sem grade.  A separacao entre linhas vem do respiro e da zebra; a grade
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 2px;
+    top: 0;
+    padding: 0 2px;
+    color: @text-3;
+}
+
+/* --- Listas e tabelas ---------------------------------------------------- */
+
+/* A lista e um cartao: superficie, filete e canto de 10px, como no prototipo.
+ * O raio fica em 8 e nao em 10 porque o viewport do Qt e retangular e so
+ * recua a espessura da borda — num raio maior, o canto dele aparece por fora
+ * da curva. */
+QTableView,
+QTreeView {
+    background: @surface;
+    border: 1px solid @line;
+    border-radius: 8px;
+    /* Sem grade.  A separacao entre linhas vem do filete de ::item; a grade
      * completa e o que faz uma lista parecer planilha de contabilidade. */
     gridline-color: transparent;
-    selection-background-color: palette(highlight);
-    selection-color: palette(highlighted-text);
-    alternate-background-color: palette(alternate-base);
+    selection-background-color: @accent-soft;
+    selection-color: @text;
+    alternate-background-color: @surface;
     outline: none;
 }
 
@@ -250,27 +410,151 @@ QTableView {
  * continuar batendo: o Qt nao conta o padding do QSS ao medir a largura de uma
  * coluna, entao e o C++ que soma a diferenca de volta.  Mudar um lado sozinho
  * corta a ultima palavra das colunas. */
-QTableView::item {
+QTableView::item,
+QTreeView::item {
     padding: 8px 10px;
     border: none;
+    border-bottom: 1px solid @line;
+}
+
+/* Na arvore, a coluna de setinhas e um subcontrole a parte: sem o mesmo
+ * filete, a linha divisoria comecaria recuada, depois da seta. */
+QTreeView::branch {
+    border-bottom: 1px solid @line;
+}
+
+/* Linha de grupo (dia da agenda, "Prazos atuais", aula com materiais): um
+ * degrau de superficie acima, como o cabecalho de grupo do prototipo. */
+QTreeView::item:has-children,
+QTreeView::branch:has-children {
+    background: @surface-2;
 }
 
 /* Linha inteira sob o cursor: a tabela de prazos e larga, e sem isto o olho
  * perde a linha no meio do caminho entre a turma e a data. */
-QTableView::item:hover {
-    background: palette(alternate-base);
+QTableView::item:hover,
+QTreeView::item:hover {
+    background: @surface-2;
+}
+
+QTableView::item:selected,
+QTreeView::item:selected,
+QTreeView::branch:selected {
+    background: @accent-soft;
+    color: @text;
+}
+
+/* Setas de abrir/fechar grupo.  Sem estas imagens o QSS de ::branch acima
+ * apagaria as do Fusion. */
+QTreeView::branch:has-children:closed {
+    image: @seta-direita;
+}
+
+QTreeView::branch:has-children:open {
+    image: @seta-baixo;
+}
+
+/* Cabecalho plano, rotulo em caixa-alta (a fonte vem de tema::ajustarLista).
+ *
+ * Estilizar ::section passa o cabecalho INTEIRO para o QSS, e a seta de
+ * ordenacao so aparece se a folha disser qual imagem usar — as setas sao
+ * geradas por Tema.cpp na cor do tema.  Sem elas as tabelas, todas
+ * ordenaveis, perderiam a unica pista de por qual coluna estao ordenadas. */
+QHeaderView {
+    background: @surface-2;
+    border: none;
+}
+
+QHeaderView::section {
+    background: @surface-2;
+    color: @text-3;
+    border: none;
+    border-bottom: 1px solid @line;
+    padding: 8px 10px;
+}
+
+QHeaderView::up-arrow {
+    image: @seta-cima;
+    subcontrol-position: center right;
+    width: 10px;
+    height: 8px;
+    right: 8px;
+}
+
+QHeaderView::down-arrow {
+    image: @seta-baixo;
+    subcontrol-position: center right;
+    width: 10px;
+    height: 8px;
+    right: 8px;
+}
+
+QTableCornerButton::section {
+    background: @surface-2;
+    border: none;
 }
 
 /* QCalendarWidget tem uma QTableView POR DENTRO (QCalendarView herda de
  * QTableView), entao as regras acima caem nela sem ninguem pedir: o padding de
- * ::item incha cada celula do mes e a grade fica desalinhada do cabecalho dos
- * dias da semana.  Desfaz so para o calendario. */
+ * ::item incha cada celula do mes, a moldura de cartao vira caixa dentro de
+ * caixa e o filete risca a grade.  Desfaz so para o calendario. */
+QCalendarWidget QTableView {
+    border: none;
+    border-radius: 0;
+    background: @surface;
+    selection-background-color: @accent-soft;
+    selection-color: @text;
+}
+
 QCalendarWidget QTableView::item {
     padding: 0;
+    border: none;
 }
 
 QCalendarWidget QTableView::item:hover {
     background: transparent;
+}
+
+QCalendarWidget QTableView::item:selected {
+    background: @accent-soft;
+    color: @text;
+}
+
+/* Barra de navegacao do mes: o Fusion pinta de Highlight (azul cheio), que no
+ * prototipo e so para a acao principal. */
+QCalendarWidget QWidget#qt_calendar_navigationbar {
+    background: @surface;
+    border-bottom: 1px solid @line;
+    padding: 4px;
+}
+
+QCalendarWidget QToolButton {
+    background: transparent;
+    border: 1px solid transparent;
+    color: @text;
+    font-weight: bold;
+    padding: 4px 8px;
+}
+
+QCalendarWidget QToolButton:hover {
+    background: @surface-2;
+    border-color: @line-strong;
+}
+
+QCalendarWidget QToolButton#qt_calendar_prevmonth,
+QCalendarWidget QToolButton#qt_calendar_nextmonth {
+    border-color: @line-strong;
+    min-width: 24px;
+}
+
+QCalendarWidget QToolButton::menu-indicator {
+    image: none;
+    width: 0;
+}
+
+QCalendarWidget QSpinBox {
+    background: @surface;
+    border: 1px solid @line-strong;
 }
 
 /* --- Rolagem ------------------------------------------------------------- */
@@ -291,7 +575,7 @@ QScrollBar:horizontal {
 
 QScrollBar::handle:vertical,
 QScrollBar::handle:horizontal {
-    background: palette(mid);
+    background: @line-strong;
     border-radius: 4px;
     border: 3px solid transparent;
 }
@@ -305,7 +589,7 @@ QScrollBar::handle:horizontal {
 }
 
 QScrollBar::handle:hover {
-    background: palette(dark);
+    background: @text-3;
 }
 
 QScrollBar::add-line,
@@ -319,32 +603,95 @@ QScrollBar::sub-page {
     background: transparent;
 }
 
-/* --- Dashboard de provas ------------------------------------------------- */
+/* --- Divisor ------------------------------------------------------------- */
 
-/* Cartao de resumo.  So chrome: fundo, borda e respiro.  O tamanho de fonte e
- * o cinza do texto secundario ficam em JanelaPrincipal.cpp — fonte porque um
- * "font-size" cravado aqui ignoraria a escala do sistema, e cinza porque
- * palette(placeholder-text) so funciona em algumas propriedades do parser de
- * QSS (ver a nota no fim deste arquivo). */
-QFrame[classe="cartao"] {
-    background: palette(base);
-    border: 1px solid palette(mid);
-    border-radius: 12px;
-    padding: 16px;
+/* A alca pontilhada do Fusion entre Agenda e Prazos era o unico enfeite
+ * "de sistema" que sobrava na tela.  Vira so espaco — o cursor ainda muda. */
+QSplitter::handle {
+    background: transparent;
 }
 
-/* O calendario nao leva fundo de cartao: ele ja e uma grade densa, e uma
- * moldura em volta transformaria a aba em caixa dentro de caixa. */
-QCalendarWidget QAbstractItemView {
-    outline: none;
-    selection-background-color: palette(highlight);
-    selection-color: palette(highlighted-text);
+/* --- Dashboard de provas ------------------------------------------------- */
+
+/* Cartao de resumo.  So chrome: fundo, borda e respiro.  O tamanho de fonte
+ * fica em JanelaPrincipal.cpp, porque um "font-size" cravado aqui ignoraria a
+ * escala do sistema. */
+QFrame[classe="cartao"] {
+    background: @surface;
+    border: 1px solid @line;
+    border-radius: 10px;
+}
+
+/* O painel de resumo e UM cartao com duas colunas; o filete entre elas e um
+ * QFrame de 1px pintado aqui. */
+QFrame#fileteVertical {
+    background: @line;
+    border: none;
+    margin: 16px 0;
+}
+
+/* --- Pilulas ------------------------------------------------------------- */
+
+/* Aviso pequeno que exige acao ("○ 8 datas a confirmar"): tinta de estado
+ * sobre o "soft" dela, como as pilulas das tabelas. */
+QToolButton[classe="pilulaAviso"] {
+    background: @warn-soft;
+    color: @warn;
+    border: 1px solid transparent;
+    border-radius: 11px;
+    padding: 2px 10px;
+    font-weight: bold;
+}
+
+/* Clicavel (abre "Datas a confirmar"): o contorno na cor do aviso e a pista. */
+QToolButton[classe="pilulaAviso"]:hover {
+    border-color: @warn;
+}
+
+/* --- Datas a confirmar --------------------------------------------------- */
+
+/* Linhas separadas por filete, como as das listas. */
+QFrame#linhaConfirmar {
+    border: none;
+    border-bottom: 1px solid @line;
+}
+
+QWidget#listaConfirmar {
+    background: transparent;
+}
+
+/* Papeis de botao dentro de listas: secundario (com moldura), discreto (sem)
+ * e perigo (sem moldura, texto vermelho) — "Nao e prova" tira algo do app, e
+ * precisa se distinguir de "Confirmar" sem gritar. */
+QPushButton[papel="secundario"] {
+    border-color: @line-strong;
+}
+
+QPushButton[papel="discreto"] {
+    background: transparent;
+    border-color: transparent;
+    color: @text-2;
+}
+
+QPushButton[papel="discreto"]:hover {
+    background: @surface-2;
+    color: @text;
+}
+
+QPushButton[papel="perigo"] {
+    background: transparent;
+    border-color: transparent;
+    color: @danger;
+}
+
+QPushButton[papel="perigo"]:hover {
+    background: @danger-soft;
 }
 
 /* --- Progresso ----------------------------------------------------------- */
 
 QProgressBar {
-    background: palette(alternate-base);
+    background: @surface-3;
     border: none;
     border-radius: 3px;
     max-height: 6px;
@@ -352,15 +699,16 @@ QProgressBar {
 }
 
 QProgressBar::chunk {
-    background: palette(highlight);
+    background: @accent-fill;
     border-radius: 3px;
 }
 
 /* --- Barra de status ----------------------------------------------------- */
 
 QStatusBar {
-    border-top: 1px solid palette(mid);
-    background: palette(base);
+    border-top: 1px solid @line;
+    background: @surface;
+    color: @text-2;
 }
 
 /* Tira o entalhe que o Qt desenha em volta de cada widget da barra. */
@@ -370,58 +718,116 @@ QStatusBar::item {
 
 QStatusBar QLabel {
     padding: 4px 8px;
+    color: @text-2;
 }
 
 /* --- Menus e dicas ------------------------------------------------------- */
 
 QMenu {
-    background: palette(base);
-    border: 1px solid palette(mid);
-    border-radius: 8px;
+    background: @surface;
+    border: 1px solid @line-strong;
+    border-radius: 10px;
     padding: 4px;
+    color: @text;
 }
 
 QMenu::item {
     padding: 7px 24px 7px 12px;
-    border-radius: 5px;
+    border-radius: 6px;
 }
 
 QMenu::item:selected {
-    background: palette(highlight);
-    color: palette(highlighted-text);
+    background: @accent-soft;
+    color: @text;
+}
+
+QMenu::item:disabled {
+    color: @text-off;
 }
 
 QMenu::separator {
     height: 1px;
-    background: palette(mid);
+    background: @line;
     margin: 4px 8px;
 }
 
 QToolTip {
-    background: palette(tooltip-base);
-    color: palette(tooltip-text);
+    background: @tooltip;
+    color: @on-tooltip;
     border: none;
     border-radius: 6px;
     padding: 6px 8px;
 }
 
-/* --- Dialogo de login ---------------------------------------------------- */
+/* --- Caixas de marcar ---------------------------------------------------- */
+
+/* Marcada = acao azul com o visto branco, como no prototipo.  A imagem do
+ * visto e gerada por Tema.cpp, pela mesma razao das setas. */
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1px solid @line-strong;
+    background: @bg;
+}
+
+QCheckBox::indicator:hover {
+    border-color: @accent;
+}
+
+QCheckBox::indicator:checked {
+    background: @accent-fill;
+    border-color: @accent-fill;
+    image: @visto;
+}
+
+QCheckBox::indicator:disabled {
+    background: @surface-2;
+    border-color: @line;
+}
+
+QCheckBox::indicator:checked:disabled {
+    background: @surface-3;
+    border-color: @surface-3;
+}
+
+QCheckBox:disabled {
+    color: @text-off;
+}
+
+/* --- Rotulos com papel --------------------------------------------------- */
 
 QLabel[classe="titulo"] {
     font-weight: bold;
 }
 
-/* A cor das notas (o cinza de texto secundario) NAO esta aqui: o palette() do
- * QSS so aceita a lista fechada de papeis que o parser conhece, e
- * placeholder-text nao esta nela para a propriedade `color`.  A regra seria
- * descartada em silencio.  Fica em DialogoLogin.cpp, via
- * QPalette::PlaceholderText, que existe de verdade.
- *
- * Consequencia pratica: nao adianta acrescentar `color:` aqui para QLabel de
- * classe "nota" — o C++ ja resolveu, e QSS venceria a paleta. */
+/* Rotulo de secao do design system ("AULAS", "PRAZOS"): negrito, caixa-alta
+ * e tamanho vem do C++; aqui so a cor.  NADA de `font-weight` aqui: qualquer
+ * propriedade de fonte no QSS remonta a fonte do rotulo e a caixa-alta some. */
+QLabel[classe="secao"] {
+    color: @text-3;
+}
+
+/* Recado neutro: o que vai acontecer, sem alarme. */
 QLabel[classe="recado"] {
-    background: palette(alternate-base);
-    border: 1px solid palette(mid);
-    border-radius: 8px;
+    background: @surface-2;
+    border: 1px solid @line;
+    border-radius: 10px;
     padding: 10px 12px;
+    color: @text;
+}
+
+/* Aviso de consequencia ("3 senhas erradas bloqueiam a conta"). */
+QLabel[classe="alerta"] {
+    background: @warn-soft;
+    border: none;
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: @text;
+}
+
+/* Notas cinzas.  Antes isto era feito em C++ (esmaecer) porque o QSS nao
+ * enxerga palette(placeholder-text); com tokens a cor tem nome. */
+QLabel[classe="nota"] {
+    color: @text-3;
 }

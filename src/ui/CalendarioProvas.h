@@ -35,15 +35,28 @@ public:
     // vale filtrar a lista pelo dia clicado.
     int provasEm(QDate d) const;
 
+    // Para o calendário do mês seguinte: quem manda na página dele é o
+    // primeiro, então ele nunca salta sozinho para a próxima prova.
+    void naoPosicionarSozinho() { jaPosicionou_ = true; }
+
+    // Desliga o destaque da data selecionada. O QCalendarWidget não tem "nada
+    // selecionado", e no calendário do mês seguinte a seleção herdada (hoje)
+    // aparecia pintada entre os dias do mês anterior.
+    void mostrarSelecao(bool sim);
+
 protected:
     void paintCell(QPainter* p, const QRect& r, QDate d) const override;
+    void changeEvent(QEvent* ev) override;
 
 private:
+    void pintarFimDeSemana();
+
     QMap<QDate, DiaComProva> provas_;
     // O mês exibido só salta para a próxima prova UMA vez, na primeira carga.
     // Sem isto, o sync automático arrastaria o calendário de volta a cada 20
     // minutos enquanto o usuário estivesse folheando outro mês.
     bool jaPosicionou_{false};
+    bool mostrarSelecao_{true};
 };
 
 } // namespace sigaa::ui

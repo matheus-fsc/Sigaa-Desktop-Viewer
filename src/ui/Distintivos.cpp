@@ -49,7 +49,8 @@ QColor fundoDe(Tom t, const QPalette& p) {
     // Opacidade, e não uma cor clara fixa: assim o mesmo código funciona sobre
     // a linha branca, sobre a linha zebrada e sobre a seleção azul, que é onde
     // um "#FDECEC" cravado apareceria como mancha.
-    c.setAlpha(tema::modo() == tema::Modo::Escuro ? 56 : 34);
+    // ~16% no escuro e ~13% no claro: os "soft" do design system.
+    c.setAlpha(tema::modo() == tema::Modo::Escuro ? 44 : 34);
     return c;
 }
 
@@ -76,9 +77,13 @@ void DelegadoDistintivo::paint(QPainter* p, const QStyleOptionViewItem& opcao,
 
     p->save();
     p->setRenderHint(QPainter::Antialiasing);
-    p->setFont(opcao.font);
+    // Negrito, como no design system: a pílula é o que exige ação na linha, e
+    // é por ela que o olho entra.
+    QFont fonteEtiqueta = opcao.font;
+    fonteEtiqueta.setWeight(QFont::Bold);
+    p->setFont(fonteEtiqueta);
 
-    const QFontMetrics fm(opcao.font);
+    const QFontMetrics fm(fonteEtiqueta);
     // A etiqueta encolhe antes da célula: numa coluna estreitada pelo usuário,
     // um retângulo maior que a célula vazaria por cima da coluna vizinha.
     const int larguraMax = opcao.rect.width() - 2 * kPadH;
@@ -97,11 +102,9 @@ void DelegadoDistintivo::paint(QPainter* p, const QStyleOptionViewItem& opcao,
     forma.addRoundedRect(etiqueta, kRaio, kRaio);
     p->fillPath(forma, fundoDe(t, opcao.palette));
 
-    // Sobre a linha selecionada, a tinta do tom pode encostar no azul da
-    // seleção. O texto da seleção vence: ali a legibilidade importa mais que
-    // a nuance do tom, que o fundo da etiqueta continua dando.
-    const bool selecionada = opcao.state & QStyle::State_Selected;
-    p->setPen(selecionada ? opcao.palette.color(QPalette::HighlightedText) : tintaDe(t));
+    // A seleção é um azul "soft" translúcido, então a tinta do tom continua
+    // legível sobre ela — trocar pela cor do texto apagaria a informação.
+    p->setPen(tintaDe(t));
     p->drawText(etiqueta, Qt::AlignCenter, mostrado);
     p->restore();
 }
@@ -125,7 +128,14 @@ QSize DelegadoDistintivo::sizeHint(const QStyleOptionViewItem& opcao,
     // Conta o respiro da etiqueta: sem isto o resizeColumnsToContents mede só
     // o texto e a coluna fica estreita demais, cortando a etiqueta na abertura
     // da janela — antes de o usuário ter chance de arrastar a divisória.
-    s.setWidth(s.width() + 2 * kPadH + 4);
+    //
+    // Medida em NEGRITO, que é como a etiqueta é pintada: o sizeHint da base
+    // mede a fonte normal, e a diferença cortava a última letra.
+    QFont negrito = opcao.font;
+    negrito.setWeight(QFont::Bold);
+    const int texto = QFontMetrics(negrito).horizontalAdvance(
+        indice.data(Qt::DisplayRole).toString());
+    s.setWidth(qMax(s.width(), texto + 6) + 2 * kPadH + 4);
     return s;
 }
 

@@ -1,6 +1,7 @@
 #include "ui/Tema.h"
 
 #include <algorithm>
+#include <vector>
 
 #include <QAbstractItemView>
 #include <QApplication>
@@ -9,6 +10,8 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QFontDatabase>
+#include <QRegularExpression>
+#include <QTemporaryDir>
 #include <QGuiApplication>
 #include <QStyleHints>
 #include <QTableView>
@@ -20,106 +23,109 @@ namespace {
 Modo emVigor = Modo::Claro;
 
 // --------------------------------------------------------------------------
-// Paletas
+// Tokens
 // --------------------------------------------------------------------------
 //
-// Os nomes dos papéis não são livres: o `.qss` já usa `palette(mid)` como cor
-// de BORDA e `palette(alternate-base)` como superfície de realce (fundo de
-// cartão, hover de botão). Trocar o sentido de um deles aqui redesenharia o
-// app inteiro de viés. Então `Mid` é sempre cinza de borda, e `AlternateBase`
-// é sempre uma superfície um passo acima do fundo.
+// Os mesmos nomes do design system (theme.css da referência de telas), para
+// que uma conversa sobre "--line-strong" valha igual no protótipo web e aqui.
+// A folha de estilo usa esses nomes como `@line-strong`; `resolverTokens`
+// troca cada um pela cor do tema em vigor antes de entregar a folha ao Qt.
+//
+// Por que tokens e não só `palette(...)`: a QPalette tem uma dúzia de papéis
+// fixos, e o desenho pede mais do que isso — três níveis de superfície, dois
+// de borda, três de texto, e o "soft" de cada cor de estado. Espremer isso nos
+// papéis do Qt obrigava a escolher qual papel mentiria (o `Mid` virava borda,
+// o `AlternateBase` virava hover), e o QSS não enxerga `placeholder-text` na
+// propriedade `color`. Com tokens, cada cor tem o nome do que ela é.
+//
+// A regra "nenhuma cor literal no .qss" continua: o que mudou é que agora há
+// vocabulário suficiente para cumpri-la.
 
-struct Cores {
-    QColor janela;        // fundo da janela
-    QColor texto;         // texto sobre a janela
-    QColor base;          // fundo de campo e de lista
-    QColor superficie;    // AlternateBase: cartão, zebra, hover
-    QColor borda;         // Mid
-    QColor secundario;    // PlaceholderText: o cinza legível
-    QColor destaque;      // Highlight
-    QColor sobreDestaque; // HighlightedText
-    QColor desabilitado;
-    QColor dica;          // fundo de tooltip
-
-    QColor atrasado;
-    QColor urgente;
-    QColor apagado;
-    QColor sucesso;
+struct Token {
+    const char* nome;
+    QColor escuro;
+    QColor claro;
 };
 
-// Claro. O fundo não é branco puro: #FFFFFF de parede com tabelas brancas em
-// cima apaga a separação entre o conteúdo e a moldura, e é o que faz um app
-// parecer uma planilha. A janela recua um tom e as superfícies sobem.
-const Cores& claro() {
-    static const Cores c{
-        /*janela*/ QColor(0xF6, 0xF7, 0xF9),
-        /*texto*/ QColor(0x1B, 0x1F, 0x24),
-        /*base*/ QColor(0xFF, 0xFF, 0xFF),
-        /*superficie*/ QColor(0xEF, 0xF1, 0xF4),
-        /*borda*/ QColor(0xDC, 0xE0, 0xE6),
-        /*secundario*/ QColor(0x66, 0x6E, 0x7A),
-        /*destaque*/ QColor(0x2F, 0x62, 0xE8),
-        /*sobreDestaque*/ QColor(0xFF, 0xFF, 0xFF),
-        /*desabilitado*/ QColor(0xA3, 0xAA, 0xB4),
-        /*dica*/ QColor(0x1B, 0x1F, 0x24),
-
-        /*atrasado*/ QColor(0xC0, 0x2A, 0x2A),
-        /*urgente*/ QColor(0xB4, 0x5B, 0x04),
-        /*apagado*/ QColor(0x8A, 0x92, 0x9E),
-        /*sucesso*/ QColor(0x1B, 0x7F, 0x4B),
-    };
+QColor rgba(int r, int g, int b, double a) {
+    QColor c(r, g, b);
+    c.setAlphaF(a);
     return c;
 }
 
-// Escuro. Nada de preto puro: #000 com texto branco produz o halo que cansa a
-// vista em leitura longa, e a lista de prazos é para ser lida.
-const Cores& escuro() {
-    static const Cores c{
-        /*janela*/ QColor(0x15, 0x18, 0x1D),
-        /*texto*/ QColor(0xE3, 0xE7, 0xEC),
-        /*base*/ QColor(0x1B, 0x1F, 0x26),
-        /*superficie*/ QColor(0x23, 0x28, 0x31),
-        /*borda*/ QColor(0x32, 0x39, 0x45),
-        /*secundario*/ QColor(0x8B, 0x94, 0xA3),
-        /*destaque*/ QColor(0x5B, 0x8D, 0xEF),
-        /*sobreDestaque*/ QColor(0x0D, 0x11, 0x17),
-        /*desabilitado*/ QColor(0x5A, 0x63, 0x70),
-        /*dica*/ QColor(0x2B, 0x31, 0x3B),
-
-        // Mais claras e menos saturadas que as do tema claro: a mesma tinta que
-        // se lê sobre branco vira um borrão escuro sobre #15181D.
-        /*atrasado*/ QColor(0xFF, 0x6B, 0x6B),
-        /*urgente*/ QColor(0xF0, 0xA1, 0x3E),
-        /*apagado*/ QColor(0x76, 0x7F, 0x8C),
-        /*sucesso*/ QColor(0x54, 0xC3, 0x8A),
+// Ordem: os nomes que são prefixo de outro (surface / surface-2) não importam
+// aqui — a troca casa o nome inteiro, não um prefixo.
+const std::vector<Token>& tokens() {
+    static const std::vector<Token> t{
+        // Escuro: nada de preto puro — #000 com texto branco produz o halo que
+        // cansa a vista em leitura longa. Claro: fundo recuado um tom, para
+        // que a superfície branca das listas se separe da moldura.
+        {"bg", QColor(0x1b, 0x1f, 0x27), QColor(0xf4, 0xf5, 0xf8)},
+        {"surface", QColor(0x22, 0x27, 0x33), QColor(0xff, 0xff, 0xff)},
+        {"surface-2", QColor(0x2a, 0x30, 0x3d), QColor(0xf0, 0xf2, 0xf6)},
+        {"surface-3", QColor(0x34, 0x3b, 0x4a), QColor(0xe4, 0xe8, 0xee)},
+        {"line", QColor(0x33, 0x3a, 0x48), QColor(0xe0, 0xe4, 0xea)},
+        {"line-strong", QColor(0x46, 0x50, 0x64), QColor(0xc8, 0xce, 0xd8)},
+        {"text", QColor(0xe7, 0xea, 0xf0), QColor(0x1a, 0x1f, 0x29)},
+        {"text-2", QColor(0xb3, 0xbb, 0xc9), QColor(0x45, 0x4d, 0x5c)},
+        {"text-3", QColor(0x8e, 0x97, 0xa8), QColor(0x5d, 0x66, 0x77)},
+        {"text-off", QColor(0x5f, 0x68, 0x7a), QColor(0xa3, 0xaa, 0xb6)},
+        {"accent", QColor(0x8a, 0xad, 0xf5), QColor(0x2a, 0x5c, 0xc4)},
+        {"accent-fill", QColor(0x3d, 0x6f, 0xd6), QColor(0x2f, 0x63, 0xcc)},
+        {"accent-fill-hover", QColor(0x4a, 0x7b, 0xe0), QColor(0x28, 0x57, 0xb8)},
+        {"on-accent", QColor(0xff, 0xff, 0xff), QColor(0xff, 0xff, 0xff)},
+        {"accent-soft", rgba(91, 141, 239, .17), rgba(47, 99, 204, .10)},
+        {"warn", QColor(0xec, 0xa8, 0x5f), QColor(0x95, 0x50, 0x06)},
+        {"warn-soft", rgba(224, 145, 58, .16), rgba(224, 145, 58, .17)},
+        {"danger", QColor(0xf2, 0x8f, 0x8f), QColor(0xb0, 0x30, 0x2d)},
+        {"danger-soft", rgba(229, 100, 100, .16), rgba(214, 69, 65, .11)},
+        {"ok", QColor(0x72, 0xd0, 0x9a), QColor(0x1b, 0x71, 0x41)},
+        {"ok-soft", rgba(95, 197, 138, .15), rgba(40, 160, 90, .13)},
+        {"focus", QColor(0x9a, 0xb8, 0xff), QColor(0x2f, 0x63, 0xcc)},
+        {"tooltip", QColor(0x34, 0x3b, 0x4a), QColor(0x1a, 0x1f, 0x29)},
+        {"on-tooltip", QColor(0xe7, 0xea, 0xf0), QColor(0xff, 0xff, 0xff)},
     };
-    return c;
+    return t;
 }
 
-const Cores& atual() { return emVigor == Modo::Escuro ? escuro() : claro(); }
 
-QPalette montarPaleta(const Cores& c) {
+// Como o QSS quer a cor. `rgba()` só quando há transparência: é o que deixa os
+// "soft" funcionarem sobre qualquer fundo — linha, cartão ou seleção.
+QString emQss(const QColor& c) {
+    if (c.alpha() == 255) return c.name(QColor::HexRgb);
+    return QStringLiteral("rgba(%1, %2, %3, %4)")
+        .arg(c.red())
+        .arg(c.green())
+        .arg(c.blue())
+        .arg(c.alpha());
+}
+
+QPalette montarPaleta() {
     QPalette p;
 
-    p.setColor(QPalette::Window, c.janela);
-    p.setColor(QPalette::WindowText, c.texto);
-    p.setColor(QPalette::Base, c.base);
-    p.setColor(QPalette::AlternateBase, c.superficie);
-    p.setColor(QPalette::Text, c.texto);
-    p.setColor(QPalette::PlaceholderText, c.secundario);
-    p.setColor(QPalette::Button, c.base);
-    p.setColor(QPalette::ButtonText, c.texto);
-    p.setColor(QPalette::Mid, c.borda);
-    p.setColor(QPalette::Midlight, c.superficie);
-    p.setColor(QPalette::Dark, c.secundario);
-    p.setColor(QPalette::Light, c.base);
-    p.setColor(QPalette::Shadow, c.borda);
-    p.setColor(QPalette::Highlight, c.destaque);
-    p.setColor(QPalette::HighlightedText, c.sobreDestaque);
-    p.setColor(QPalette::Link, c.destaque);
-    p.setColor(QPalette::LinkVisited, c.destaque);
-    p.setColor(QPalette::ToolTipBase, c.dica);
-    p.setColor(QPalette::ToolTipText, emVigor == Modo::Escuro ? c.texto : c.base);
+    p.setColor(QPalette::Window, token("bg"));
+    p.setColor(QPalette::WindowText, token("text"));
+    p.setColor(QPalette::Base, token("surface"));
+    p.setColor(QPalette::AlternateBase, token("surface-2"));
+    p.setColor(QPalette::Text, token("text"));
+    // O cinza de texto secundário do app (esmaecer() e companhia).
+    p.setColor(QPalette::PlaceholderText, token("text-3"));
+    p.setColor(QPalette::Button, token("surface"));
+    p.setColor(QPalette::ButtonText, token("text"));
+    p.setColor(QPalette::Mid, token("line"));
+    p.setColor(QPalette::Midlight, token("surface-2"));
+    p.setColor(QPalette::Dark, token("line-strong"));
+    p.setColor(QPalette::Light, token("surface"));
+    p.setColor(QPalette::Shadow, token("line"));
+    // Highlight é a AÇÃO (botão primário, aba ligada, caixa marcada). A
+    // seleção de linha usa o "soft", e sai do QSS — um bloco azul cheio por
+    // cima de uma linha de prazos apagava as etiquetas de estado dela.
+    p.setColor(QPalette::Highlight, token("accent-fill"));
+    p.setColor(QPalette::HighlightedText, token("on-accent"));
+    p.setColor(QPalette::Link, token("accent"));
+    p.setColor(QPalette::LinkVisited, token("accent"));
+    p.setColor(QPalette::ToolTipBase, token("tooltip"));
+    p.setColor(QPalette::ToolTipText, token("on-tooltip"));
 
     // O grupo Disabled é obrigatório, não enfeite: sem ele o Qt deriva o
     // cinza de desabilitado da paleta PADRÃO, não desta — e no tema escuro o
@@ -127,11 +133,93 @@ QPalette montarPaleta(const Cores& c) {
     // desta janela ficam desabilitados o tempo todo durante o sync.
     for (const auto papel : {QPalette::WindowText, QPalette::Text,
                              QPalette::ButtonText, QPalette::HighlightedText}) {
-        p.setColor(QPalette::Disabled, papel, c.desabilitado);
+        p.setColor(QPalette::Disabled, papel, token("text-off"));
     }
-    p.setColor(QPalette::Disabled, QPalette::Highlight, c.superficie);
+    p.setColor(QPalette::Disabled, QPalette::Highlight, token("surface-2"));
 
     return p;
+}
+
+// Pequenos desenhos que a folha de estilo referencia por caminho: as setas de
+// ordenação e de grupo, e o visto da caixa marcada.
+//
+// POR QUE EXISTEM: estilizar `QHeaderView::section` passa o cabeçalho inteiro
+// para o QStyleSheetStyle, e a partir daí a seta de ordenação só aparece se a
+// folha disser qual imagem usar — sem isso ela some, e as tabelas são todas
+// ordenáveis. O mesmo vale para `::branch` e `QCheckBox::indicator`. Uma
+// imagem fixa no .qrc teria uma cor só, legível em um dos temas; então o SVG é
+// escrito aqui, com a cor do token, numa pasta temporária que vive enquanto o
+// app viver.
+QString gravarTraco(const QString& nome, const QString& pontos, const QColor& cor,
+                    int largura, int altura, double espessura) {
+    static QTemporaryDir pasta;
+    if (!pasta.isValid()) return {};
+
+    const QString svg =
+        QStringLiteral(
+            "<svg xmlns='http://www.w3.org/2000/svg' width='%1' height='%2' "
+            "viewBox='0 0 %1 %2'><polyline points='%3' fill='none' stroke='%4' "
+            "stroke-width='%5' stroke-linecap='round' stroke-linejoin='round'/></svg>")
+            .arg(largura)
+            .arg(altura)
+            .arg(pontos, cor.name(QColor::HexRgb))
+            .arg(espessura);
+
+    // Nome com o modo: trocar de tema com o app aberto grava um arquivo NOVO.
+    // Reescrever o mesmo caminho não adiantaria — o Qt guarda a imagem em
+    // cache pelo caminho e continuaria pintando a seta da cor antiga.
+    const QString caminho = pasta.filePath(
+        nome + (emVigor == Modo::Escuro ? QStringLiteral("-escuro.svg")
+                                        : QStringLiteral("-claro.svg")));
+    QFile f(caminho);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return {};
+    f.write(svg.toUtf8());
+    return QStringLiteral("url(%1)").arg(caminho);
+}
+
+// Troca cada `@nome` da folha pela cor do token, e os desenhos (`@seta-cima`,
+// `@visto`...) por `url(caminho)`. Os desenhos vão primeiro: `@seta-baixo`
+// não é token de cor e viraria aviso. Um `@nome` que não existe fica como está e vira
+// aviso no console — o Qt descartaria a regra em silêncio, e é melhor alguém
+// ver o erro de digitação.
+QString resolverTokens(QString folha) {
+    // Comentários fora antes: eles citam tokens como exemplo ("`@nome`"), e
+    // cada citação viraria um aviso falso de token desconhecido.
+    static const QRegularExpression comentario(
+        QStringLiteral("/\\*.*?\\*/"), QRegularExpression::DotMatchesEverythingOption);
+    folha.remove(comentario);
+
+    const QColor seta = token("text-3");
+    // `@seta-baixo-texto` ANTES de `@seta-baixo`: o nome curto é prefixo do
+    // longo, e trocado primeiro deixaria um "-texto" solto na folha.
+    folha.replace(QStringLiteral("@seta-baixo-texto"),
+                  gravarTraco(QStringLiteral("seta-baixo-texto"), QStringLiteral("1,2 5,6 9,2"),
+                              token("text"), 10, 8, 1.8));
+    folha.replace(QStringLiteral("@seta-cima"),
+                  gravarTraco(QStringLiteral("seta-cima"), QStringLiteral("1,6 5,2 9,6"), seta, 10, 8, 1.6));
+    folha.replace(QStringLiteral("@seta-baixo"),
+                  gravarTraco(QStringLiteral("seta-baixo"), QStringLiteral("1,2 5,6 9,2"), seta, 10, 8, 1.6));
+    folha.replace(QStringLiteral("@seta-direita"),
+                  gravarTraco(QStringLiteral("seta-direita"), QStringLiteral("3,1 7,5 3,9"), seta, 10, 10, 1.6));
+    folha.replace(QStringLiteral("@visto"),
+                  gravarTraco(QStringLiteral("visto"), QStringLiteral("3,8.5 6.5,12 13,4.5"),
+                              token("on-accent"), 16, 16, 2.0));
+
+    static const QRegularExpression re(QStringLiteral("@([a-z0-9-]+)"));
+    QString saida;
+    saida.reserve(folha.size());
+    qsizetype ultimo = 0;
+    auto it = re.globalMatch(folha);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        saida += QStringView(folha).mid(ultimo, m.capturedStart() - ultimo);
+        const QByteArray nome = m.captured(1).toLatin1();
+        const QColor c = token(nome.constData());
+        saida += c.isValid() ? emQss(c) : m.captured(0);
+        ultimo = m.capturedEnd();
+    }
+    saida += QStringView(folha).mid(ultimo);
+    return saida;
 }
 
 // --------------------------------------------------------------------------
@@ -148,6 +236,7 @@ QPalette montarPaleta(const Cores& c) {
 // qualquer máquina dos últimos dez anos.
 QStringList familias() {
     return {
+        QStringLiteral("Source Sans 3"),          // a do design system
         QStringLiteral("Inter"),                  // se o usuário tiver
         QStringLiteral("Segoe UI Variable Text"), // Windows 11
         QStringLiteral("Segoe UI"),               // Windows 10
@@ -193,6 +282,16 @@ Modo modoDoSistema() {
 
 Modo modo() { return emVigor; }
 
+QColor token(const char* nome) {
+    for (const auto& t : tokens()) {
+        if (qstrcmp(t.nome, nome) == 0) {
+            return emVigor == Modo::Escuro ? t.escuro : t.claro;
+        }
+    }
+    qWarning("tema: token desconhecido '%s'", nome);
+    return {};
+}
+
 QFont fonte(Papel papel) {
     QFont f = QApplication::font();
     f.setFamilies(familias());
@@ -200,8 +299,10 @@ QFont fonte(Papel papel) {
     const qreal base = tamanhoBase();
     switch (papel) {
     case Papel::Titulo:
-        f.setPointSizeF(base * 1.5);
-        f.setWeight(QFont::DemiBold);
+        // 22/14 no design system: título de tela é o maior texto do app, e
+        // em negrito cheio — é ele que diz "você está aqui".
+        f.setPointSizeF(base * 1.55);
+        f.setWeight(QFont::Bold);
         // Título grande com espaçamento normal parece esticado; fechar um
         // pouco é o que o olho lê como "tipografia cuidada".
         f.setLetterSpacing(QFont::PercentageSpacing, 99);
@@ -230,17 +331,43 @@ QFont fonte(Papel papel) {
 }
 
 namespace cor {
-QColor atrasado() { return atual().atrasado; }
-QColor urgente() { return atual().urgente; }
-QColor inferido() { return atual().urgente; }
-QColor apagado() { return atual().apagado; }
-QColor sucesso() { return atual().sucesso; }
+QColor atrasado() { return token("danger"); }
+QColor urgente() { return token("warn"); }
+QColor inferido() { return token("warn"); }
+QColor apagado() { return token("text-3"); }
+QColor sucesso() { return token("ok"); }
+QColor acento() { return token("accent"); }
 } // namespace cor
+
+namespace {
+
+// Rótulo de coluna do design system: 12/700 em caixa-alta, espaçado. Em C++ e
+// não no .qss pela mesma razão de sempre — tamanho de fonte sai da fonte do
+// sistema, e caixa-alta não é propriedade que o parser de QSS conheça.
+void ajustarCabecalho(QHeaderView* h) {
+    if (!h) return;
+    QFont f = fonte(Papel::Legenda);
+    f.setWeight(QFont::Bold);
+    f.setCapitalization(QFont::AllUppercase);
+    f.setLetterSpacing(QFont::PercentageSpacing, 107);
+    h->setFont(f);
+    // No viewport também, e não é redundância: com folha de estilo ativa o
+    // viewport resolve a própria fonte no polish e para de herdar a do
+    // cabeçalho — e é nele que o texto é pintado. Só no cabeçalho, a mudança
+    // não aparecia.
+    h->viewport()->setFont(f);
+    h->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+}
+
+} // namespace
 
 void ajustarLista(QAbstractItemView* v) {
     if (!v) return;
 
     v->setFrameShape(QFrame::NoFrame);
+    // Sem zebra: as linhas se separam por um filete (ver estilo.qss). Zebra e
+    // filete juntos são duas marcações dizendo a mesma coisa.
+    v->setAlternatingRowColors(false);
 
     // `setWordWrap` nao existe na base: cada view concreta tem o seu. Sem ele,
     // uma celula que cresce em altura desalinha a linha inteira, e os titulos
@@ -254,9 +381,11 @@ void ajustarLista(QAbstractItemView* v) {
         tv->verticalHeader()->setDefaultSectionSize(
             v->fontMetrics().height() + esp(5));
         tv->horizontalHeader()->setHighlightSections(false);
+        ajustarCabecalho(tv->horizontalHeader());
     } else if (auto* arv = qobject_cast<QTreeView*>(v)) {
         arv->setWordWrap(false);
         arv->header()->setHighlightSections(false);
+        ajustarCabecalho(arv->header());
         // NÃO uniformiza a altura: com ela o Qt mede a PRIMEIRA linha e repete
         // o número, então a linha de grupo (sem distintivo, mais baixa) ditava
         // a altura das de material — e a etiqueta de faltas saía cortada.
@@ -361,7 +490,7 @@ void aplicar(QApplication& app) {
         // redefine a paleta e apagaria a nossa; a folha por último, porque ela
         // é resolvida contra a paleta em vigor.
         app.setStyle(QStringLiteral("Fusion"));
-        app.setPalette(montarPaleta(atual()));
+        app.setPalette(montarPaleta());
         app.setFont(fonte(Papel::Corpo));
 
         // Do .qrc, não do disco: um arquivo solto ao lado do .exe seria mais
@@ -369,7 +498,7 @@ void aplicar(QApplication& app) {
         // vez que alguém copiasse só o executável.
         QFile f(QStringLiteral(":/estilo/estilo.qss"));
         if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-        app.setStyleSheet(QString::fromUtf8(f.readAll()));
+        app.setStyleSheet(resolverTokens(QString::fromUtf8(f.readAll())));
     };
 
     pintar();

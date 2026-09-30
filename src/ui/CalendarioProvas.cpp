@@ -1,8 +1,11 @@
 #include "ui/CalendarioProvas.h"
 
+#include <QEvent>
 #include <QPainter>
 #include <QPen>
 #include <QTextCharFormat>
+
+#include "ui/Tema.h"
 
 #include <algorithm>
 
@@ -19,7 +22,10 @@ QColor corDoDia(QDate d) {
     const int dias = static_cast<int>(QDate::currentDate().daysTo(d));
     if (dias < 0) return cor::apagado();
     if (dias <= 7) return cor::urgente();
-    return cor::atrasado().lighter(140);
+    // Azul de destaque, como na legenda do design system ("depois"). Antes era
+    // o vermelho de atrasado clareado — e vermelho, mesmo rosado, lê como
+    // problema numa prova que ainda está a semanas de distância.
+    return tema::cor::acento();
 }
 
 } // namespace
@@ -31,6 +37,22 @@ CalendarioProvas::CalendarioProvas(QWidget* pai) : QCalendarWidget(pai) {
     setHorizontalHeaderFormat(QCalendarWidget::ShortDayNames);
     setSelectionMode(QCalendarWidget::SingleSelection);
     setNavigationBarVisible(true);
+    pintarFimDeSemana();
+}
+
+void CalendarioProvas::pintarFimDeSemana() {
+    // Fim de semana em cinza, não no vermelho padrão do Qt: vermelho neste app
+    // quer dizer "atrasado", e um sábado não está atrasado. A cor sai do tema
+    // em vigor, então isto roda de novo a cada troca de paleta.
+    QTextCharFormat f;
+    f.setForeground(cor::apagado());
+    setWeekdayTextFormat(Qt::Saturday, f);
+    setWeekdayTextFormat(Qt::Sunday, f);
+}
+
+void CalendarioProvas::changeEvent(QEvent* ev) {
+    QCalendarWidget::changeEvent(ev);
+    if (ev->type() == QEvent::PaletteChange) pintarFimDeSemana();
 }
 
 int CalendarioProvas::provasEm(QDate d) const {
@@ -64,8 +86,31 @@ void CalendarioProvas::definirProvas(const QMap<QDate, DiaComProva>& provas) {
     updateCells();
 }
 
+void CalendarioProvas::mostrarSelecao(bool sim) {
+    if (mostrarSelecao_ == sim) return;
+    mostrarSelecao_ = sim;
+    updateCells();
+}
+
 void CalendarioProvas::paintCell(QPainter* p, const QRect& r, QDate d) const {
-    QCalendarWidget::paintCell(p, r, d);
+    if (!mostrarSelecao_ && d == selectedDate()) {
+        // A célula como se não estivesse selecionada: fundo da grade e o
+        // número na cor que o dia teria — apagado fora do mês, cinza no fim de
+        // semana, texto comum no resto. Pintado aqui, e não por folha de
+        // estilo: trocar a folha do widget em tempo de execução faz o Qt
+        // reposicionar o mês exibido.
+        p->save();
+        p->fillRect(r, palette().color(QPalette::Base));
+        const bool foraDoMes = d.month() != monthShown();
+        const bool fimDeSemana = d.dayOfWeek() >= 6;
+        p->setPen(foraDoMes     ? palette().color(QPalette::Disabled, QPalette::Text)
+                  : fimDeSemana ? cor::apagado()
+                                : palette().color(QPalette::Text));
+        p->drawText(r, Qt::AlignCenter, QString::number(d.day()));
+        p->restore();
+    } else {
+        QCalendarWidget::paintCell(p, r, d);
+    }
 
     const auto it = provas_.constFind(d);
     if (it == provas_.constEnd() || it->total() == 0) return;

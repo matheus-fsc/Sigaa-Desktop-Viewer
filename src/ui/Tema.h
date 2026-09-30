@@ -12,11 +12,13 @@
 //   visual padrão do Qt. As duas coisas vinham no mesmo pacote e só uma
 //   interessava.
 //
-//   Este arquivo separa as duas: a paleta passa a ser NOSSA, definida aqui em
-//   duas variantes (clara e escura) e escolhida pelo tema do sistema. O `.qss`
-//   continua sem uma cor literal sequer — `palette(base)`, `palette(mid)` e
-//   companhia agora resolvem contra estas cores. A regra fica mais forte, não
-//   mais fraca: passa a existir UM lugar onde a cor é decidida.
+//   Este arquivo separa as duas: as cores passam a ser NOSSAS — os tokens do
+//   design system (`bg`, `surface`, `line-strong`, `accent-fill`...), em duas
+//   variantes (clara e escura) escolhidas pelo tema do sistema. A QPalette é
+//   montada a partir deles, e o `.qss` os cita como `@nome`, trocados pela cor
+//   em vigor ao carregar a folha. O `.qss` continua sem uma cor literal sequer;
+//   a regra fica mais forte, não mais fraca: existe UM lugar onde a cor é
+//   decidida, e ele fala o mesmo vocabulário do protótipo das telas.
 //
 // SOBRE O ESTILO FUSION: `aplicar` troca o estilo nativo por Fusion, de
 // propósito. O estilo nativo do Windows 11 ignora QPalette em boa parte dos
@@ -147,12 +149,19 @@ void reservarAltura(QLabel* r, const QStringList& textos);
 // para isso, então são as únicas cores nomeadas fora da QPalette — e, como
 // tudo aqui, existem em duas versões, porque o vermelho que se lê sobre branco
 // some sobre #15181D.
+// Um token do design system pelo nome ("surface-3", "accent-soft"...), na
+// variante do tema em vigor. Para quem PINTA em C++ (delegates, cabeçalho); a
+// folha de estilo cita os mesmos nomes como `@nome`. Nome desconhecido devolve
+// cor inválida e avisa no console.
+QColor token(const char* nome);
+
 namespace cor {
 QColor atrasado();   // prazo vencido
 QColor urgente();    // vence em até 2 dias / prova nos próximos 7
 QColor inferido();   // dado deduzido, não cadastrado pelo professor
 QColor apagado();    // concluído ou já passado: presente, sem peso
 QColor sucesso();    // baixado, disponível offline
+QColor acento();     // informação sem urgência: prova daqui a mais de 7 dias
 } // namespace cor
 
 } // namespace sigaa::ui::tema
