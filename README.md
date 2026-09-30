@@ -46,6 +46,11 @@ a janela Qt mostra prazos, provas e atualizações e dispara sync em segundo pla
 Capturas do app com dados de exemplo. O tema acompanha o do sistema; as
 imagens abaixo estão no escuro.
 
+> As capturas ainda são do visual anterior. A interface ganhou o desenho do
+> protótipo de telas (cabeçalho com as abas embutidas, painel de resumo na aba
+> Provas, tema por tokens); o conteúdo e a hierarquia descritos aqui são os
+> mesmos, e as imagens serão refeitas com os dados de exemplo.
+
 ### Agenda
 
 A semana de aulas em cima, os prazos embaixo. A coluna **Faltas** mostra
@@ -68,6 +73,18 @@ coluna **SIGAA diz** mostra a data que ele ainda anuncia, para a correção pode
 ser conferida em vez de ter que ser acreditada.
 
 Provas cuja data já passou descem para uma seção recolhida.
+
+Acima da lista, um painel responde "o que vem aí": a próxima prova com local,
+origem da data, a matéria desde a prova anterior da turma e o estado offline
+dos arquivos; ao lado, a prova seguinte no mesmo formato; e a **carga por
+semana**, provas e entregas empilhadas por semana, com o período inteiro a um
+clique.
+
+Datas deduzidas de tópico de aula se confirmam juntas: a pílula **○ N datas a
+confirmar** abre a lista delas, com o título do tópico de onde cada uma saiu, e
+três respostas por linha: confirmar, corrigir a data ou dizer que **não é
+prova** ("Revisão para a P1" menciona prova, mas não é uma). O descarte tira a
+data da tabela, do calendário e do `.ics`, e se desfaz ali mesmo.
 
 ![Provas](docs/img/provas.png)
 
@@ -128,6 +145,9 @@ rápido demais é o aluno. O rótulo mostra a conta em requisições por dia, qu
 o número que faz alguém escolher um intervalo maior por vontade própria.
 
 Aqui também mora a atualização do app e o canto do desenvolvedor.
+
+Achou um erro ou tem uma ideia? **Bugs & sugestões**, no topo da janela, abre
+as [issues do repositório](https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/issues).
 
 <img src="docs/img/opcoes.png" width="560" alt="Opções">
 
@@ -347,6 +367,14 @@ No Windows o pacote é o `.exe` **mais as DLLs do Qt**, e o sistema não deixa
 sobrescrever DLL carregada, então o app baixa, confere, fecha, um auxiliar
 troca os arquivos e reabre. Se algo falhar no meio, a versão atual continua
 instalada.
+
+A consulta às releases é anônima e a API do GitHub limita esse tipo de acesso;
+estourando o limite, a resposta é HTTP 403 e o app diz isso. Quem esbarra nele
+(desenvolvendo, testando muitas vezes seguidas) pode definir `GITHUB_TOKEN` no
+ambiente. O token só é enviado para `https://api.github.com/`, conferido pelo
+começo da URL: os links de download vêm da resposta da API e não são todos do
+GitHub, e mandar a credencial de quem desenvolve para outro host seria
+entregá-la.
 
 O SHA-256 é implementado no próprio projeto (`core/atualizacao/Sha256.h`) e
 conferido contra os vetores do NIST: no Windows a libcurl usa Schannel e não há
@@ -683,9 +711,22 @@ e esconder a diferença faria o aluno estudar para a data errada sem desconfiar.
 
 ### Provas: lista e calendário
 
-A aba é um painel, não uma tabela. Três cartões no topo (próxima prova, quantas
-nos próximos 30 dias, quantas ainda dependem de confirmação), calendário do mês
-à esquerda e a lista completa à direita.
+A aba é um painel, não uma tabela. No topo, uma superfície em três colunas:
+
+- **Próxima prova**: nome, dia · hora · local (o local vem da turma), de onde
+  veio a data, os tópicos dados desde a prova anterior *da mesma turma* e os
+  arquivos deles, conferidos no cache offline. Prova de hoje cujo horário já
+  passou sai daqui; sem horário, vale o dia todo. Com duas ou mais no mesmo
+  dia, a coluna vira a lista do dia, uma prova por linha.
+- **Em seguida**: o próximo dia com prova, no mesmo formato. Nunca repete o
+  dia da coluna ao lado.
+- **Carga por semana**: seis semanas, uma coluna cada; bloco laranja é prova
+  (vazado se deduzida), cinza é entrega pendente, e o que já passou desce para
+  a base, apagado. As setas andam pelo período; **Período inteiro** mostra o
+  semestre todo, com a semana atual marcada. Clicar numa semana filtra a lista.
+
+Embaixo, o calendário (o mês e o seguinte, quando há altura para os dois) à
+esquerda e a lista completa à direita.
 
 Existem as duas vistas porque são duas perguntas diferentes. A lista responde
 "qual é a próxima?". O calendário responde "como está a minha semana?", três
@@ -847,14 +888,19 @@ O que **não** está no `.ui`, e por quê:
 | Olho de revelar senha | Vive *dentro* do `QLineEdit` (`addAction`) |
 | Texto do cofre, tooltip de período | Depende de `plat::` e das constantes em runtime |
 | Atalho de `Atualizar` | `QKeySequence::Refresh` é F5 no Windows e Cmd+R no macOS; o `.ui` cravaria F5 nos três |
+| Abas no cabeçalho (`ui/Cabecalho.cpp`) | A barra de abas do Qt não pinta a pílula de contagem; o `QTabWidget` do `.ui` continua dono das páginas |
+| Painel de resumo das Provas | Reaproveita os cartões do `.ui` como colunas e acrescenta o gráfico (`ui/CargaSemanal.cpp`) e a coluna "Em seguida" |
 
 Cores e espaçamento vêm de `src/ui/recursos/estilo.qss`, carregado do `.qrc` em
-`main.cpp`. **Regra do arquivo: nenhuma cor literal**, tudo sai de
-`palette(...)`, senão o app fica com texto branco sobre branco assim que o
-Windows entra no tema escuro. As únicas cores literais do app são as semânticas
-(`atrasado`, `urgente`, `inferido`, `apagado`) em `Modelos.h`: significam algo
-que a paleta do sistema não tem papel para expressar, e ficam num só lugar
-porque a tabela de provas e o calendário precisam concordar. Os ícones são SVG monocromáticos repintados em
+`main.cpp`. **Regra do arquivo: nenhuma cor literal.** Cada cor é um token com o
+nome do design system (`@surface`, `@line-strong`, `@accent-fill`, `@warn-soft`…),
+e `ui/Tema.cpp` troca o nome pela cor do tema em vigor, claro ou escuro, ao
+carregar a folha. A tabela de tokens existe **só** em `Tema.cpp`; quem pinta em
+C++ (pílulas, gráfico de carga, cabeçalho) pede a cor por `tema::token("nome")`,
+e as semânticas (`atrasado`, `urgente`, `inferido`, `apagado`) saem dos mesmos
+tokens, porque a tabela de provas e o calendário precisam concordar. Um `@nome`
+com erro de digitação vira aviso no console, em vez de uma regra descartada em
+silêncio. Os ícones são SVG monocromáticos repintados em
 runtime com a cor do tema (`Icones.cpp`), e `JanelaPrincipal::changeEvent`
 retinge quando o tema muda com o app aberto.
 
