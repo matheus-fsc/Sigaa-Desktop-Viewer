@@ -41,6 +41,8 @@ class QPushButton;
 
 namespace sigaa::ui {
 
+class PainelNoticias;
+
 // Raiz onde o material das turmas é salvo: Documentos/SIGAA.
 //
 // Vive aqui, e é usada também pela janela principal, porque o "Atualizar tudo"
@@ -179,6 +181,11 @@ private:
     std::unique_ptr<sync::SessaoTurma> turmaRemota_;
 
     std::vector<ArquivoTurma> arquivos_;
+    // Notícias da turma, no topo da aba Aulas. Lidas do banco (e não do
+    // snapshot da janela principal): o banco tem o texto mais completo que
+    // qualquer coleta já trouxe, inclusive a desta janela.
+    PainelNoticias* noticias_{nullptr};
+    void recarregarNoticias();
     std::vector<TopicoAula> topicos_;
     std::vector<Participante> participantes_;
 

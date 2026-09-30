@@ -37,6 +37,7 @@ public:
         bool entrarNasTurmas{false};
         bool arquivos{true};
         bool frequencia{true};
+        bool noticias{true};
         bool baixarMateriais{true};
     };
 
@@ -55,6 +56,7 @@ private:
     QListWidget* lista_{nullptr};
     QCheckBox* arquivos_{nullptr};
     QCheckBox* frequencia_{nullptr};
+    QCheckBox* noticias_{nullptr};
     QCheckBox* baixar_{nullptr};
     QCheckBox* soPortal_{nullptr};
     QLabel* resumo_{nullptr};

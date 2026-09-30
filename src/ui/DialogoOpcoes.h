@@ -41,6 +41,7 @@ public:
         // O que o ciclo completo busca dentro de cada turma.
         bool arquivos{true};
         bool frequencia{true};
+        bool noticias{true};
         bool baixarMateriais{true};
 
         // Procurar versão nova ao abrir o app. Só PROCURA — instalar continua
@@ -84,6 +85,7 @@ private:
     QComboBox* intervaloCompleto_{nullptr};
     QCheckBox* arquivos_{nullptr};
     QCheckBox* frequencia_{nullptr};
+    QCheckBox* noticias_{nullptr};
     QCheckBox* baixar_{nullptr};
     QLabel* resumo_{nullptr};
 

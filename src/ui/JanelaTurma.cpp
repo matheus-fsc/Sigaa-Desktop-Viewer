@@ -1,6 +1,7 @@
 #include "ui/JanelaTurma.h"
 
 #include <QDateTime>
+#include <set>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
@@ -38,6 +39,7 @@
 #include "ui/DialogosAvaliacao.h"
 #include "ui/Distintivos.h"
 #include "ui/Modelos.h"
+#include "ui/PainelNoticias.h"
 #include "ui/Tema.h"
 #include "ui_JanelaTurma.h"
 
@@ -95,6 +97,12 @@ JanelaTurma::JanelaTurma(Turma turma, std::vector<TopicoAula> topicos,
     if (!turma_.local.empty()) partes << QString::fromStdString(turma_.local);
     if (!turma_.periodo.empty()) partes << QString::fromStdString(turma_.periodo);
     formulario_->rotuloDetalhe->setText(partes.join(QStringLiteral(" · ")));
+
+    // Notícias no topo da aba Aulas, acima da linha do tempo: é o recado do
+    // professor, e é o que se lê primeiro ao abrir a turma.
+    noticias_ = new PainelNoticias(formulario_->abaAulas);
+    formulario_->layoutAulas->insertWidget(0, noticias_);
+    recarregarNoticias();
 
     for (QAbstractItemView* v :
          {static_cast<QAbstractItemView*>(formulario_->arvoreAulas),
@@ -262,6 +270,19 @@ bool JanelaTurma::garantirSessao(std::string* erro, bool* criouAgora) {
     return true;
 }
 
+void JanelaTurma::recarregarNoticias() {
+    store::Database db;
+    if (!db.aberto() || !db.migrar()) {
+        noticias_->definir({}, false);
+        return;
+    }
+    auto ns = db.carregarNoticias(turma_.idTurma);
+    // "Coletado" sem nenhuma notícia só se sabe quando a coleta passou por
+    // aqui; o banco não guarda "olhei e não tinha". Sem notícia, fica "ainda
+    // não coletadas" — o erro seguro, que convida a atualizar.
+    noticias_->definir(std::move(ns), false);
+}
+
 void JanelaTurma::atualizarDoSigaa() {
     if (ocupado_) return;
 
@@ -337,6 +358,21 @@ void JanelaTurma::atualizarDoSigaa() {
             }
         }
 
+        // Notícias: a lista (uma requisição) e o texto das que o banco ainda
+        // não tem, com o mesmo teto do ciclo. Grava já, como participantes,
+        // para a janela e o próximo ciclo verem o texto buscado aqui.
+        {
+            std::set<std::string> comTexto;
+            store::Database db;
+            if (db.aberto() && db.migrar()) comTexto = db.chavesNoticiasComTexto();
+            if (turmaRemota_->abrirNoticias(comTexto, 5) && db.aberto()) {
+                Snapshot parcial;
+                parcial.noticias = turmaRemota_->noticias();
+                db.gravar(parcial, static_cast<std::int64_t>(
+                                       QDateTime::currentSecsSinceEpoch()));
+            }
+        }
+
         if (turmaRemota_->abrirParticipantes(nullptr)) {
             // Grava já, sem esperar o próximo ciclo completo: sem isto a aba
             // voltaria vazia toda vez que a turma fosse reaberta, e custaria
@@ -394,6 +430,7 @@ void JanelaTurma::atualizarDoSigaa() {
         relerCacheOffline();
         mostrarConteudo();
         recarregarPresenca();
+        recarregarNoticias();
         avisarConflitosPresenca(saida->conflitosPresenca);
         status(QStringLiteral("Atualizado: %1 aula(s), %2 arquivo(s), %3 participante(s).")
                    .arg(topicos_.size())
@@ -422,6 +459,7 @@ void JanelaTurma::gerarResumoMd() {
                 if (a.idTurma == turma_.idTurma) daTurma.push_back(a);
             }
             d.provas = avaliacao::efetivas(daTurma, db.carregarAjustes());
+            d.noticias = db.carregarNoticias(turma_.idTurma);
             for (const auto& f : s.frequencias) {
                 if (f.idTurma == turma_.idTurma) {
                     frequenciaDoResumo_ = f;

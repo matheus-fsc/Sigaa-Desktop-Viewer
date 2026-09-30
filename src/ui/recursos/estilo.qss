@@ -688,6 +688,14 @@ QPushButton[papel="perigo"]:hover {
     background: @danger-soft;
 }
 
+/* Texto da noticia, dentro do cartao: sem moldura e sem fundo proprio, para
+ * ler como parte do cartao e nao como uma caixa dentro dele. */
+QTextBrowser#textoNoticia {
+    background: transparent;
+    border: none;
+    color: @text;
+}
+
 /* --- Progresso ----------------------------------------------------------- */
 
 QProgressBar {
