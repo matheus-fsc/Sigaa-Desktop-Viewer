@@ -11,11 +11,13 @@
 
 #include <QColor>
 #include <QDate>
+#include <QDateTime>
 #include <QHash>
 #include <QMap>
 #include <QString>
 #include <Qt>
 
+#include <utility>
 #include <vector>
 
 class QObject;
@@ -123,6 +125,15 @@ struct DiaComProva {
 // Chaveado por dia, já com as duas fontes mescladas (mesma regra do .ics).
 QMap<QDate, DiaComProva> provasPorDia(const std::vector<avaliacao::Efetiva>& provas);
 
+// Uma prova já pronta para uma linha de cartão.
+struct ProvaResumida {
+    QDate data;
+    QString hora;        // "10:00", ou vazio quando o SIGAA não deu horário
+    QString descricao;
+    QString turma;
+    bool inferida{false};  // deduzida de tópico e ainda não confirmada
+};
+
 struct ResumoProvas {
     int total{0};
     int proximos30{0};
@@ -133,9 +144,66 @@ struct ResumoProvas {
     int emDias{0};
     QString descricao;
     QString turma;
+
+    // TODAS as provas do dia da próxima: duas no mesmo dia é justamente o caso
+    // em que o aluno mais precisa saber, e o cartão mostrava só a primeira.
+    std::vector<ProvaResumida> doDia;
+
+    // As dos 30 dias seguintes, DEPOIS do dia acima (sem repeti-lo), em ordem
+    // cronológica. Vem completa: quem desenha decide quantas cabem.
+    std::vector<ProvaResumida> seguintes;
 };
 
+// A prova já aconteceu? Dia anterior a hoje, ou hoje com horário já passado.
+// Sem horário, vale o dia inteiro: não dá para saber quando ela acabou, e
+// tirá-la cedo esconderia a prova da tarde que o aluno ainda vai fazer.
+bool jaPassou(const DateTime& quando, const QDateTime& agora);
+
 ResumoProvas resumoProvas(const std::vector<avaliacao::Efetiva>& provas);
+
+// O que cai numa prova: os tópicos dados desde a prova anterior DA MESMA TURMA
+// (ou desde o início, se é a primeira), e os arquivos pendurados neles.
+//
+// É uma estimativa honesta, não uma ementa: "o que o professor registrou entre
+// uma prova e outra" é o melhor sinal que o SIGAA dá, e a tela diz de onde o
+// recorte começa para o aluno poder discordar.
+struct MateriaDaProva {
+    bool coletada{false};        // a turma tem tópicos no banco?
+    QDate desde;                 // inválida = desde o início do período
+    QString provaAnterior;       // "Prova 1", quando `desde` é válida
+    std::vector<QString> topicos;
+    std::vector<std::string> idsArquivos;  // para o chamador conferir o cache
+};
+
+MateriaDaProva materiaDaProva(const Snapshot& s, const avaliacao::Efetiva& prova,
+                              const std::vector<avaliacao::Efetiva>& todas);
+
+// Quanto pesa cada semana: provas (e quantas delas são deduzidas) e entregas
+// de atividade ainda não concluídas. Semanas de segunda a domingo, como a
+// Agenda.
+struct CargaSemana {
+    QDate inicio;       // segunda-feira
+    int provas{0};
+    int inferidas{0};   // contidas em `provas`
+    int entregas{0};
+    // Já aconteceram (data/hora passada), contidas nas contagens acima. O
+    // gráfico as empilha na base, apagadas: a semana corrente mostra o que
+    // já foi sem confundir com o que ainda vem.
+    int provasPassadas{0};
+    int entregasPassadas{0};
+};
+
+std::vector<CargaSemana> cargaPorSemana(const std::vector<avaliacao::Efetiva>& provas,
+                                        const std::vector<Atividade>& atividades,
+                                        const QDateTime& agora, QDate primeira, int semanas);
+
+// Segunda-feira da semana de `d`.
+QDate segundaDe(QDate d);
+
+// O período que a carga cobre: da semana da primeira à da última prova ou
+// entrega conhecida (segundas-feiras). Inválidas quando não há nenhuma.
+std::pair<QDate, QDate> periodoDaCarga(const std::vector<avaliacao::Efetiva>& provas,
+                                       const std::vector<Atividade>& atividades);
 
 // --- a agenda --------------------------------------------------------------
 

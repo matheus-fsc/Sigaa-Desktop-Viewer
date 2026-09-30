@@ -12,6 +12,8 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QStyle>
 #include <QStandardItemModel>
 #include <QTableView>
 #include <QTimeEdit>
@@ -52,6 +54,7 @@ QString frase(avaliacao::TipoMudanca t) {
         case T::AlunoConfirmou: return QStringLiteral("você confirmou");
         case T::AlunoCriou:     return QStringLiteral("você cadastrou");
         case T::AlunoDesfez:    return QStringLiteral("você desfez a correção");
+        case T::AlunoDescartou: return QStringLiteral("você disse que não é prova");
         case T::SigaaAtropelou: return QStringLiteral("o SIGAA substituiu a sua data");
     }
     return {};
@@ -338,6 +341,218 @@ DialogoHistorico::DialogoHistorico(const std::vector<LinhaHistorico>& linhas,
     connect(botoes, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(botoes, &QDialogButtonBox::accepted, this, &QDialog::accept);
     raiz->addWidget(botoes);
+}
+
+// ---------------------------------------------------------------------------
+// Datas a confirmar
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// "qua 07/10", sem o ponto do locale.
+QString diaCurtoDialogo(QDate d) {
+    QString dia = QLocale(QLocale::Portuguese, QLocale::Brazil).toString(d, QStringLiteral("ddd"));
+    dia.remove(QLatin1Char('.'));
+    return dia + d.toString(QStringLiteral(" dd/MM"));
+}
+
+QString distancia(QDate d) {
+    const qint64 n = QDate::currentDate().daysTo(d);
+    if (n == 0) return QStringLiteral("hoje");
+    if (n == 1) return QStringLiteral("amanhã");
+    if (n == -1) return QStringLiteral("ontem");
+    return n > 0 ? QStringLiteral("em %1 dias").arg(n) : QStringLiteral("há %1 dias").arg(-n);
+}
+
+QPushButton* botao(const QString& texto, const char* papel, const QString& dica, QWidget* pai) {
+    auto* b = new QPushButton(texto, pai);
+    b->setProperty("papel", papel);
+    b->setToolTip(dica);
+    b->setAutoDefault(false);   // Enter no diálogo não pode confirmar uma prova ao acaso
+    b->setCursor(Qt::PointingHandCursor);
+    return b;
+}
+
+// Uma linha: data e distância | descrição e turma | ações. Um QFrame com
+// filete embaixo, como as linhas das listas do app.
+QFrame* linha(QWidget* pai) {
+    auto* f = new QFrame(pai);
+    f->setObjectName(QStringLiteral("linhaConfirmar"));
+    return f;
+}
+
+QLabel* rotulo(const QString& texto, tema::Papel papel, bool negrito, bool apagado,
+               QWidget* pai) {
+    auto* l = new QLabel(texto, pai);
+    QFont f = tema::fonte(papel);
+    if (negrito) f.setWeight(QFont::DemiBold);
+    l->setFont(f);
+    l->setWordWrap(true);
+    if (apagado) l->setProperty("classe", QStringLiteral("nota"));
+    return l;
+}
+
+} // namespace
+
+DialogoConfirmarDatas::DialogoConfirmarDatas(Acoes acoes, QWidget* pai)
+    : QDialog(pai), acoes_(std::move(acoes)) {
+    setWindowTitle(QStringLiteral("Datas a confirmar"));
+    setModal(true);
+    resize(760, 520);
+
+    auto* raiz = new QVBoxLayout(this);
+    raiz->setSpacing(tema::esp(3));
+    raiz->setContentsMargins(tema::esp(5), tema::esp(5), tema::esp(5), tema::esp(4));
+
+    auto* titulo = new QLabel(QStringLiteral("Datas a confirmar"), this);
+    QFont ft = tema::fonte(tema::Papel::Subtitulo);
+    ft.setWeight(QFont::Bold);
+    titulo->setFont(ft);
+    raiz->addWidget(titulo);
+
+    auto* explica = rotulo(
+        QStringLiteral("O app deduziu estas datas do título de um tópico de aula — o "
+                       "professor não as cadastrou como prova. Confirme as certas, "
+                       "corrija a data das erradas e remova o que não é prova. Nada "
+                       "disso muda o SIGAA: vale no app, no calendário e no .ics."),
+        tema::Papel::Corpo, false, true, this);
+    raiz->addWidget(explica);
+
+    // A lista rola; título, explicação e rodapé ficam parados.
+    auto* rolagem = new QScrollArea(this);
+    rolagem->setWidgetResizable(true);
+    rolagem->setFrameShape(QFrame::NoFrame);
+    auto* suporte = new QWidget(rolagem);
+    suporte->setObjectName(QStringLiteral("listaConfirmar"));
+    area_ = new QVBoxLayout(suporte);
+    area_->setContentsMargins(0, 0, 0, 0);
+    area_->setSpacing(0);
+    rolagem->setWidget(suporte);
+    raiz->addWidget(rolagem, 1);
+
+    auto* botoes = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    botoes->button(QDialogButtonBox::Close)->setText(QStringLiteral("Fechar"));
+    // Secundário, não primário: fechar não é a ação desta tela — as ações estão
+    // nas linhas. Sozinho na caixa, o Qt o faria botão padrão (azul, e Enter
+    // fecharia o diálogo no meio de uma revisão).
+    auto* fechar = botoes->button(QDialogButtonBox::Close);
+    fechar->setAutoDefault(false);
+    fechar->setDefault(false);
+    fechar->setIcon(QIcon());
+    connect(botoes, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    raiz->addWidget(botoes);
+}
+
+void DialogoConfirmarDatas::mostrar(const std::vector<avaliacao::Efetiva>& pendentes,
+                                    const std::vector<avaliacao::Ajuste>& descartadas) {
+    // `deleteLater`, e não `delete`: esta função roda DENTRO do clique de um
+    // botão que mora no conteúdo velho. Apagá-lo na hora destruiria o botão no
+    // meio do próprio sinal.
+    if (conteudo_) {
+        area_->removeWidget(conteudo_);
+        conteudo_->hide();
+        conteudo_->deleteLater();
+    }
+    conteudo_ = new QWidget(area_->parentWidget());
+    auto* lista = new QVBoxLayout(conteudo_);
+    lista->setContentsMargins(0, 0, 0, 0);
+    lista->setSpacing(0);
+    area_->addWidget(conteudo_);
+
+    if (pendentes.empty()) {
+        auto* vazio = rotulo(
+            QStringLiteral("✓ Nenhuma data esperando confirmação. Todas vieram do "
+                           "professor ou já passaram por você."),
+            tema::Papel::Corpo, false, false, conteudo_);
+        vazio->setContentsMargins(0, tema::esp(3), 0, tema::esp(3));
+        lista->addWidget(vazio);
+    }
+
+    for (const auto& p : pendentes) {
+        auto* f = linha(conteudo_);
+        auto* h = new QHBoxLayout(f);
+        h->setContentsMargins(0, tema::esp(3), 0, tema::esp(3));
+        h->setSpacing(tema::esp(4));
+
+        const QDate d = paraQDate(p.av.quando);
+        auto* quando = new QVBoxLayout;
+        quando->setSpacing(0);
+        quando->addWidget(rotulo(d.isValid() ? diaCurtoDialogo(d) : QStringLiteral("sem data"),
+                                 tema::Papel::Corpo, true, false, f));
+        quando->addWidget(rotulo(d.isValid() ? distancia(d) : QString(), tema::Papel::Legenda,
+                                 false, true, f));
+        quando->addStretch();
+        auto* colunaData = new QWidget(f);
+        colunaData->setLayout(quando);
+        colunaData->setFixedWidth(fontMetrics().horizontalAdvance(QStringLiteral("0000 00/00")) +
+                                  tema::esp(2));
+        h->addWidget(colunaData, 0, Qt::AlignTop);
+
+        // A descrição INTEIRA, sem corte: é lendo o título do tópico que se
+        // decide se é prova ("Revisão para a P1" não é).
+        auto* texto = new QVBoxLayout;
+        texto->setSpacing(2);
+        texto->addWidget(rotulo(QString::fromStdString(p.av.descricao), tema::Papel::Corpo,
+                                true, false, f));
+        texto->addWidget(rotulo(QString::fromStdString(p.av.turmaNome), tema::Papel::Legenda,
+                                false, true, f));
+        h->addLayout(texto, 1);
+
+        auto* confirmar = botao(QStringLiteral("Confirmar"), "secundario",
+                                QStringLiteral("A data está certa. Some o aviso."), f);
+        auto* editar = botao(QStringLiteral("Editar data"), "discreto",
+                             QStringLiteral("É prova, mas em outro dia ou horário."), f);
+        auto* remover = botao(QStringLiteral("Não é prova"), "perigo",
+                              QStringLiteral("Tira do app, do calendário e do .ics. Dá para "
+                                             "restaurar logo abaixo."),
+                              f);
+        for (QPushButton* b : {confirmar, editar, remover}) h->addWidget(b, 0, Qt::AlignTop);
+
+        connect(confirmar, &QPushButton::clicked, this, [this, p] { acoes_.confirmar(p); });
+        connect(editar, &QPushButton::clicked, this, [this, p] { acoes_.editar(p); });
+        connect(remover, &QPushButton::clicked, this, [this, p] { acoes_.descartar(p); });
+        lista->addWidget(f);
+    }
+
+    // Removidas: a volta de um clique errado. Sem esta seção, "Não é prova"
+    // seria definitivo — a prova sumiu, e com ela o único lugar onde clicar.
+    if (!descartadas.empty()) {
+        auto* secao = new QLabel(
+            QStringLiteral("Removidas · %1").arg(descartadas.size()), conteudo_);
+        QFont fs = tema::fonte(tema::Papel::Legenda);
+        fs.setWeight(QFont::Bold);
+        fs.setCapitalization(QFont::AllUppercase);
+        fs.setLetterSpacing(QFont::PercentageSpacing, 107);
+        secao->setProperty("classe", QStringLiteral("secao"));
+        secao->style()->unpolish(secao);
+        secao->style()->polish(secao);
+        secao->setFont(fs);
+        secao->setContentsMargins(0, tema::esp(5), 0, tema::esp(1));
+        lista->addWidget(secao);
+
+        for (const auto& aj : descartadas) {
+            auto* f = linha(conteudo_);
+            auto* h = new QHBoxLayout(f);
+            h->setContentsMargins(0, tema::esp(2), 0, tema::esp(2));
+            h->setSpacing(tema::esp(4));
+            const QDate d = paraQDate(aj.quando);
+            const QString onde = QString::fromStdString(aj.turmaNome);
+            auto* texto = rotulo(
+                QStringLiteral("%1 — %2%3")
+                    .arg(d.isValid() ? diaCurtoDialogo(d) : QStringLiteral("sem data"),
+                         QString::fromStdString(aj.descricao),
+                         onde.isEmpty() ? QString() : QStringLiteral(" · ") + onde),
+                tema::Papel::Corpo, false, true, f);
+            h->addWidget(texto, 1);
+            auto* restaurar = botao(QStringLiteral("Restaurar"), "discreto",
+                                    QStringLiteral("Volta para a lista como data a confirmar."),
+                                    f);
+            h->addWidget(restaurar, 0, Qt::AlignVCenter);
+            connect(restaurar, &QPushButton::clicked, this, [this, aj] { acoes_.restaurar(aj); });
+            lista->addWidget(f);
+        }
+    }
+    lista->addStretch(1);
 }
 
 } // namespace sigaa::ui

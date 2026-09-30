@@ -8,6 +8,7 @@
 // duas fontes de verdade sobre o mesmo layout. Em C++ há uma só.
 
 #include <QDialog>
+#include <functional>
 #include <vector>
 
 #include "core/avaliacao/Ajustes.h"
@@ -20,6 +21,8 @@ class QDateEdit;
 class QLineEdit;
 class QPlainTextEdit;
 class QTimeEdit;
+class QVBoxLayout;
+class QWidget;
 
 namespace sigaa::ui {
 
@@ -79,6 +82,41 @@ public:
     // `titulo` distingue "Histórico de Prova 1" de "Histórico de alterações".
     DialogoHistorico(const std::vector<LinhaHistorico>& linhas, const QString& titulo,
                      const QString& vazio, QWidget* pai = nullptr);
+};
+
+// As datas deduzidas de tópico, para confirmar, corrigir ou descartar de uma
+// vez — aberto pela pílula "○ N datas a confirmar" da aba Provas.
+//
+// POR QUE UM DIÁLOGO, e não só a tabela: na tabela as inferidas estão
+// espalhadas entre as provas do professor, e confirmar oito datas era caçar
+// oito linhas, selecionar e clicar oito vezes. Aqui elas vêm juntas, cada uma
+// com as três respostas possíveis ao lado.
+//
+// O diálogo NÃO grava nada. Cada botão chama a ação que a janela principal
+// entregou — a mesma que a barra e o menu da tabela usam, com histórico e
+// tudo — e a janela devolve a lista atualizada por `mostrar`. Uma regra de
+// gravação só, em vez de uma cópia aqui que envelheceria diferente.
+class DialogoConfirmarDatas : public QDialog {
+    Q_OBJECT
+public:
+    struct Acoes {
+        std::function<void(const avaliacao::Efetiva&)> confirmar;
+        std::function<void(const avaliacao::Efetiva&)> editar;
+        std::function<void(const avaliacao::Efetiva&)> descartar;
+        std::function<void(const avaliacao::Ajuste&)> restaurar;
+    };
+
+    explicit DialogoConfirmarDatas(Acoes acoes, QWidget* pai = nullptr);
+
+    // Redesenha a lista. Pode ser chamada de dentro do clique de um botão da
+    // própria lista: o conteúdo velho é destruído depois, não na hora.
+    void mostrar(const std::vector<avaliacao::Efetiva>& pendentes,
+                 const std::vector<avaliacao::Ajuste>& descartadas);
+
+private:
+    Acoes acoes_;
+    QVBoxLayout* area_{nullptr};
+    QWidget* conteudo_{nullptr};
 };
 
 // Converte para a tabela acima. Ficam aqui, e não no núcleo, porque traduzem

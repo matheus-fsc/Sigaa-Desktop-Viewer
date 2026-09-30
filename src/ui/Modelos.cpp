@@ -10,8 +10,11 @@
 #include <QPixmap>
 #include <QSet>
 #include <QLocale>
+#include <QRegularExpression>
+#include <QTime>
 #include <QColor>
 #include <QDate>
+#include <QTime>
 #include <QFont>
 #include <QIcon>
 #include <QStandardItem>
@@ -402,6 +405,13 @@ QMap<QDate, DiaComProva> provasPorDia(const std::vector<avaliacao::Efetiva>& pro
     return m;
 }
 
+bool jaPassou(const DateTime& quando, const QDateTime& agora) {
+    const QDate d = paraQDate(quando);
+    if (!d.isValid()) return false;
+    if (d != agora.date()) return d < agora.date();
+    return quando.hasTime && QTime(quando.hour, quando.minute) <= agora.time();
+}
+
 ResumoProvas resumoProvas(const std::vector<avaliacao::Efetiva>& provas) {
     ResumoProvas r;
     const QDate hoje = QDate::currentDate();
@@ -421,17 +431,143 @@ ResumoProvas resumoProvas(const std::vector<avaliacao::Efetiva>& provas) {
 
         const int dias = static_cast<int>(hoje.daysTo(d));
         if (dias >= 0 && dias <= 30) ++r.proximos30;
+        // A de hoje cujo horário passou já não é "próxima": às 10h, a prova
+        // das 07:55 é passado, e mantê-la no topo escondia a de amanhã.
+        if (jaPassou(av.quando, QDateTime::currentDateTime())) continue;
+
+        ProvaResumida pr;
+        pr.data = d;
+        // Só a hora que o SIGAA deu como hora. `horarioBruto` pode ser o código
+        // da grade ("6T34"), que numa linha de resumo leria como ruído.
+        if (av.quando.hasTime) {
+            pr.hora = QTime(av.quando.hour, av.quando.minute).toString(QStringLiteral("HH:mm"));
+        } else {
+            // O professor às vezes escreve a hora como texto ("7h55",
+            // "13h30min") e o parser não a converte. Isso É hora e vale mostrar;
+            // o código da grade ("24M23") não bate aqui e continua de fora.
+            static const QRegularExpression textoDeHora(
+                QStringLiteral("^\\s*\\d{1,2}\\s*[h:]\\s*\\d{0,2}\\s*(min)?\\s*$"),
+                QRegularExpression::CaseInsensitiveOption);
+            const QString bruto = QString::fromStdString(av.horarioBruto).trimmed();
+            if (textoDeHora.match(bruto).hasMatch()) pr.hora = bruto;
+        }
+        pr.descricao = umaLinha(av.descricao);
+        pr.turma = umaLinha(av.turmaNome);
+        pr.inferida = p.estado == avaliacao::Estado::Inferida;
 
         // A prova de hoje ainda conta como próxima: ela é exatamente a que o
         // aluno precisa ver ao abrir o app.
-        if (dias >= 0 && !r.data.isValid()) {
+        if (!r.data.isValid()) {
             r.data = d;
             r.emDias = dias;
-            r.descricao = umaLinha(av.descricao);
-            r.turma = umaLinha(av.turmaNome);
+            r.descricao = pr.descricao;
+            r.turma = pr.turma;
         }
+        if (d == r.data) r.doDia.push_back(pr);
+        else if (dias <= 30) r.seguintes.push_back(pr);
     }
     return r;
+}
+
+MateriaDaProva materiaDaProva(const Snapshot& s, const avaliacao::Efetiva& prova,
+                              const std::vector<avaliacao::Efetiva>& todas) {
+    MateriaDaProva m;
+    const QDate dataProva = paraQDate(prova.av.quando);
+    if (!dataProva.isValid()) return m;
+
+    // A anterior da mesma turma: a mais recente estritamente antes desta.
+    // `todas` já está em ordem cronológica, então a última que passar vale.
+    for (const auto& p : todas) {
+        const QDate d = paraQDate(p.av.quando);
+        if (p.av.idTurma != prova.av.idTurma || !d.isValid() || d >= dataProva) continue;
+        m.desde = d;
+        m.provaAnterior = umaLinha(p.av.descricao);
+    }
+
+    std::vector<const TopicoAula*> escolhidos;
+    for (const auto& t : s.topicos) {
+        if (t.idTurma != prova.av.idTurma) continue;
+        m.coletada = true;
+        const QDate ini = paraQDate(t.inicio);
+        if (!ini.isValid() || ini > dataProva) continue;
+        // Depois da anterior, e não "a partir de": o tópico do próprio dia
+        // da P1 é a P1, não matéria da P2.
+        if (m.desde.isValid() && ini <= m.desde) continue;
+        escolhidos.push_back(&t);
+    }
+    std::sort(escolhidos.begin(), escolhidos.end(),
+              [](const TopicoAula* a, const TopicoAula* b) { return a->inicio < b->inicio; });
+
+    QSet<QString> titulos;
+    QSet<QString> ids;
+    for (const TopicoAula* t : escolhidos) {
+        const QString titulo = umaLinha(t->titulo);
+        // O tópico que ANUNCIA a prova ("Prova 1", "Revisão para a P2") não é
+        // matéria — é o próprio evento, e listá-lo seria ruído no topo.
+        if (titulo.compare(umaLinha(prova.av.descricao), Qt::CaseInsensitive) == 0) continue;
+        m.topicos.push_back(titulo);
+        titulos.insert(titulo);
+        for (const auto& mat : t->materiais) {
+            if (!mat.id.empty()) ids.insert(QString::fromStdString(mat.id));
+        }
+    }
+    // Os da aba Arquivos, casados pelo título do tópico — a mesma ponte que
+    // `materiaisDoTopico` usa.
+    for (const auto& a : s.arquivos) {
+        if (a.idTurma == prova.av.idTurma && titulos.contains(umaLinha(a.topico))) {
+            ids.insert(QString::fromStdString(a.idArquivo));
+        }
+    }
+    for (const QString& id : ids) m.idsArquivos.push_back(id.toStdString());
+    return m;
+}
+
+QDate segundaDe(QDate d) {
+    return d.isValid() ? d.addDays(1 - d.dayOfWeek()) : d;
+}
+
+std::pair<QDate, QDate> periodoDaCarga(const std::vector<avaliacao::Efetiva>& provas,
+                                       const std::vector<Atividade>& atividades) {
+    QDate ini, fim;
+    auto considera = [&](QDate d) {
+        if (!d.isValid()) return;
+        if (!ini.isValid() || d < ini) ini = d;
+        if (!fim.isValid() || d > fim) fim = d;
+    };
+    for (const auto& p : provas) considera(paraQDate(p.av.quando));
+    for (const auto& a : atividades) considera(paraQDate(a.prazo));
+    return {segundaDe(ini), segundaDe(fim)};
+}
+
+std::vector<CargaSemana> cargaPorSemana(const std::vector<avaliacao::Efetiva>& provas,
+                                        const std::vector<Atividade>& atividades,
+                                        const QDateTime& agora, QDate primeira, int semanas) {
+    std::vector<CargaSemana> v;
+    primeira = segundaDe(primeira);
+    for (int i = 0; i < semanas; ++i) v.push_back({primeira.addDays(7 * i)});
+
+    auto semanaDe = [&](QDate d) -> CargaSemana* {
+        if (!d.isValid() || d < primeira) return nullptr;
+        const qint64 i = primeira.daysTo(d) / 7;
+        return i < semanas ? &v[static_cast<size_t>(i)] : nullptr;
+    };
+
+    for (const auto& p : provas) {
+        if (auto* w = semanaDe(paraQDate(p.av.quando))) {
+            ++w->provas;
+            if (jaPassou(p.av.quando, agora)) ++w->provasPassadas;
+            else if (p.estado == avaliacao::Estado::Inferida) ++w->inferidas;
+        }
+    }
+    for (const auto& a : atividades) {
+        // Concluída não pesa: a pergunta é "quanto trabalho tenho pela frente".
+        if (a.status == StatusAtividade::Concluida) continue;
+        if (auto* w = semanaDe(paraQDate(a.prazo))) {
+            ++w->entregas;
+            if (jaPassou(a.prazo, agora)) ++w->entregasPassadas;
+        }
+    }
+    return v;
 }
 
 namespace {

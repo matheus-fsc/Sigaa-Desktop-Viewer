@@ -228,6 +228,8 @@ elseif(SIGAA_UI)
   add_executable(sigaa-ui
     src/ui/main.cpp
     src/ui/JanelaPrincipal.cpp
+    src/ui/Cabecalho.cpp
+    src/ui/CargaSemanal.cpp
     src/ui/CalendarioProvas.cpp
     src/ui/DialogoLogin.cpp
     src/ui/JanelaTurma.cpp
