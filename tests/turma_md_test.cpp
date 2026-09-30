@@ -248,3 +248,81 @@ TEST_CASE("falta sem topico nao some do resumo", "[turmamd]") {
     REQUIRE(secao != std::string::npos);
     CHECK(md.find("- 17/08/2026 (2 aulas)", secao) != std::string::npos);
 }
+
+// ---------------------------------------------------------------------------
+// Noticias
+// ---------------------------------------------------------------------------
+
+namespace {
+
+Noticia noticiaMd(const std::string& titulo, DateTime data, const std::string& html) {
+    Noticia n;
+    n.idTurma = "1";
+    n.titulo = titulo;
+    n.data = data;
+    n.conteudoHtml = html;
+    return n;
+}
+
+bool tem(const std::string& s, const std::string& parte) {
+    return s.find(parte) != std::string::npos;
+}
+
+}  // namespace
+
+TEST_CASE("as noticias entram no fim, depois das aulas", "[turmamd]") {
+    auto d = base();
+    d.topicos = {topico("Analise lexica", dia(2026, 8, 3))};
+    auto hora = dia(2026, 9, 30);
+    hora.hour = 14; hora.minute = 51; hora.hasTime = true;
+    d.noticias = {noticiaMd("ATIVIDADES DE LABORATORIO", hora, "<p>Ola</p>")};
+    d.noticias[0].autor = "DOCENTE TESTE";
+
+    const auto md = report::gerarTurmaMd(d);
+    const auto aulas = md.find("## Aulas");
+    const auto noticias = md.find("## Notícias");
+    REQUIRE(noticias != std::string::npos);
+    CHECK(aulas < noticias);
+    CHECK(tem(md, "### ATIVIDADES DE LABORATORIO — 30/09/2026 14:51"));
+    CHECK(tem(md, "_por DOCENTE TESTE_"));
+}
+
+TEST_CASE("o texto da noticia vira markdown, com negrito, lista e link", "[turmamd]") {
+    auto d = base();
+    d.noticias = {noticiaMd(
+        "AVISO", dia(2026, 9, 30),
+        "<p>Leiam o <strong>modulo4.pdf</strong>.</p><ul><li>grupo de cinco</li>"
+        "<li>entrega dia 09/11</li></ul><p>Lista: <a href=\"https://ex.edu/l1\">lista 1</a></p>")};
+    const auto md = report::gerarTurmaMd(d);
+    CHECK(tem(md, "Leiam o **modulo4.pdf**."));
+    CHECK(tem(md, "- grupo de cinco\n- entrega dia 09/11"));
+    CHECK(tem(md, "Lista: [lista 1](https://ex.edu/l1)"));
+    CHECK_FALSE(tem(md, "<p>"));
+    CHECK_FALSE(tem(md, "<strong>"));
+}
+
+TEST_CASE("paragrafo que abre em negrito continua negrito", "[turmamd]") {
+    auto d = base();
+    d.noticias = {noticiaMd("AVISO", dia(2026, 9, 30), "<p><strong>Fiquem bem!</strong></p>")};
+    const auto md = report::gerarTurmaMd(d);
+    CHECK(tem(md, "\n**Fiquem bem!**"));
+    CHECK_FALSE(tem(md, "\\**"));
+}
+
+TEST_CASE("noticia sem texto diz isso em vez de ficar vazia", "[turmamd]") {
+    auto d = base();
+    d.noticias = {noticiaMd("SO O TITULO", dia(2026, 8, 20), "")};
+    CHECK(tem(report::gerarTurmaMd(d), "_Texto ainda não coletado._"));
+}
+
+TEST_CASE("titulo de noticia que parece marcacao nao quebra o arquivo", "[turmamd]") {
+    auto d = base();
+    d.noticias = {noticiaMd("# URGENTE", dia(2026, 8, 20), "<p># nao e titulo</p>")};
+    const auto md = report::gerarTurmaMd(d);
+    CHECK(tem(md, "### \\# URGENTE"));
+    CHECK(tem(md, "\\# nao e titulo"));
+}
+
+TEST_CASE("sem noticias, sem secao", "[turmamd]") {
+    CHECK_FALSE(tem(report::gerarTurmaMd(base()), "## Notícias"));
+}

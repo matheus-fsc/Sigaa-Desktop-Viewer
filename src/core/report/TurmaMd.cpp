@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <regex>
 #include <sstream>
 
 namespace sigaa::report {
@@ -55,6 +56,83 @@ bool noTopico(const DiaFrequencia& f, const TopicoAula& t) {
 void escreverFalta(std::ostringstream& o, const DiaFrequencia& f) {
     o << br(f.data);
     if (f.faltas > 0) o << " (" << f.faltas << (f.faltas == 1 ? " aula)" : " aulas)");
+}
+
+// O HTML limpo da notícia (parse::limparHtmlNoticia: só <p>, <br>, <strong>,
+// <em>, <u>, listas e <a href>) em Markdown. Nada de conversor genérico: o
+// conjunto de tags é fechado e pequeno, e o resultado precisa ser previsível
+// para o arquivo não mudar a cada regravação.
+std::string markdownDaNoticia(const std::string& html) {
+    std::string t = html;
+    auto troca = [&t](const std::string& de, const std::string& para) {
+        for (std::size_t p = t.find(de); p != std::string::npos; p = t.find(de, p)) {
+            t.replace(p, de.size(), para);
+            p += para.size();
+        }
+    };
+    // Links antes das tags genéricas: <a href="X">T</a> -> [T](X).
+    static const std::regex link(R"re(<a href="([^"]*)">([\s\S]*?)</a>)re");
+    t = std::regex_replace(t, link, "[$2]($1)");
+    troca("<p>", "");
+    troca("</p>", "\n\n");
+    troca("<br>", "  \n");
+    troca("<strong>", "**");
+    troca("</strong>", "**");
+    troca("<em>", "_");
+    troca("</em>", "_");
+    troca("<u>", "");
+    troca("</u>", "");
+    troca("<ul>", "\n");
+    troca("</ul>", "\n");
+    troca("<ol>", "\n");
+    troca("</ol>", "\n");
+    troca("<li>", "- ");
+    troca("</li>", "\n");
+    troca("&nbsp;", " ");
+    troca("\xC2\xA0", " ");
+    troca("&amp;", "&");
+    troca("&lt;", "<");
+    troca("&gt;", ">");
+    troca("&quot;", "\"");
+
+    // Linha por linha: tira espaço das pontas, protege quem começa com
+    // marcador de bloco (a não ser o "- " de lista, que é nosso) e junta
+    // linhas em branco repetidas.
+    std::istringstream in(t);
+    std::ostringstream out;
+    std::string linha;
+    int brancas = 0;
+    bool primeira = true;
+    while (std::getline(in, linha)) {
+        const auto ini = linha.find_first_not_of(" \t");
+        if (ini == std::string::npos) {
+            if (!primeira) ++brancas;
+            continue;
+        }
+        linha = linha.substr(ini);
+        const bool quebraForcada = linha.size() >= 2 && linha.compare(linha.size() - 2, 2, "  ") == 0;
+        while (!linha.empty() && (linha.back() == ' ' || linha.back() == '\t')) linha.pop_back();
+        if (quebraForcada) linha += "  ";
+        // "- " (item de lista) e "**" (negrito) no começo da linha são
+        // marcação NOSSA, saída deste conversor; escapá-los apagaria a lista e
+        // viraria "\**Fiquem bem!**" no parágrafo que abre em negrito.
+        if (linha.rfind("- ", 0) != 0 && linha.rfind("**", 0) != 0) linha = seguro(linha);
+        if (!primeira) out << (brancas > 0 ? "\n\n" : "\n");
+        out << linha;
+        brancas = 0;
+        primeira = false;
+    }
+    return out.str();
+}
+
+std::string brHora(const DateTime& d) {
+    std::string s = br(d);
+    if (d.hasTime) {
+        char buf[8];
+        std::snprintf(buf, sizeof buf, " %02d:%02d", d.hour, d.minute);
+        s += buf;
+    }
+    return s;
 }
 
 } // namespace
@@ -203,6 +281,24 @@ std::string gerarTurmaMd(const DadosTurmaMd& d) {
             o << "\n";
         }
         o << "\n";
+    }
+
+    // Notícias no FIM: são contexto, não o índice. O começo do arquivo é o
+    // que a IA usa para se orientar (avaliações, aulas); os recados do
+    // professor vêm depois, da mais nova para a mais antiga.
+    if (!d.noticias.empty()) {
+        o << "## Notícias\n\n";
+        for (const auto& n : d.noticias) {
+            o << "### " << seguro(n.titulo);
+            if (n.data.valid()) o << " — " << brHora(n.data);
+            o << "\n\n";
+            if (!n.autor.empty()) o << "_por " << seguro(n.autor) << "_\n\n";
+            if (n.conteudoHtml.empty()) {
+                o << "_Texto ainda não coletado._\n\n";
+            } else {
+                o << markdownDaNoticia(n.conteudoHtml) << "\n\n";
+            }
+        }
     }
 
     return o.str();

@@ -31,6 +31,10 @@ struct DadosTurmaMd {
     std::vector<ArquivoTurma> arquivos;
     std::vector<avaliacao::Efetiva> provas;
     const Frequencia* frequencia{nullptr};   // opcional
+    // Da mais nova para a mais antiga (Database::carregarNoticias). É onde o
+    // professor diz o que cai na prova, que o laboratório mudou, que a
+    // entrega foi adiada — contexto que a IA não acha em PDF nenhum.
+    std::vector<Noticia> noticias;
 };
 
 // O conteúdo do `turma.md`. Determinístico: a mesma entrada dá sempre o mesmo
