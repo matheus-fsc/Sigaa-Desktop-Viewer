@@ -1387,8 +1387,14 @@ void JanelaPrincipal::aoConcluir() {
 void JanelaPrincipal::entrarNoSigaa() {
     // Cada clique é um login na conta do aluno. Clicar de novo enquanto o
     // navegador ainda abre dobraria isso sem ganho nenhum.
+    // Mensagens TEMPORÁRIAS da barra (`showMessage`), e não `status()`: o
+    // rótulo de `status()` é o estado do app ("Último estado conhecido…"), e
+    // escrever ali um aviso de ação o deixava preso para sempre — "Abrindo o
+    // SIGAA no navegador…" continuava na tela com o portal já aberto. A
+    // mensagem temporária cobre o rótulo e, ao sumir, ele volta sozinho.
+    auto* barra = formulario_->statusbar;
     if (EntrarNoSigaa::emAndamento()) {
-        status(QStringLiteral("O navegador já está abrindo o SIGAA."));
+        barra->showMessage(QStringLiteral("O navegador já está abrindo o SIGAA."), 4000);
         return;
     }
 
@@ -1399,12 +1405,21 @@ void JanelaPrincipal::entrarNoSigaa() {
     // numa sessão só dele (ver core/http/EntradaNoNavegador.h). Dividir uma
     // sessão entre os dois faria um derrubar o ViewState do outro.
     QString erro;
-    if (!EntrarNoSigaa::abrir(config::selecionada().baseUrl, login, senha, this,
-                              &erro)) {
-        status(erro);
+    auto* entrada =
+        EntrarNoSigaa::abrir(config::selecionada().baseUrl, login, senha, this, &erro);
+    if (!entrada) {
+        barra->showMessage(erro, 8000);
         return;
     }
-    status(QStringLiteral("Abrindo o SIGAA no navegador…"));
+    // Sem prazo: fica até a entrada terminar, que é quando se sabe o que dizer.
+    barra->showMessage(QStringLiteral("Abrindo o SIGAA no navegador…"));
+    connect(entrada, &EntrarNoSigaa::terminou, this, [barra](bool entregue) {
+        barra->showMessage(
+            entregue ? QStringLiteral("SIGAA aberto no navegador.")
+                     : QStringLiteral("O navegador não abriu a página de entrada. "
+                                      "Tente de novo."),
+            entregue ? 4000 : 8000);
+    });
 }
 
 bool JanelaPrincipal::obterCredenciais(std::string& login, std::string& senha) {

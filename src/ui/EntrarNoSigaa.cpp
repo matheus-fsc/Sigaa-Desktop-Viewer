@@ -45,11 +45,12 @@ EntrarNoSigaa::EntrarNoSigaa(QObject* pai) : QObject(pai) {}
 
 EntrarNoSigaa::~EntrarNoSigaa() { apagar(resposta_); }
 
-bool EntrarNoSigaa::abrir(const std::string& baseUrl, const std::string& login,
-                          const std::string& senha, QObject* pai, QString* erro) {
+EntrarNoSigaa* EntrarNoSigaa::abrir(const std::string& baseUrl, const std::string& login,
+                                   const std::string& senha, QObject* pai,
+                                   QString* erro) {
     if (emAndamento()) {
         if (erro) *erro = QStringLiteral("O navegador já está abrindo o SIGAA.");
-        return false;
+        return nullptr;
     }
 
     auto* e = new EntrarNoSigaa(pai);
@@ -62,7 +63,7 @@ bool EntrarNoSigaa::abrir(const std::string& baseUrl, const std::string& login,
         if (erro) *erro = QStringLiteral("Não consegui abrir uma porta local: %1")
                               .arg(e->servidor_->errorString());
         delete e;
-        return false;
+        return nullptr;
     }
 
     const QByteArray segredo = aleatorioHex(16);
@@ -89,11 +90,11 @@ bool EntrarNoSigaa::abrir(const std::string& baseUrl, const std::string& login,
     if (!QDesktopServices::openUrl(url)) {
         if (erro) *erro = QStringLiteral("Não consegui abrir o navegador padrão.");
         delete e;
-        return false;
+        return nullptr;
     }
 
     emCurso = e;
-    return true;
+    return e;
 }
 
 void EntrarNoSigaa::atender(QTcpSocket* s) {
@@ -142,6 +143,12 @@ void EntrarNoSigaa::atender(QTcpSocket* s) {
 }
 
 void EntrarNoSigaa::encerrar() {
+    // Pode chegar duas vezes: pela conexão que terminou de entregar e pelo
+    // prazo de 60 s, que continua armado até o objeto morrer.
+    if (terminado_) return;
+    terminado_ = true;
+    if (prazo_) prazo_->stop();
+    Q_EMIT terminou(entregue_);
     if (servidor_) servidor_->close();
     apagar(resposta_);
     deleteLater();

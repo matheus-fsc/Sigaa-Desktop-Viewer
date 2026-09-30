@@ -37,17 +37,26 @@ namespace sigaa::ui {
 class EntrarNoSigaa : public QObject {
     Q_OBJECT
 public:
-    // Abre o navegador padrão já entrando no SIGAA. Devolve false (com o
+    // Abre o navegador padrão já entrando no SIGAA. Devolve nulo (com o
     // motivo em `erro`) se não deu para abrir a porta local ou o navegador.
-    // O objeto se destrói sozinho quando termina.
-    static bool abrir(const std::string& baseUrl, const std::string& login,
-                      const std::string& senha, QObject* pai, QString* erro);
+    // O objeto se destrói sozinho quando termina, depois de emitir `terminou`.
+    static EntrarNoSigaa* abrir(const std::string& baseUrl, const std::string& login,
+                                const std::string& senha, QObject* pai, QString* erro);
 
     // Há uma entrada em andamento? Clicar de novo enquanto o navegador ainda
     // abre faria dois logins seguidos na conta, sem nenhum ganho.
     static bool emAndamento();
 
     ~EntrarNoSigaa() override;
+
+Q_SIGNALS:
+    // Uma vez só, no fim. `entregue` = o navegador buscou a página e ela se
+    // enviou ao SIGAA; falso = 60 s sem o navegador aparecer.
+    //
+    // Existe porque quem abriu precisa saber quando parar de dizer "abrindo":
+    // sem isto a barra de status da janela ficava em "Abrindo o SIGAA no
+    // navegador…" para sempre, bem depois de o portal estar aberto.
+    void terminou(bool entregue);
 
 private:
     explicit EntrarNoSigaa(QObject* pai);
@@ -59,6 +68,7 @@ private:
     QByteArray caminho_;    // "/<segredo>"
     QByteArray resposta_;   // cabeçalhos + página, com a senha dentro
     bool entregue_{false};
+    bool terminado_{false};
 };
 
 } // namespace sigaa::ui
