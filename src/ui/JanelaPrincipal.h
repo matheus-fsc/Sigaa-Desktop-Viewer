@@ -141,7 +141,8 @@ private:
     void atualizarDialogoConfirmar();
     // Dia · hora · local, origem, matéria e arquivos de uma prova, em rich
     // text. Usada pelas duas colunas do painel (Próxima prova, Em seguida).
-    QString detalheDaProva(const avaliacao::Efetiva& prova) const;
+    // `dica`, se dada, recebe a lista COMPLETA de tópicos (o cartão mostra 5).
+    QString detalheDaProva(const avaliacao::Efetiva& prova, QString* dica = nullptr) const;
     void criarProva();
     void desfazerCorrecao();
     void verHistorico();

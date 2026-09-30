@@ -489,27 +489,52 @@ MateriaDaProva materiaDaProva(const Snapshot& s, const avaliacao::Efetiva& prova
         if (t.idTurma != prova.av.idTurma) continue;
         m.coletada = true;
         const QDate ini = paraQDate(t.inicio);
-        if (!ini.isValid() || ini > dataProva) continue;
-        // Depois da anterior, e não "a partir de": o tópico do próprio dia
-        // da P1 é a P1, não matéria da P2.
-        if (m.desde.isValid() && ini <= m.desde) continue;
+        // A janela da prova: DEPOIS do dia da anterior e ANTES do dia desta.
+        // Estritamente antes — o tópico registrado no próprio dia da prova é a
+        // aula depois dela (em EDO, "Noções de sequências e séries" caiu em
+        // 01/10, dia da Avaliação 1, e é matéria da Avaliação 2).
+        // E o do dia da anterior ENTRA: pela mesma regra, ele já é matéria
+        // desta. O anúncio da anterior, que cai no mesmo dia, sai pelo filtro
+        // de "não é matéria" abaixo.
+        if (!ini.isValid() || ini >= dataProva) continue;
+        if (m.desde.isValid() && ini < m.desde) continue;
         escolhidos.push_back(&t);
     }
-    std::sort(escolhidos.begin(), escolhidos.end(),
-              [](const TopicoAula* a, const TopicoAula* b) { return a->inicio < b->inicio; });
+    // Estável: tópicos do mesmo dia ficam na ordem em que o professor os
+    // registrou, que é a ordem da aula.
+    std::stable_sort(escolhidos.begin(), escolhidos.end(),
+                     [](const TopicoAula* a, const TopicoAula* b) { return a->inicio < b->inicio; });
 
-    QSet<QString> titulos;
+    // O que NÃO é matéria, mesmo registrado como tópico: o anúncio de prova
+    // ("Primeira avaliação", "Revisão para a P1"), aula de dúvidas ou de
+    // exercícios, "Não haverá aula", a apresentação da disciplina. Entram na
+    // conta dos ARQUIVOS (a lista da aula de exercícios é material de estudo),
+    // mas não na lista de tópicos, onde seriam só ruído.
+    static const QRegularExpression naoEhMateria(
+        QStringLiteral("\\b(prova|avalia|revis|d[uú]vida|exerc[ií]cio|n[aã]o haver[aá]|"
+                       "sem aula|feriado|recesso|apresenta[cç][aã]o da disciplina)"),
+        QRegularExpression::CaseInsensitiveOption | QRegularExpression::UseUnicodePropertiesOption);
+
+    QSet<QString> titulos;       // para casar arquivos: todos os tópicos da janela
+    QSet<QString> jaListados;    // para não repetir: o mesmo título registrado duas vezes
     QSet<QString> ids;
     for (const TopicoAula* t : escolhidos) {
         const QString titulo = umaLinha(t->titulo);
-        // O tópico que ANUNCIA a prova ("Prova 1", "Revisão para a P2") não é
-        // matéria — é o próprio evento, e listá-lo seria ruído no topo.
-        if (titulo.compare(umaLinha(prova.av.descricao), Qt::CaseInsensitive) == 0) continue;
-        m.topicos.push_back(titulo);
         titulos.insert(titulo);
         for (const auto& mat : t->materiais) {
             if (!mat.id.empty()) ids.insert(QString::fromStdString(mat.id));
         }
+        if (naoEhMateria.match(titulo).hasMatch()) continue;
+        // Professor que registra a mesma aula duas vezes (ou repete o título
+        // na aula seguinte) contava em dobro: 35 "tópicos" numa turma com 17
+        // aulas até a prova. A chave ignora caixa e pontuação.
+        QString chave = titulo.toLower();
+        chave.remove(QRegularExpression(QStringLiteral("[^\\w ]"),
+                                        QRegularExpression::UseUnicodePropertiesOption));
+        chave = chave.simplified();
+        if (jaListados.contains(chave)) continue;
+        jaListados.insert(chave);
+        m.topicos.push_back(titulo);
     }
     // Os da aba Arquivos, casados pelo título do tópico — a mesma ponte que
     // `materiaisDoTopico` usa.

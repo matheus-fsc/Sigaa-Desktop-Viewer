@@ -1393,7 +1393,7 @@ void JanelaPrincipal::abrirCargaCompleta() {
     dlg.exec();
 }
 
-QString JanelaPrincipal::detalheDaProva(const avaliacao::Efetiva& prova) const {
+QString JanelaPrincipal::detalheDaProva(const avaliacao::Efetiva& prova, QString* dica) const {
     const QString corTexto = tema::token("text").name();
     const QString corApoio = tema::token("text-3").name();
     const auto& av = prova.av;
@@ -1446,6 +1446,7 @@ QString JanelaPrincipal::detalheDaProva(const avaliacao::Efetiva& prova) const {
         : QStringLiteral("Matéria desde o início do período");
     h += QStringLiteral("<hr style=\"border:none; height:1px; background:%1\">")
              .arg(tema::token("line").name());
+    if (dica) dica->clear();
     if (!m.coletada) {
         h += QStringLiteral("<div style=\"color:%1\">Ainda não coletei as aulas desta turma — "
                             "use Atualizar tudo para ver a matéria.</div>").arg(corApoio);
@@ -1461,6 +1462,14 @@ QString JanelaPrincipal::detalheDaProva(const avaliacao::Efetiva& prova) const {
             h += QStringLiteral("<li>%1</li>").arg(cortar(m.topicos[i], 56).toHtmlEscaped());
         }
         h += QStringLiteral("</ol>");
+        // A lista inteira na dica do cartão: o cartão mostra as primeiras, e
+        // quem está estudando quer ver até onde vai sem abrir a turma.
+        if (dica) {
+            QString d = QStringLiteral("<p><b>%1 · %2 tópico(s)</b></p><ol>")
+                            .arg(desde).arg(m.topicos.size());
+            for (const auto& t : m.topicos) d += QStringLiteral("<li>%1</li>").arg(t.toHtmlEscaped());
+            *dica = d + QStringLiteral("</ol>");
+        }
         if (m.topicos.size() > kMaxTopicos) {
             h += QStringLiteral("<div style=\"color:%1\">+%2 tópicos</div>")
                      .arg(corApoio).arg(m.topicos.size() - kMaxTopicos);
@@ -1611,7 +1620,9 @@ void JanelaPrincipal::atualizarResumoProvas(const Snapshot& s) {
         const auto& p1 = *doPrimeiroDia[0];
         formulario_->tituloCartaoProxima->setText(QStringLiteral("PRÓXIMA PROVA") + rotuloQuando(p1));
         formulario_->valorCartaoProxima->setText(titulo(p1));
-        detalhe->setText(detalheDaProva(p1));
+        QString dica;
+        detalhe->setText(detalheDaProva(p1, &dica));
+        detalhe->setToolTip(dica);
         idTurmaProxima_ = p1.av.idTurma;
         botaoTurmaProxima_->show();
     } else if (!doPrimeiroDia.empty()) {
@@ -1623,11 +1634,13 @@ void JanelaPrincipal::atualizarResumoProvas(const Snapshot& s) {
         formulario_->valorCartaoProxima->setText(
             QStringLiteral("%1 provas · %2").arg(doPrimeiroDia.size()).arg(diaCurto(diaDe(p1))));
         detalhe->setText(listaDoDia(doPrimeiroDia, 0));
+        detalhe->setToolTip(QString());
         // Sem "Abrir turma": com várias turmas no dia, qual abriria? A lista
         // e a tabela levam cada uma à sua.
     } else {
         formulario_->tituloCartaoProxima->setText(QStringLiteral("PRÓXIMA PROVA"));
         formulario_->valorCartaoProxima->setText(QStringLiteral("Nenhuma à frente"));
+        detalhe->setToolTip(QString());
         // Distinguir "acabou o semestre" de "nunca entrei nas turmas" importa:
         // as duas telas são idênticas e só uma delas é problema do usuário.
         detalhe->setText(
@@ -1646,7 +1659,9 @@ void JanelaPrincipal::atualizarResumoProvas(const Snapshot& s) {
         const auto& p2 = *doSegundoDia[0];
         tituloSeg->setText(QStringLiteral("EM SEGUIDA") + rotuloQuando(p2));
         valorSeg->setText(titulo(p2));
-        QString h = detalheDaProva(p2);
+        QString dicaSeg;
+        QString h = detalheDaProva(p2, &dicaSeg);
+        detalheSeg->setToolTip(dicaSeg);
         if (doSegundoDia.size() > 1) {
             h += QStringLiteral("<div style=\"margin-top:8px; color:%1; font-weight:600\">+%2 no mesmo dia</div>")
                      .arg(cor::urgente().name())
