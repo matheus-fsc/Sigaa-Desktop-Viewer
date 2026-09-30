@@ -1,5 +1,7 @@
 #include "core/store/Database.h"
 
+#include "core/parse/NoticiaParser.h"
+
 #include <sqlite3.h>
 
 #include <map>
@@ -194,6 +196,30 @@ CREATE TABLE IF NOT EXISTS arquivo (
   primeiro_visto INTEGER,
   ultimo_visto   INTEGER
 );
+
+-- Noticias das turmas (menu "Noticias" da Turma Virtual).
+--
+-- A chave e (turma, titulo normalizado, dia) — parse::chaveNoticia — e nao o
+-- id do SIGAA, porque a "Ultima Noticia" da pagina da turma, que vem de graca,
+-- nao traz id. O id fica guardado a parte quando a lista o deu.
+--
+-- `conteudo` vazio = texto ainda nao buscado. Por isso o upsert nunca troca
+-- texto guardado por vazio: um ciclo que so viu a lista nao pode apagar o que
+-- outro ciclo pagou para buscar.
+CREATE TABLE IF NOT EXISTS noticia (
+  chave          TEXT PRIMARY KEY,
+  id_turma       TEXT NOT NULL,
+  turma_nome     TEXT,
+  id_noticia     TEXT,
+  titulo         TEXT,
+  data           TEXT,        -- ISO-8601, com hora quando o SIGAA deu
+  conteudo       TEXT,        -- HTML limpo (parse::limparHtmlNoticia)
+  autor          TEXT,
+  primeiro_visto INTEGER,
+  ultimo_visto   INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_noticia_turma ON noticia(id_turma, data);
 
 -- Topicos de aula: a linha do tempo da turma. Ficam no banco porque a tela
 -- inicial mostra "a aula de hoje" toda vez que o app abre, e coletar topico
@@ -457,6 +483,24 @@ Snapshot Database::carregarUltimo() {
             a.fonte = (txt(st, 5) == "topico") ? FonteAvaliacao::TopicoAula
                                                : FonteAvaliacao::PainelAvaliacoes;
             s.avaliacoes.push_back(std::move(a));
+        }
+    }
+    sqlite3_finalize(st);
+    st = nullptr;
+
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT id_turma, turma_nome, id_noticia, titulo, data, conteudo, autor"
+            " FROM noticia ORDER BY data DESC", -1, &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            Noticia n;
+            n.idTurma = txt(st, 0);
+            n.turmaNome = txt(st, 1);
+            n.idNoticia = txt(st, 2);
+            n.titulo = txt(st, 3);
+            n.data = deIso(txt(st, 4));
+            n.conteudoHtml = txt(st, 5);
+            n.autor = txt(st, 6);
+            s.noticias.push_back(std::move(n));
         }
     }
     sqlite3_finalize(st);
@@ -749,6 +793,55 @@ bool Database::gravar(const Snapshot& s, std::int64_t agora) {
     sqlite3_finalize(st);
     st = nullptr;
 
+    // --- noticias das turmas ---
+    //
+    // Acumula, como `arquivo`. Dois cuidados no upsert, os dois pelo mesmo
+    // motivo — a mesma noticia chega por fontes que sabem coisas diferentes:
+    //   - texto, id e autor: o novo so vale se nao for vazio. A lista traz a
+    //     noticia sem texto; ela nao pode apagar o texto de um ciclo anterior.
+    //   - data: fica a mais completa. A lista so tem o dia; a pagina da turma
+    //     e o detalhe tem a hora, e trocar "2026-09-30T14:51" por "2026-09-30"
+    //     seria perder informacao a cada ciclo.
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO noticia (chave, id_turma, turma_nome, id_noticia, titulo, data,"
+            " conteudo, autor, primeiro_visto, ultimo_visto)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(chave) DO UPDATE SET"
+            "   turma_nome=excluded.turma_nome, titulo=excluded.titulo,"
+            "   id_noticia=COALESCE(NULLIF(excluded.id_noticia,''), noticia.id_noticia),"
+            "   conteudo=COALESCE(NULLIF(excluded.conteudo,''), noticia.conteudo),"
+            "   autor=COALESCE(NULLIF(excluded.autor,''), noticia.autor),"
+            "   data=CASE WHEN length(excluded.data) > length(COALESCE(noticia.data,''))"
+            "             THEN excluded.data ELSE noticia.data END,"
+            "   ultimo_visto=excluded.ultimo_visto",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return rollback();
+    }
+    for (const auto& n : s.noticias) {
+        if (n.idTurma.empty() || n.titulo.empty()) continue;
+        const std::string chave = parse::chaveNoticia(n.idTurma, n.titulo, n.data);
+        const std::string data = n.data.toIso();
+        sqlite3_reset(st);
+        sqlite3_bind_text(st, 1, chave.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, n.idTurma.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 3, n.turmaNome.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 4, n.idNoticia.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 5, n.titulo.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 6, data.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 7, n.conteudoHtml.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 8, n.autor.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 9, agora);
+        sqlite3_bind_int64(st, 10, agora);
+        if (sqlite3_step(st) != SQLITE_DONE) {
+            impl_->erro = sqlite3_errmsg(impl_->db);
+            sqlite3_finalize(st);
+            return rollback();
+        }
+    }
+    sqlite3_finalize(st);
+    st = nullptr;
+
     // --- participantes das turmas ---
     //
     // Acumula, como `arquivo`: um sync sem `--turmas` traz zero participantes,
@@ -905,6 +998,47 @@ int Database::ciclos() {
     }
     sqlite3_finalize(st);
     return n;
+}
+
+std::vector<Noticia> Database::carregarNoticias(const std::string& idTurma) {
+    std::vector<Noticia> out;
+    if (!aberto()) return out;
+    sqlite3_stmt* st = nullptr;
+    // "data DESC" ordena certo porque a data é ISO; com hora e sem hora no
+    // mesmo dia, a com hora fica antes — e é a mesma notícia de qualquer jeito
+    // (a chave junta as duas).
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT id_turma, turma_nome, id_noticia, titulo, data, conteudo, autor"
+            " FROM noticia WHERE id_turma=? ORDER BY data DESC, primeiro_visto DESC",
+            -1, &st, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, idTurma.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            Noticia n;
+            n.idTurma = txt(st, 0);
+            n.turmaNome = txt(st, 1);
+            n.idNoticia = txt(st, 2);
+            n.titulo = txt(st, 3);
+            n.data = deIso(txt(st, 4));
+            n.conteudoHtml = txt(st, 5);
+            n.autor = txt(st, 6);
+            out.push_back(std::move(n));
+        }
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+
+std::set<std::string> Database::chavesNoticiasComTexto() {
+    std::set<std::string> out;
+    if (!aberto()) return out;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT chave FROM noticia WHERE conteudo IS NOT NULL AND conteudo <> ''",
+            -1, &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) out.insert(txt(st, 0));
+    }
+    sqlite3_finalize(st);
+    return out;
 }
 
 int Database::participantesGuardados() {

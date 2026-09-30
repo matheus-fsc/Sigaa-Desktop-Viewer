@@ -57,6 +57,21 @@ struct OpcoesColeta {
     // inteiro e por isso só vale a pena buscar uma vez.
     bool incluirFrequencia{true};
 
+    // Lê as notícias de cada turma visitada.
+    //
+    // A ÚLTIMA vem de graça: está na página inicial da turma, que a coleta
+    // abre de qualquer jeito. A lista de todas custa UMA requisição (a aba
+    // Notícias), e o texto de cada uma, outra — por isso:
+    //   - só se busca texto de notícia que ainda não tem (`noticiasComTexto`,
+    //     que quem chama lê do banco antes);
+    //   - no máximo `maxTextosNoticiaPorTurma` por turma por ciclo. Na
+    //     primeira coleta de uma turma com vinte notícias antigas, elas entram
+    //     aos poucos, em vez de vinte requisições seguidas a ~1,5 s cada — o
+    //     ritmo que faz o SIGAA desconfiar da conta.
+    bool incluirNoticias{true};
+    std::set<std::string> noticiasComTexto;   // parse::chaveNoticia
+    int maxTextosNoticiaPorTurma{5};
+
     // Visita SÓ estas turmas (por `idTurma`). Vazio = todas, que é o padrão.
     //
     // O QUE ISTO COMPRA: o gargalo do app não é processar HTML, é esperar o

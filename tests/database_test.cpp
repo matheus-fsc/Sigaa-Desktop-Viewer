@@ -24,6 +24,7 @@
 
 #include <sqlite3.h>
 
+#include "core/parse/NoticiaParser.h"
 #include "core/store/Database.h"
 
 using namespace sigaa;
@@ -662,4 +663,71 @@ TEST_CASE("banco anterior a coluna descartada migra sem perder correcoes", "[dat
 
     // E migrar de novo nao tenta acrescentar a coluna duas vezes.
     REQUIRE(db.migrar());
+}
+
+// ---------------------------------------------------------------------------
+// Noticias das turmas
+//
+// A mesma noticia chega por fontes que sabem coisas diferentes: a lista (sem
+// texto, so o dia), a pagina da turma e o detalhe (com texto e hora). O banco
+// junta tudo pela chave (turma, titulo, dia) e nunca perde o que ja sabia.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+Noticia noticiaDeTeste() {
+    Noticia n;
+    n.idTurma = "T1";
+    n.turmaNome = "COMPILADORES";
+    n.titulo = "ATIVIDADES DE LABORATORIO";
+    n.data.year = 2026; n.data.month = 9; n.data.day = 30;
+    return n;
+}
+
+}  // namespace
+
+TEST_CASE("noticia da lista nao apaga o texto buscado antes", "[database]") {
+    BancoTemp b;
+    store::Database db(b.str());
+    REQUIRE(db.migrar());
+
+    // Ciclo 1: o detalhe, com texto, hora e autor.
+    Snapshot s1;
+    auto completa = noticiaDeTeste();
+    completa.idNoticia = "130428096";
+    completa.data.hour = 14; completa.data.minute = 51; completa.data.hasTime = true;
+    completa.conteudoHtml = "<p>texto</p>";
+    completa.autor = "DOCENTE TESTE";
+    s1.noticias = {completa};
+    REQUIRE(db.gravar(s1, 1000));
+
+    // Ciclo 2: so a lista — sem texto, sem hora, sem autor.
+    Snapshot s2;
+    s2.noticias = {noticiaDeTeste()};
+    REQUIRE(db.gravar(s2, 2000));
+
+    const auto ns = db.carregarUltimo().noticias;
+    REQUIRE(ns.size() == 1);
+    CHECK(ns[0].conteudoHtml == "<p>texto</p>");
+    CHECK(ns[0].data.toIso() == "2026-09-30T14:51");
+    CHECK(ns[0].idNoticia == "130428096");
+    CHECK(ns[0].autor == "DOCENTE TESTE");
+}
+
+TEST_CASE("chaves de noticias com texto so trazem as que ja tem texto", "[database]") {
+    BancoTemp b;
+    store::Database db(b.str());
+    REQUIRE(db.migrar());
+
+    Snapshot s;
+    auto comTexto = noticiaDeTeste();
+    comTexto.conteudoHtml = "<p>x</p>";
+    auto semTexto = noticiaDeTeste();
+    semTexto.titulo = "OUTRA";
+    s.noticias = {comTexto, semTexto};
+    REQUIRE(db.gravar(s, 1000));
+
+    const auto chaves = db.chavesNoticiasComTexto();
+    CHECK(chaves.size() == 1);
+    CHECK(chaves.count(parse::chaveNoticia("T1", "ATIVIDADES DE LABORATORIO", comTexto.data)) == 1);
 }

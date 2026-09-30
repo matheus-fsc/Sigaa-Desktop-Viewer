@@ -196,11 +196,22 @@ Resultado executar(Opcoes op, const Log& log) {
         }
     }
 
+    // Notícias: quais já têm texto no banco, para a coleta não pagar de novo
+    // pelo que está guardado. Mesmo motivo da espiada acima para abrir o
+    // banco antes da rede.
+    std::set<std::string> noticiasComTexto;
+    if (op.incluirTurmas && op.incluirNoticias) {
+        store::Database espia(op.caminhoBanco);
+        if (espia.aberto() && espia.migrar()) noticiasComTexto = espia.chavesNoticiasComTexto();
+    }
+
     sync::OpcoesColeta oc;
     oc.incluirTurmas = op.incluirTurmas;
     oc.incluirArquivos = op.incluirArquivos;
     oc.incluirParticipantes = buscarParticipantes;
     oc.incluirFrequencia = op.incluirFrequencia;
+    oc.incluirNoticias = op.incluirNoticias;
+    oc.noticiasComTexto = std::move(noticiasComTexto);
     oc.apenasTurmas = op.apenasTurmas;
     if (log) {
         oc.progresso = [&log](const std::string& m) { diz(log, Nivel::Passo, m); };

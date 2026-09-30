@@ -15,6 +15,7 @@
 // em streaming é uma mudança no SigaaSession, não aqui.
 
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,17 @@ namespace sigaa::sync {
 bool abrirAbaPorRotulo(http::SigaaSession& sessao, const html::Document& docTurma,
                        const std::string& rotulo, html::Document* saida,
                        std::string* erro = nullptr);
+
+// Notícias de uma turma JÁ CARREGADA: a última (da própria página, grátis),
+// a lista da aba Notícias (uma requisição) e o texto das que não estão em
+// `noticiasComTexto` (parse::chaveNoticia), uma requisição cada, no máximo
+// `maxTextos`. Devolve tudo o que leu; lista vazia quando a turma não tem a
+// aba ou a resposta não parece a aba — nunca "sem notícias" inventado.
+// `textosBuscados`, se dado, recebe quantos textos custaram requisição.
+std::vector<Noticia> lerNoticias(http::SigaaSession& sessao, const html::Document& docTurma,
+                                 const Turma& turma,
+                                 const std::set<std::string>& noticiasComTexto,
+                                 int maxTextos, int* textosBuscados = nullptr);
 
 class SessaoTurma {
 public:
@@ -65,6 +77,10 @@ public:
     // professor não lançou nada": isso é um mapa válido e vazio, e a diferença
     // está em `frequencia().temDados`.
     bool abrirFrequencia(std::string* erro = nullptr);
+
+    // Turma -> aba Notícias (ver `lerNoticias`). Só depois de `entrar`.
+    bool abrirNoticias(const std::set<std::string>& noticiasComTexto, int maxTextos);
+    const std::vector<Noticia>& noticias() const { return noticias_; }
 
     // Vazia até `abrirFrequencia` rodar.
     const Frequencia& frequencia() const { return frequencia_; }
@@ -110,6 +126,7 @@ private:
     std::vector<ArquivoTurma> arquivos_;
     std::vector<Participante> participantes_;
     Frequencia frequencia_;
+    std::vector<Noticia> noticias_;
     std::vector<std::string> menu_;
     bool vazioConfirmado_{false};
     bool naTurma_{false};

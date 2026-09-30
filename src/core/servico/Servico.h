@@ -59,6 +59,11 @@ struct Opcoes {
     // Abre o mapa de frequência de cada turma visitada. Só com `incluirTurmas`.
     bool incluirFrequencia{true};
 
+    // Lê as notícias de cada turma visitada: a lista (uma requisição) e o
+    // texto das que o banco ainda não tem, com teto por ciclo. Ver
+    // `sync::OpcoesColeta::incluirNoticias`. Só com `incluirTurmas`.
+    bool incluirNoticias{true};
+
     // Visita só estas turmas (por `idTurma`). Vazio = todas.
     //
     // É o que sustenta o fluxo "atualizar só esta turma" da janela: o custo de

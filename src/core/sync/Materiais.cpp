@@ -6,6 +6,7 @@
 #include "core/jsf/JsfForm.h"
 #include "core/parse/ArquivoParser.h"
 #include "core/parse/FrequenciaParser.h"
+#include "core/parse/NoticiaParser.h"
 #include "core/parse/Html.h"
 #include "core/parse/ParticipanteParser.h"
 #include "core/parse/TurmaParser.h"
@@ -114,6 +115,90 @@ bool abrirAbaPorRotulo(http::SigaaSession& sessao, const html::Document& docTurm
         return false;
     }
     return true;
+}
+
+// Qualquer passo que não devolva o que se esperava ENCERRA a busca de textos
+// desta turma, em vez de tentar a próxima: se o detalhe veio errado, o próximo
+// clique quase certamente também viria, e seriam requisições gastas à toa.
+std::vector<Noticia> lerNoticias(http::SigaaSession& sessao, const html::Document& docTurma,
+                                 const Turma& t, const std::set<std::string>& noticiasComTexto,
+                                 int maxTextos, int* textosBuscados) {
+    std::vector<Noticia> out;
+    std::set<std::string> comTexto = noticiasComTexto;
+
+    if (auto ultima = parse::parseUltimaNoticia(docTurma, t.idTurma, t.nome)) {
+        if (!ultima->conteudoHtml.empty()) {
+            comTexto.insert(parse::chaveNoticia(t.idTurma, ultima->titulo, ultima->data));
+        }
+        out.push_back(std::move(*ultima));
+    }
+
+    // Pelo rótulo exato: "Not" sozinho casaria "Ver Notas", que vem antes no
+    // menu de algumas turmas. A forma com entidade cobre uma página servida
+    // sem decodificar o acento.
+    html::Document docLista;
+    if (!abrirAbaPorRotulo(sessao, docTurma, "Notícias", &docLista, nullptr) &&
+        !abrirAbaPorRotulo(sessao, docTurma, "Not&#237;cias", &docLista, nullptr)) {
+        return out;
+    }
+    const auto lista = parse::parseListaNoticias(docLista);
+    if (!lista.pareceAbaNoticias) return out;
+
+    for (const auto& it : lista.itens) {
+        Noticia n;
+        n.idTurma = t.idTurma;
+        n.turmaNome = t.nome;
+        n.idNoticia = it.id;
+        n.titulo = it.titulo;
+        n.data = it.data;
+        out.push_back(std::move(n));
+    }
+
+    // Textos: das mais novas para as mais antigas (a ordem da própria lista),
+    // só as que faltam, até o teto.
+    const auto cmds = jsf::findCommands(docLista);
+    int buscados = 0;
+    for (const auto& it : lista.itens) {
+        if (buscados >= maxTextos) break;
+        if (comTexto.count(parse::chaveNoticia(t.idTurma, it.titulo, it.data))) continue;
+
+        const jsf::Command* cmd = nullptr;
+        for (const auto& c : cmds) {
+            for (const auto& [k, v] : c.params) {
+                if (k == "id" && v == it.id) cmd = &c;
+            }
+        }
+        if (!cmd) break;
+        const auto form = jsf::parseForm(docLista, cmd->formId);
+        if (!form) break;
+
+        ++buscados;
+        auto rd = sessao.postForm(form->action, form->buildPostBody(cmd->params));
+        html::Document dd;
+        if (!rd.ok() || !dd.parse(rd.body)) break;
+        const auto det = parse::parseDetalheNoticia(dd);
+        if (!det.pareceDetalhe) break;
+
+        Noticia n;
+        n.idTurma = t.idTurma;
+        n.turmaNome = t.nome;
+        n.idNoticia = it.id;
+        n.titulo = it.titulo;
+        // A do detalhe tem hora; a da lista, só o dia. A chave usa só o dia,
+        // então as duas continuam sendo a mesma notícia.
+        n.data = det.data.valid() ? det.data : it.data;
+        n.conteudoHtml = det.conteudoHtml;
+        out.push_back(std::move(n));
+    }
+
+    if (textosBuscados) *textosBuscados = buscados;
+    return out;
+}
+
+bool SessaoTurma::abrirNoticias(const std::set<std::string>& noticiasComTexto, int maxTextos) {
+    if (!naTurma_) return false;
+    noticias_ = lerNoticias(sessao_, docTurma_, turma_, noticiasComTexto, maxTextos);
+    return !noticias_.empty();
 }
 
 bool SessaoTurma::recarregarAbaArquivos(std::string* erro) {

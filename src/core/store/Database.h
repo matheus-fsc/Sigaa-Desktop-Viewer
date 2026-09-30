@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -50,6 +51,16 @@ public:
     // e a unica coleta em que a lista precisa vir inteira. Depois disso quem
     // reatualiza e a janela da turma, so na turma que o aluno abriu.
     int participantesGuardados();
+
+    // Chaves (parse::chaveNoticia) das notícias que JÁ TÊM texto no banco.
+    //
+    // A coleta consulta antes de entrar nas turmas: o texto de cada notícia
+    // custa uma requisição, e buscar de novo o que já está guardado seria
+    // pagar por nada a cada ciclo.
+    std::set<std::string> chavesNoticiasComTexto();
+
+    // As notícias de uma turma, da mais nova para a mais antiga.
+    std::vector<Noticia> carregarNoticias(const std::string& idTurma);
 
     // --- correções do aluno sobre datas de prova ---------------------------
     //

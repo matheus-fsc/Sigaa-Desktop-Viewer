@@ -5,6 +5,7 @@
 #include "core/parse/ArquivoParser.h"
 #include "core/parse/FrequenciaParser.h"
 #include "core/parse/Html.h"
+#include "core/parse/NoticiaParser.h"
 #include "core/parse/ParticipanteParser.h"
 #include "core/parse/PortalParser.h"
 #include "core/parse/TurmaParser.h"
@@ -101,6 +102,26 @@ void coletarFrequencia(http::SigaaSession& sessao, const html::Document& docTurm
     }
 }
 
+// Notícias da turma. Mesma regra das outras abas: falhar aqui NÃO conta como
+// turma com falha. A lógica mora em Materiais (`lerNoticias`), porque a janela
+// da turma, que chega à turma por outro caminho, também a usa.
+void coletarNoticias(http::SigaaSession& sessao, const html::Document& docTurma,
+                     const Turma& t, ResultadoColeta& res, const OpcoesColeta& op) {
+    int buscados = 0;
+    auto ns = lerNoticias(sessao, docTurma, t, op.noticiasComTexto,
+                          op.maxTextosNoticiaPorTurma, &buscados);
+    int naLista = 0;
+    for (const auto& n : ns) naLista += n.idNoticia.empty() ? 0 : 1;
+    if (naLista > 0) {
+        avisar(op, "  noticias: " + std::to_string(naLista) +
+                       (buscados > 0 ? ", texto de " + std::to_string(buscados) + " buscado"
+                                     : std::string()));
+    }
+    res.snapshot.noticias.insert(res.snapshot.noticias.end(),
+                                 std::make_move_iterator(ns.begin()),
+                                 std::make_move_iterator(ns.end()));
+}
+
 } // namespace
 
 ResultadoColeta coletar(http::SigaaSession& sessao, const OpcoesColeta& op) {
@@ -176,6 +197,7 @@ ResultadoColeta coletar(http::SigaaSession& sessao, const OpcoesColeta& op) {
 
                 if (op.incluirArquivos) coletarArquivos(sessao, dt, t, res, op);
                 if (op.incluirFrequencia) coletarFrequencia(sessao, dt, t, res, op);
+                if (op.incluirNoticias) coletarNoticias(sessao, dt, t, res, op);
                 if (op.incluirParticipantes) {
                     coletarParticipantes(sessao, dt, t, res, op);
                 }
