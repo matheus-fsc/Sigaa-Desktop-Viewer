@@ -56,7 +56,7 @@ std::size_t paraArquivo(char* p, std::size_t t, std::size_t n, void* d) {
     return f->good() ? t * n : 0;
 }
 
-CURL* preparar(const std::string& url) {
+CURL* preparar(const std::string& url, curl_slist** headers_out = nullptr) {
     CURL* c = curl_easy_init();
     if (!c) return nullptr;
     curl_easy_setopt(c, CURLOPT_URL, url.c_str());
@@ -65,11 +65,28 @@ CURL* preparar(const std::string& url) {
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 15L);
     // A API do GitHub recusa quem não se identifica.
     curl_easy_setopt(c, CURLOPT_USERAGENT, "sigaa-viewer-atualizador");
+
+    // Só para a API do GitHub — ver `levaToken`. Num redirecionamento para
+    // outro host, a própria libcurl (>= 7.58) descarta o cabeçalho
+    // Authorization personalizado, então o FOLLOWLOCATION acima não o vaza.
+    if (headers_out && levaToken(url)) {
+        curl_slist* h = nullptr;
+        if (const char* token = std::getenv("GITHUB_TOKEN")) {
+            std::string auth = "Authorization: Bearer ";
+            auth += token;
+            h = curl_slist_append(h, auth.c_str());
+        }
+        if (h) {
+            curl_easy_setopt(c, CURLOPT_HTTPHEADER, h);
+            *headers_out = h;
+        }
+    }
     return c;
 }
 
 std::optional<std::string> buscarTexto(const std::string& url, std::string* erro) {
-    CURL* c = preparar(url);
+    curl_slist* headers = nullptr;
+    CURL* c = preparar(url, &headers);
     if (!c) {
         if (erro) *erro = "nao consegui iniciar a requisicao";
         return std::nullopt;
@@ -82,6 +99,8 @@ std::optional<std::string> buscarTexto(const std::string& url, std::string* erro
     const CURLcode rc = curl_easy_perform(c);
     long status = 0;
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
+    
+    if (headers) curl_slist_free_all(headers);
     curl_easy_cleanup(c);
 
     if (rc != CURLE_OK) {
@@ -89,7 +108,13 @@ std::optional<std::string> buscarTexto(const std::string& url, std::string* erro
         return std::nullopt;
     }
     if (status != 200) {
-        if (erro) *erro = "o GitHub respondeu HTTP " + std::to_string(status);
+        if (erro) {
+            if (status == 403) {
+                *erro = "o GitHub recusou o acesso (HTTP 403). Se for limite de requisições, tente mais tarde ou defina a variável GITHUB_TOKEN.";
+            } else {
+                *erro = "o GitHub respondeu HTTP " + std::to_string(status);
+            }
+        }
         return std::nullopt;
     }
     return corpo;
@@ -138,6 +163,16 @@ bool ehDestaPlataforma(const std::string& nome) {
 }
 
 } // namespace
+
+bool levaToken(const std::string& url) {
+    // Pelo COMEÇO da URL, com esquema e barra. Um `find("api.github.com")`
+    // casaria em qualquer ponto — no caminho, na query, ou num host como
+    // "api.github.com.exemplo.net" — e as URLs deste arquivo não são todas
+    // nossas: as de download vêm da resposta da API. Mandar o GITHUB_TOKEN de
+    // quem desenvolve para um host alheio seria entregar a credencial da conta
+    // dele. `http://` fica de fora pelo mesmo motivo: token em texto puro.
+    return url.rfind("https://api.github.com/", 0) == 0;
+}
 
 std::string versaoAtual() { return SIGAA_VERSAO; }
 

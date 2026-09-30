@@ -15,6 +15,7 @@
 
 #include "core/atualizacao/Atualizador.h"
 
+using sigaa::atualizacao::levaToken;
 using sigaa::atualizacao::maisNova;
 
 TEST_CASE("versao maior em qualquer campo e mais nova", "[atualizador]") {
@@ -85,4 +86,23 @@ TEST_CASE("a versao atual vem do CMake", "[atualizador]") {
     // Se `SIGAA_VERSAO` nao chegar ao compilador, isto cai em "0.0.0" e o app
     // anunciaria atualizacao para sempre.
     CHECK(sigaa::atualizacao::versaoAtual() != "0.0.0");
+}
+
+TEST_CASE("GITHUB_TOKEN so vai para a API do GitHub por HTTPS", "[atualizador]") {
+    // O caso legitimo: a lista de releases.
+    CHECK(levaToken("https://api.github.com/repos/matheus-fsc/Sigaa-Desktop-Viewer/releases"));
+
+    // O que um teste por substring deixava passar. As URLs de download vem da
+    // resposta da API, entao nao sao todas nossas.
+    CHECK_FALSE(levaToken("https://api.github.com.exemplo.net/x"));
+    CHECK_FALSE(levaToken("https://exemplo.net/api.github.com/x"));
+    CHECK_FALSE(levaToken("https://exemplo.net/?h=https://api.github.com/"));
+    CHECK_FALSE(levaToken("https://evil@exemplo.net/api.github.com"));
+
+    // Texto puro nao leva token.
+    CHECK_FALSE(levaToken("http://api.github.com/repos/x"));
+
+    // O download do pacote e em outro host do GitHub, e nao precisa de token.
+    CHECK_FALSE(levaToken("https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/releases/download/v1.0.1/x.AppImage"));
+    CHECK_FALSE(levaToken("https://objects.githubusercontent.com/x"));
 }

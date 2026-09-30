@@ -50,6 +50,11 @@ struct Lancamento {
 // saísse depois da 0.2.0-alpha.
 bool maisNova(const std::string& candidata, const std::string& atual);
 
+// A URL pode receber o GITHUB_TOKEN? Só a API do GitHub, por HTTPS, conferida
+// pelo começo da URL — ver o .cpp para o que um teste por substring deixava
+// passar.
+bool levaToken(const std::string& url);
+
 // Consulta a última release do repositório oficial.
 //
 // `nullopt` com `erro` preenchido. Uma release sem pacote para esta plataforma
