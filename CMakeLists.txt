@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(sigaa-viewer VERSION 1.0.1 LANGUAGES CXX)
+project(sigaa-viewer VERSION 1.1.0 LANGUAGES CXX)
 
 # O sufixo de pré-lançamento, que o `project(VERSION)` não aceita — ele só
 # entende número.
