@@ -176,3 +176,75 @@ TEST_CASE("o mesmo dado gera sempre o mesmo texto", "[turmamd]") {
     d.topicos.push_back(topico("Aula 1", dia(2026, 8, 3)));
     CHECK(report::gerarTurmaMd(d) == report::gerarTurmaMd(d));
 }
+
+TEST_CASE("a falta aparece no topico da aula daquele dia", "[turmamd]") {
+    auto d = base();
+    d.topicos.push_back(topico("Aula 1 - Lexico", dia(2026, 8, 3)));
+    d.topicos.push_back(topico("Aula 2 - Sintatico", dia(2026, 8, 10)));
+
+    Frequencia f;
+    f.aulasPelaCH = 64;
+    f.aulasComRegistro = 4;
+    f.presencas = 2;
+    f.temDados = true;
+    DiaFrequencia presente;
+    presente.data = dia(2026, 8, 3);
+    presente.situacao = SituacaoDia::Presente;
+    DiaFrequencia falta;
+    falta.data = dia(2026, 8, 10);
+    falta.situacao = SituacaoDia::Falta;
+    falta.faltas = 2;
+    f.dias = {presente, falta};
+    d.frequencia = &f;
+
+    const std::string md = report::gerarTurmaMd(d);
+    const auto aula1 = md.find("### Aula 1");
+    const auto aula2 = md.find("### Aula 2");
+    const auto marca = md.find("**Falta:** 10/08/2026 (2 aulas)");
+    REQUIRE(aula2 != std::string::npos);
+    REQUIRE(marca != std::string::npos);
+    CHECK(marca > aula2);
+    // So uma marca, e nao no topico em que o aluno estava.
+    CHECK(md.find("**Falta:**", marca + 1) == std::string::npos);
+    CHECK(md.find("**Falta:**", aula1) == marca);
+    CHECK(md.find("## Faltas sem t") == std::string::npos);
+}
+
+TEST_CASE("falta dentro de um bloco de dias vai para o bloco", "[turmamd]") {
+    auto d = base();
+    auto bloco = topico("Semana 2", dia(2026, 8, 10));
+    bloco.fim = dia(2026, 8, 14);
+    d.topicos.push_back(bloco);
+
+    Frequencia f;
+    f.temDados = true;
+    DiaFrequencia falta;
+    falta.data = dia(2026, 8, 12);
+    falta.situacao = SituacaoDia::Falta;
+    falta.faltas = 1;
+    f.dias = {falta};
+    d.frequencia = &f;
+
+    const std::string md = report::gerarTurmaMd(d);
+    CHECK(md.find("**Falta:** 12/08/2026 (1 aula)") != std::string::npos);
+}
+
+TEST_CASE("falta sem topico nao some do resumo", "[turmamd]") {
+    auto d = base();
+    d.topicos.push_back(topico("Aula 1", dia(2026, 8, 3)));
+
+    Frequencia f;
+    f.temDados = true;
+    DiaFrequencia falta;
+    falta.data = dia(2026, 8, 17);
+    falta.situacao = SituacaoDia::Falta;
+    falta.faltas = 2;
+    f.dias = {falta};
+    d.frequencia = &f;
+
+    const std::string md = report::gerarTurmaMd(d);
+    CHECK(md.find("**Falta:**") == std::string::npos);
+    const auto secao = md.find("## Faltas sem tópico de aula");
+    REQUIRE(secao != std::string::npos);
+    CHECK(md.find("- 17/08/2026 (2 aulas)", secao) != std::string::npos);
+}

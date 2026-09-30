@@ -7,13 +7,14 @@
 namespace sigaa::report {
 namespace {
 
+std::string br(const DateTime& d) {
+    char buf[16];
+    std::snprintf(buf, sizeof buf, "%02d/%02d/%04d", d.day, d.month, d.year);
+    return std::string(buf);
+}
+
 // "03/08/2026", ou "03/08/2026 a 10/08/2026" quando o professor datou um bloco.
 std::string periodo(const DateTime& a, const DateTime& b) {
-    auto br = [](const DateTime& d) {
-        char buf[16];
-        std::snprintf(buf, sizeof buf, "%02d/%02d/%04d", d.day, d.month, d.year);
-        return std::string(buf);
-    };
     if (!a.valid()) return {};
     if (!b.valid() || b.toIso() == a.toIso()) return br(a);
     return br(a) + " a " + br(b);
@@ -36,6 +37,24 @@ std::string seguro(const std::string& s) {
         o.insert(o.begin(), '\\');
     }
     return o;
+}
+
+// Só o dia: o tópico às vezes vem com hora e a frequência nunca vem, e
+// "03/08 00:00 < 03/08 19:00" não pode tirar a falta da aula do mesmo dia.
+int chaveDia(const DateTime& d) { return d.year * 10000 + d.month * 100 + d.day; }
+
+// A falta cai no tópico cujo dia (ou bloco de dias) a contém.
+bool noTopico(const DiaFrequencia& f, const TopicoAula& t) {
+    if (!t.inicio.valid() || !f.data.valid()) return false;
+    const int dia = chaveDia(f.data);
+    const int ini = chaveDia(t.inicio);
+    const int fim = t.fim.valid() ? chaveDia(t.fim) : ini;
+    return dia >= ini && dia <= fim;
+}
+
+void escreverFalta(std::ostringstream& o, const DiaFrequencia& f) {
+    o << br(f.data);
+    if (f.faltas > 0) o << " (" << f.faltas << (f.faltas == 1 ? " aula)" : " aulas)");
 }
 
 } // namespace
@@ -101,10 +120,37 @@ std::string gerarTurmaMd(const DadosTurmaMd& d) {
                          return a.inicio < b.inicio;
                      });
 
+    // Os dias de falta, em ordem, para vincular cada um ao tópico da aula.
+    std::vector<const DiaFrequencia*> faltas;
+    if (d.frequencia && d.frequencia->temDados) {
+        for (const auto& f : d.frequencia->dias) {
+            if (f.situacao == SituacaoDia::Falta && f.data.valid()) faltas.push_back(&f);
+        }
+        std::stable_sort(faltas.begin(), faltas.end(),
+                         [](const DiaFrequencia* a, const DiaFrequencia* b) {
+                             return chaveDia(a->data) < chaveDia(b->data);
+                         });
+    }
+
     for (const auto& t : topicos) {
         o << "### " << seguro(t.titulo) << "\n\n";
         const std::string quando = periodo(t.inicio, t.fim);
         if (!quando.empty()) o << "**Quando:** " << quando << "\n\n";
+
+        // A falta no próprio tópico: é aqui que o aluno (ou a IA) descobre
+        // que aquele conteúdo foi dado sem ele e precisa ser estudado à parte.
+        std::vector<const DiaFrequencia*> faltasAqui;
+        for (const auto* f : faltas) {
+            if (noTopico(*f, t)) faltasAqui.push_back(f);
+        }
+        if (!faltasAqui.empty()) {
+            o << "**Falta:** ";
+            for (std::size_t i = 0; i < faltasAqui.size(); ++i) {
+                if (i) o << ", ";
+                escreverFalta(o, *faltasAqui[i]);
+            }
+            o << " — você não estava nesta aula.\n\n";
+        }
         if (!t.conteudo.empty()) o << seguro(t.conteudo) << "\n\n";
 
         if (!t.materiais.empty()) {
@@ -116,6 +162,26 @@ std::string gerarTurmaMd(const DadosTurmaMd& d) {
             }
             o << "\n";
         }
+    }
+
+    // --- faltas sem tópico -------------------------------------------------
+    // Dia em que o professor lançou falta mas não publicou tópico. Sumir com
+    // ela esconderia justamente a aula de que o aluno não tem registro nenhum.
+    std::vector<const DiaFrequencia*> orfas;
+    for (const auto* f : faltas) {
+        const bool coberta = std::any_of(
+            topicos.begin(), topicos.end(),
+            [f](const TopicoAula& t) { return noTopico(*f, t); });
+        if (!coberta) orfas.push_back(f);
+    }
+    if (!orfas.empty()) {
+        o << "## Faltas sem tópico de aula\n\n";
+        for (const auto* f : orfas) {
+            o << "- ";
+            escreverFalta(o, *f);
+            o << "\n";
+        }
+        o << "\n";
     }
 
     // --- arquivos sem aula --------------------------------------------------
