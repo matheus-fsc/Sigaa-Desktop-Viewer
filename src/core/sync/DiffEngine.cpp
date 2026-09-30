@@ -1,5 +1,7 @@
 #include "core/sync/DiffEngine.h"
 
+#include "core/parse/NoticiaParser.h"
+
 #include <map>
 #include <set>
 
@@ -22,6 +24,7 @@ std::string_view toString(TipoEvento t) {
         case TipoEvento::AvaliacaoNova:      return "avaliacao-nova";
         case TipoEvento::AvaliacaoRemarcada: return "avaliacao-remarcada";
         case TipoEvento::MaterialNovo:       return "material-novo";
+        case TipoEvento::NoticiaNova:        return "noticia-nova";
         case TipoEvento::ColetaSuspeita:     return "coleta-suspeita";
     }
     return "?";
@@ -160,6 +163,51 @@ ResultadoDiff diff(const Snapshot& anterior, const Snapshot& novo,
                                    a.topico.empty() ? "novo arquivo na turma"
                                                     : "em " + a.topico,
                                    a.idTurma, a.turmaNome});
+        }
+    }
+
+    // --- notícias ------------------------------------------------------------
+    // As mesmas duas guardas dos arquivos, pelo mesmo motivo:
+    //   - só compara turma que ESTA rodada trouxe notícia (coleta que não
+    //     entrou na turma, ou falhou na aba, não pode fazer a próxima anunciar
+    //     o histórico inteiro dela);
+    //   - turma que nunca teve notícia guardada é a linha de base: a primeira
+    //     coleta de uma turma com vinte notícias antigas não é vinte novidades.
+    // A chave é parse::chaveNoticia (turma, título, dia): a mesma notícia chega
+    // três vezes na mesma rodada (a última da página, a lista, o detalhe), e
+    // anunciá-la três vezes seria o alarme repetido que ensina a ignorar.
+    if (!novo.noticias.empty()) {
+        std::set<std::string> antes;
+        std::set<std::string> turmasComNoticia;
+        for (const auto& n : anterior.noticias) {
+            antes.insert(parse::chaveNoticia(n.idTurma, n.titulo, n.data));
+            turmasComNoticia.insert(n.idTurma);
+        }
+        // O texto pode ter vindo em qualquer uma das três cópias; o aviso usa
+        // a primeira que tiver.
+        std::map<std::string, const Noticia*> novas;
+        std::vector<std::string> ordem;
+        for (const auto& n : novo.noticias) {
+            if (!turmasComNoticia.count(n.idTurma)) continue;
+            const std::string chave = parse::chaveNoticia(n.idTurma, n.titulo, n.data);
+            if (antes.count(chave)) continue;
+            auto [it, inserida] = novas.emplace(chave, &n);
+            if (inserida) ordem.push_back(chave);
+            else if (it->second->conteudoHtml.empty() && !n.conteudoHtml.empty()) it->second = &n;
+        }
+        for (const auto& chave : ordem) {
+            const Noticia& n = *novas[chave];
+            std::string trecho = parse::textoDaNoticia(n.conteudoHtml);
+            constexpr std::size_t kTrecho = 140;
+            if (trecho.size() > kTrecho) {
+                // Corta em fronteira de caractere UTF-8, nunca no meio de um.
+                std::size_t corte = kTrecho;
+                while (corte > 0 && (static_cast<unsigned char>(trecho[corte]) & 0xC0) == 0x80) --corte;
+                trecho = trecho.substr(0, corte) + "…";
+            }
+            res.eventos.push_back({TipoEvento::NoticiaNova, chave, n.titulo,
+                                   trecho.empty() ? "nova notícia na turma" : trecho,
+                                   n.idTurma, n.turmaNome});
         }
     }
 

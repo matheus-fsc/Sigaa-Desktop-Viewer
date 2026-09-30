@@ -29,6 +29,7 @@ enum class TipoEvento {
     AvaliacaoNova,
     AvaliacaoRemarcada, // prova mudou de data — dos avisos mais importantes
     MaterialNovo,       // professor publicou arquivo novo na turma
+    NoticiaNova,        // professor publicou notícia na turma
     ColetaSuspeita,     // a coleta parece incompleta — avisar, não silenciar
 };
 

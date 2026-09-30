@@ -33,6 +33,7 @@ std::string_view rotulo(sync::TipoEvento t) {
         case sync::TipoEvento::AtividadeConcluida: return "atividade concluída";
         case sync::TipoEvento::AtualizacaoNova:    return "atualização na turma";
         case sync::TipoEvento::MaterialNovo:       return "material novo";
+        case sync::TipoEvento::NoticiaNova:        return "notícia nova";
         case sync::TipoEvento::AvaliacaoNova:      return "prova marcada";
         case sync::TipoEvento::AvaliacaoRemarcada: return "PROVA REMARCADA";
         case sync::TipoEvento::ColetaSuspeita:     return "coleta falhou";
@@ -48,11 +49,14 @@ int prioridade(sync::TipoEvento t) {
         case sync::TipoEvento::AvaliacaoNova:      return 3;
         case sync::TipoEvento::AtividadeNova:      return 4;
         case sync::TipoEvento::MaterialNovo:       return 5;
-        case sync::TipoEvento::AtualizacaoNova:    return 6;
-        case sync::TipoEvento::TurmaNova:          return 7;
-        case sync::TipoEvento::AtividadeConcluida: return 8;
+        // Logo depois do material: é o professor falando com a turma ("a aula
+        // de amanhã é no laboratório"), mais direto que uma atualização solta.
+        case sync::TipoEvento::NoticiaNova:        return 6;
+        case sync::TipoEvento::AtualizacaoNova:    return 7;
+        case sync::TipoEvento::TurmaNova:          return 8;
+        case sync::TipoEvento::AtividadeConcluida: return 9;
     }
-    return 9;
+    return 10;
 }
 
 std::optional<Aviso> montarAviso(const sync::ResultadoDiff& d) {

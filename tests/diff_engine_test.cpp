@@ -278,3 +278,80 @@ TEST_CASE("sync sem turmas nao apaga nem acusa material", "[diff]") {
     CHECK(contar(r, TipoEvento::MaterialNovo) == 0);
     CHECK_FALSE(r.suspeito);
 }
+
+// ---------------------------------------------------------------------------
+// Noticias
+// ---------------------------------------------------------------------------
+
+namespace {
+
+Noticia noticia(const std::string& idTurma, const std::string& titulo, int dia,
+                const std::string& texto = "") {
+    Noticia n;
+    n.idTurma = idTurma;
+    n.turmaNome = "COMPILADORES";
+    n.titulo = titulo;
+    n.data.year = 2026; n.data.month = 9; n.data.day = dia;
+    n.conteudoHtml = texto;
+    return n;
+}
+
+} // namespace
+
+TEST_CASE("noticia nova em turma com noticias conhecidas vira evento", "[diff]") {
+    Snapshot antes;
+    antes.turmas = {turma("1", "COMPILADORES")};
+    antes.noticias = {noticia("1", "AULA DE 19/08", 19)};
+
+    Snapshot novo = antes;
+    novo.noticias.push_back(noticia("1", "ATIVIDADES DE LABORATORIO", 30,
+                                    "<p>Ola a todos!</p><p>Leiam o <strong>pdf</strong>.</p>"));
+
+    const auto r = diff(antes, novo, false);
+    REQUIRE(contar(r, TipoEvento::NoticiaNova) == 1);
+    for (const auto& e : r.eventos) {
+        if (e.tipo != TipoEvento::NoticiaNova) continue;
+        CHECK(e.titulo == "ATIVIDADES DE LABORATORIO");
+        CHECK(e.detalhe == "Ola a todos! Leiam o pdf .");
+        CHECK(e.turmaNome == "COMPILADORES");
+    }
+}
+
+TEST_CASE("a mesma noticia vinda da pagina, da lista e do detalhe avisa uma vez", "[diff]") {
+    Snapshot antes;
+    antes.turmas = {turma("1", "COMPILADORES")};
+    antes.noticias = {noticia("1", "ANTIGA", 1)};
+
+    Snapshot novo = antes;
+    auto ultima = noticia("1", "NOVA", 30, "<p>texto</p>");
+    ultima.data.hour = 14; ultima.data.minute = 51; ultima.data.hasTime = true;
+    auto daLista = noticia("1", "NOVA", 30);   // sem texto, sem hora
+    novo.noticias.push_back(daLista);
+    novo.noticias.push_back(ultima);
+
+    const auto r = diff(antes, novo, false);
+    REQUIRE(contar(r, TipoEvento::NoticiaNova) == 1);
+    // O texto vem da copia que o tinha, mesmo chegando depois da da lista.
+    for (const auto& e : r.eventos) {
+        if (e.tipo == TipoEvento::NoticiaNova) CHECK(e.detalhe == "texto");
+    }
+}
+
+TEST_CASE("a primeira coleta de noticias de uma turma nao anuncia o historico", "[diff]") {
+    Snapshot antes;
+    antes.turmas = {turma("1", "COMPILADORES")};
+
+    Snapshot novo = antes;
+    novo.noticias = {noticia("1", "A", 1), noticia("1", "B", 2), noticia("1", "C", 3)};
+
+    CHECK(contar(diff(antes, novo, false), TipoEvento::NoticiaNova) == 0);
+}
+
+TEST_CASE("noticia que ja existia nao vira evento", "[diff]") {
+    Snapshot antes;
+    antes.turmas = {turma("1", "COMPILADORES")};
+    antes.noticias = {noticia("1", "A", 1)};
+    Snapshot novo = antes;
+    novo.noticias[0].conteudoHtml = "<p>texto buscado agora</p>";   // ganhou texto, nao e nova
+    CHECK(contar(diff(antes, novo, false), TipoEvento::NoticiaNova) == 0);
+}

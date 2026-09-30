@@ -130,11 +130,12 @@ TEST_CASE("prioridade e total e sem empate entre tipos distintos", "[aviso]") {
     using T = sync::TipoEvento;
     const T todos[] = {T::TurmaNova,       T::AtividadeNova,   T::PrazoMudou,
                        T::AtividadeConcluida, T::AtualizacaoNova, T::AvaliacaoNova,
-                       T::AvaliacaoRemarcada, T::ColetaSuspeita};
-    // Um tipo novo sem entrada no switch cairia no default 9 e empataria —
+                       T::AvaliacaoRemarcada, T::ColetaSuspeita, T::MaterialNovo,
+                       T::NoticiaNova};
+    // Um tipo novo sem entrada no switch cairia no default 10 e empataria —
     // este teste falha se alguem esquecer de classificar.
     for (const T a : todos) {
-        CHECK(prioridade(a) < 9);
+        CHECK(prioridade(a) < 10);
         CHECK_FALSE(rotulo(a).empty());
         for (const T b : todos) {
             if (a != b) CHECK(prioridade(a) != prioridade(b));
