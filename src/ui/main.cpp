@@ -103,14 +103,21 @@ int main(int argc, char** argv) {
     // .env e o sigaa-viewer.db que o sigaa-cli também usa. Compartilhar o banco
     // é o que faz a janela abrir já sabendo o que a última execução achou.
     sigaa::ui::JanelaPrincipal janela;
-    janela.show();
+    // Maximizada: a aba Provas divide a largura entre calendário, lista e o
+    // painel de resumo, e a Agenda empilha aulas e prazos — no tamanho padrão
+    // do .ui as duas abriam cortadas, e o primeiro gesto de todo mundo era
+    // maximizar. Quem preferir menor redimensiona; nada é guardado.
+    janela.showMaximized();
 
-    // A segunda instância pediu para esta aparecer. `showNormal` desfaz a
-    // minimização, e `activateWindow` é o que tira o app de trás das outras
-    // janelas — `raise()` sozinho não rouba o foco em todos os gerenciadores.
+    // A segunda instância pediu para esta aparecer. Tirar SÓ o minimizado, e
+    // não `showNormal`: esse desfaria também o maximizado, e reabrir o app
+    // pelo lançador encolheria a janela que já estava aberta. `activateWindow`
+    // é o que tira o app de trás das outras janelas — `raise()` sozinho não
+    // rouba o foco em todos os gerenciadores.
     QObject::connect(&instancia, &sigaa::ui::InstanciaUnica::pediramParaMostrar,
                      &janela, [&janela] {
-                         janela.showNormal();
+                         janela.setWindowState(janela.windowState() & ~Qt::WindowMinimized);
+                         janela.show();
                          janela.raise();
                          janela.activateWindow();
                      });

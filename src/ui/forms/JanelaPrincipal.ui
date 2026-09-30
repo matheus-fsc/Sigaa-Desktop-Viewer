@@ -83,9 +83,14 @@
             <item>
              <layout class="QHBoxLayout" name="layoutNavAgenda">
               <property name="spacing">
-               <number>4</number>
+               <number>14</number>
               </property>
               <item>
+               <layout class="QHBoxLayout" name="layoutSetasAgenda">
+                <property name="spacing">
+                 <number>4</number>
+                </property>
+                <item>
                <widget class="QToolButton" name="botaoSemanaAnterior">
                 <property name="text">
                  <string notr="true">◀</string>
@@ -98,7 +103,7 @@
                 </property>
                </widget>
               </item>
-              <item>
+                <item>
                <widget class="QToolButton" name="botaoSemanaSeguinte">
                 <property name="text">
                  <string notr="true">▶</string>
@@ -111,6 +116,8 @@
                 </property>
                </widget>
               </item>
+               </layout>
+              </item>
               <item>
                <widget class="QLabel" name="rotuloDia">
                 <property name="classe" stdset="0">
@@ -120,19 +127,6 @@
                  <string notr="true"/>
                 </property>
                </widget>
-              </item>
-              <item>
-               <spacer name="espacoAgenda">
-                <property name="orientation">
-                 <enum>Qt::Horizontal</enum>
-                </property>
-                <property name="sizeHint" stdset="0">
-                 <size>
-                  <width>0</width>
-                  <height>20</height>
-                 </size>
-                </property>
-               </spacer>
               </item>
               <item>
                <widget class="QToolButton" name="botaoHoje">
@@ -147,18 +141,40 @@
                 </property>
                </widget>
               </item>
-             </layout>
-            </item>
-            <item>
+              <item>
              <widget class="QLabel" name="rotuloResumoDia">
               <property name="classe" stdset="0">
                <string>cartaoDetalhe</string>
+              </property>
+              <property name="alignment">
+               <set>Qt::AlignRight|Qt::AlignVCenter</set>
+              </property>
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+                <horstretch>1</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
               </property>
               <property name="wordWrap">
                <bool>true</bool>
               </property>
               <property name="text">
                <string notr="true"/>
+              </property>
+             </widget>
+            </item>
+              
+              
+              
+              
+              
+             </layout>
+            </item>
+            
+            <item>
+             <widget class="QLabel" name="rotuloAulas">
+              <property name="text">
+               <string>Aulas</string>
               </property>
              </widget>
             </item>
@@ -467,19 +483,6 @@
                <bool>true</bool>
               </property>
              </widget>
-            </item>
-            <item>
-             <spacer name="espacoCalendario">
-              <property name="orientation">
-               <enum>Qt::Vertical</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>20</width>
-                <height>0</height>
-               </size>
-              </property>
-             </spacer>
             </item>
            </layout>
           </widget>

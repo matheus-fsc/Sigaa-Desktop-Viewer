@@ -1,9 +1,17 @@
 #include "ui/JanelaPrincipal.h"
 
 #include <QAction>
+#include <QScreen>
+#include <QDialogButtonBox>
+#include <QDialog>
+#include <QScrollBar>
+#include <QScrollArea>
 #include <QApplication>
 #include <QDesktopServices>
 #include <QEvent>
+#include <QFrame>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <QLabel>
 #include <QLocale>
 #include <QMenu>
@@ -15,10 +23,13 @@
 #include <QTreeView>
 #include <QStandardItemModel>
 #include <QStatusBar>
+#include <QStyle>
 #include <QSystemTrayIcon>
 #include <QTableView>
 #include <QTabWidget>
+#include <QRegularExpression>
 #include <QResizeEvent>
+#include <QTime>
 #include <QDateTime>
 #include <QDir>
 #include <QStandardPaths>
@@ -35,6 +46,9 @@
 
 #include "core/store/Database.h"
 #include "platform/Credenciais.h"
+#include "ui/Cabecalho.h"
+#include "ui/CargaSemanal.h"
+#include "core/sync/Baixador.h"
 #include "ui/CalendarioProvas.h"
 #include "ui/DialogoAtualizar.h"
 #include "ui/DialogoLogin.h"
@@ -161,6 +175,59 @@ void esmaecer(QWidget* w) {
     w->setPalette(p);
 }
 
+// Respiro das abas, como a página do protótipo: o conteúdo não encosta na
+// borda da janela. Em código, e não nos .ui, para que as quatro abas saiam da
+// mesma escala (tema::esp) em vez de quatro números escolhidos um a um — foi
+// exatamente assim que a aba Provas ficou com 12 px e a Agenda com 0.
+void respirarAbas(QTabWidget* abas) {
+    for (int i = 0; i < abas->count(); ++i) {
+        if (auto* l = abas->widget(i)->layout()) {
+            l->setContentsMargins(tema::esp(5), tema::esp(4), tema::esp(5), tema::esp(4));
+            l->setSpacing(tema::esp(3));
+        }
+    }
+}
+
+// Rótulo de seção do design system ("AULAS", "PRAZOS"): 12/700 em caixa-alta,
+// espaçado, no cinza de rótulo. A cor vem de estilo.qss (classe "secao").
+void rotuloDeSecao(QLabel* l) {
+    l->setProperty("classe", QStringLiteral("secao"));
+    // A propriedade chega depois do polish do setupUi: sem repolir, o seletor
+    // [classe="secao"] do QSS não casa e o rótulo fica na cor do texto comum.
+    l->style()->unpolish(l);
+    l->style()->polish(l);
+
+    // A fonte DEPOIS do polish, e a ordem não é estilo: repolir remonta a
+    // fonte do rótulo a partir da folha, e negrito e caixa-alta definidos
+    // antes sumiam sem aviso.
+    QFont f = tema::fonte(tema::Papel::Legenda);
+    f.setWeight(QFont::Bold);
+    f.setCapitalization(QFont::AllUppercase);
+    f.setLetterSpacing(QFont::PercentageSpacing, 107);
+    l->setFont(f);
+    l->setContentsMargins(0, tema::esp(3), 0, tema::esp(1));
+}
+
+// "qui 01/10". Sem o ponto que o locale põe em "qui." — numa coluna de datas
+// ele é só ruído entre o dia e o número.
+QString diaCurto(QDate d) {
+    QString dia = QLocale(QLocale::Portuguese, QLocale::Brazil).toString(d, QStringLiteral("ddd"));
+    dia.remove(QLatin1Char('.'));
+    return dia + d.toString(QStringLiteral(" dd/MM"));
+}
+
+// Corta com reticências. Rich text não elide sozinho, e um nome de turma de
+// sessenta letras quebraria a linha do cartão em três.
+QString cortar(const QString& s, int max) {
+    return s.size() <= max ? s : s.left(max - 1).trimmed() + QChar(0x2026);
+}
+
+// Texto de uma linha a partir do que veio do SIGAA (quebras e espaços
+// repetidos viram um espaço).
+QString umaLinhaQt(const std::string& s) {
+    return QString::fromStdString(s).simplified();
+}
+
 } // namespace
 
 JanelaPrincipal::JanelaPrincipal(QWidget* pai)
@@ -182,6 +249,7 @@ JanelaPrincipal::JanelaPrincipal(QWidget* pai)
     montarBotoesProva();
     montarTurmas();
     montarBarraAgenda();
+    respirarAbas(formulario_->abas);
     montarBandeja();
 
     if (!recarregarDoBanco()) {
@@ -220,6 +288,14 @@ void JanelaPrincipal::changeEvent(QEvent* ev) {
     QMainWindow::changeEvent(ev);
     if (ev->type() == QEvent::PaletteChange || ev->type() == QEvent::ThemeChange) {
         aplicarIcones();
+        // O título e o resumo da agenda levam as cores dentro do HTML; sem
+        // refazer, a troca de tema deixaria o cinza do tema antigo neles.
+        // `navegacao_` só existe depois da montagem — antes disso não há o
+        // que refazer, e o setupUi também dispara PaletteChange.
+        if (navegacao_) {
+            montarAgenda();
+            atualizarResumoProvas(snapshot_);
+        }
     }
 }
 
@@ -228,7 +304,10 @@ void JanelaPrincipal::aplicarIcones() {
     // ações ainda não existem — o polish do stylesheet dispara PaletteChange.
     if (!formulario_ || !formulario_->acAtualizar) return;
 
-    formulario_->acAtualizar->setIcon(icone(QStringLiteral("atualizar"), this));
+    // Sobre o azul do botão primário: tinta de HighlightedText, não a do texto
+    // comum, ou o desenho escuro sumiria no tema claro.
+    formulario_->acAtualizar->setIcon(icone(
+        QStringLiteral("atualizar"), palette().color(QPalette::HighlightedText)));
     formulario_->acAtualizarTudo->setIcon(
         icone(QStringLiteral("atualizar-tudo"), this));
     // `acAuto` saiu da barra: ligar e desligar a rotina é uma decisão que se
@@ -237,8 +316,16 @@ void JanelaPrincipal::aplicarIcones() {
     // ela comanda — separar o interruptor da configuração dele era o que
     // fazia alguém ligar o automático sem nunca ver de quanto em quanto tempo
     // ele ia rodar.
-    formulario_->acConta->setIcon(icone(QStringLiteral("conta"), this));
+    // O avatar também: as cores dele saem do tema em vigor.
+    const QIcon avatar = avatarConta(loginAvatar_, devicePixelRatioF());
+    formulario_->acConta->setIcon(avatar.isNull() ? icone(QStringLiteral("conta"), this)
+                                                  : avatar);
     formulario_->acEntrarSigaa->setIcon(icone(QStringLiteral("abrir-sigaa"), this));
+}
+
+void JanelaPrincipal::atualizarAvatar(const QString& login) {
+    loginAvatar_ = login;
+    aplicarIcones();
 }
 
 // Densidade e distintivos de todas as listas, num lugar só. Cada aba tem sua
@@ -359,8 +446,15 @@ void JanelaPrincipal::corrigirProva() {
         status(QStringLiteral("Selecione a prova cuja data você quer corrigir."));
         return;
     }
+    corrigir(*sel);
+}
 
-    DialogoAvaliacao dlg(*sel, this);
+void JanelaPrincipal::corrigir(const avaliacao::Efetiva& prova) {
+    const auto sel = std::optional<avaliacao::Efetiva>(prova);
+    // Pai: o diálogo de confirmação, se estiver aberto — senão o editor abriria
+    // atrás dele.
+    QWidget* pai = dlgConfirmar_ ? static_cast<QWidget*>(dlgConfirmar_) : this;
+    DialogoAvaliacao dlg(*sel, pai);
     if (dlg.exec() != QDialog::Accepted) return;
 
     const auto aj = dlg.resultado();
@@ -378,7 +472,11 @@ void JanelaPrincipal::confirmarProva() {
         status(QStringLiteral("Selecione a prova que você quer confirmar."));
         return;
     }
+    confirmar(*sel);
+}
 
+void JanelaPrincipal::confirmar(const avaliacao::Efetiva& prova) {
+    const auto* sel = &prova;
     avaliacao::Ajuste aj;
     aj.idTurma = sel->av.idTurma;
     aj.descricao = sel->av.descricao;
@@ -394,6 +492,79 @@ void JanelaPrincipal::confirmarProva() {
         status(QStringLiteral("Confirmada. O app para de pedir confirmação para esta "
                               "prova."));
     }
+}
+
+void JanelaPrincipal::descartar(const avaliacao::Efetiva& prova) {
+    avaliacao::Ajuste aj;
+    aj.idTurma = prova.av.idTurma;
+    aj.descricao = prova.av.descricao;
+    aj.turmaNome = prova.av.turmaNome;
+    // A data fica guardada mesmo sem valer: é o que a lista de removidas
+    // mostra, e o que o histórico registra como "de".
+    aj.quando = prova.av.quando;
+    aj.quandoSigaaNaEpoca = prova.quandoSigaa;
+    aj.descartada = true;
+    aj.editadoEm = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
+
+    if (gravarAjuste(aj, avaliacao::TipoMudanca::AlunoDescartou, prova.av.quando.toIso())) {
+        status(QStringLiteral("“%1” saiu das provas. Dá para restaurar em Datas a confirmar.")
+                   .arg(umaLinhaQt(prova.av.descricao)));
+    }
+}
+
+void JanelaPrincipal::restaurar(const avaliacao::Ajuste& ajuste) {
+    store::Database db;
+    if (!db.aberto() || !db.migrar()) {
+        status(QStringLiteral("Banco indisponível — não consegui restaurar."));
+        return;
+    }
+    avaliacao::Mudanca m;
+    m.idTurma = ajuste.idTurma;
+    m.turmaNome = ajuste.turmaNome;
+    m.descricao = ajuste.descricao;
+    m.tipo = avaliacao::TipoMudanca::AlunoDesfez;
+    m.para = ajuste.quando.toIso();
+    m.quando = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
+    // Registra ANTES de apagar, como o desfazer da correção: depois do DELETE
+    // não há de onde tirar o que estava valendo.
+    db.registrarMudanca(m);
+    db.removerAjuste(ajuste.idTurma, ajuste.descricao);
+
+    recarregarAjustes();
+    mostrar(snapshot_);
+    status(QStringLiteral("“%1” voltou como data a confirmar.")
+               .arg(umaLinhaQt(ajuste.descricao)));
+}
+
+void JanelaPrincipal::abrirConfirmarDatas() {
+    DialogoConfirmarDatas::Acoes acoes;
+    acoes.confirmar = [this](const avaliacao::Efetiva& p) { confirmar(p); };
+    acoes.editar = [this](const avaliacao::Efetiva& p) { corrigir(p); };
+    acoes.descartar = [this](const avaliacao::Efetiva& p) { descartar(p); };
+    acoes.restaurar = [this](const avaliacao::Ajuste& a) { restaurar(a); };
+
+    DialogoConfirmarDatas dlg(std::move(acoes), this);
+    dlgConfirmar_ = &dlg;
+    atualizarDialogoConfirmar();
+    dlg.exec();
+    dlgConfirmar_ = nullptr;
+}
+
+void JanelaPrincipal::atualizarDialogoConfirmar() {
+    if (!dlgConfirmar_) return;
+    std::vector<avaliacao::Efetiva> pendentes;
+    for (const auto& p : provas_) {
+        if (p.estado == avaliacao::Estado::Inferida) pendentes.push_back(p);
+    }
+    std::vector<avaliacao::Ajuste> descartadas;
+    for (const auto& a : ajustes_) {
+        if (a.ativo && a.descartada) descartadas.push_back(a);
+    }
+    std::sort(descartadas.begin(), descartadas.end(),
+              [](const avaliacao::Ajuste& x, const avaliacao::Ajuste& y) {
+                  return x.quando < y.quando;
+              });
+    dlgConfirmar_->mostrar(pendentes, descartadas);
 }
 
 void JanelaPrincipal::criarProva() {
@@ -686,6 +857,63 @@ void JanelaPrincipal::montarAcoes() {
         ->setEnabled(false);
 
     formulario_->acConta->setMenu(menuConta);
+
+    // O cabeçalho do protótipo, numa linha só: abas à esquerda e as ações
+    // empurradas para a direita. As abas saem do QTabWidget e vêm para cá —
+    // ver ui/Cabecalho.h para o porquê. Sem a marca do protótipo: o nome e o
+    // ícone do app já estão na barra de título, e repeti-los aqui só gastaria
+    // a largura de que as abas precisam.
+    auto* barra = formulario_->barraAcoes;
+    barra->setIconSize(QSize(16, 16));
+    // Altura e respiro lateral em código: o `padding` e o `min-height` do QSS
+    // pintam a barra mas não chegam ao layout dela, que posiciona os itens
+    // pelas margens do widget. 56 e 20 são as medidas da referência.
+    barra->setFixedHeight(56);
+    barra->setContentsMargins(tema::esp(5) - tema::esp(3), 0, tema::esp(5), 0);
+
+    formulario_->abas->tabBar()->hide();
+    navegacao_ = new NavegacaoAbas(formulario_->abas, barra);
+
+    auto* mola = new QWidget(barra);
+    mola->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    for (QWidget* w : {static_cast<QWidget*>(navegacao_), mola}) {
+        barra->insertWidget(formulario_->acAtualizar, w);
+    }
+    // O separador do .ui separava grupos que o protótipo não separa: ali o
+    // peso visual (primário, secundário, discreto) já faz esse papel.
+    for (QAction* a : barra->actions()) {
+        if (a->isSeparator()) barra->removeAction(a);
+    }
+
+    // Bugs & sugestões: o caminho de volta do aluno até quem mantém o app.
+    // Discreto, ao lado de Opções — está sempre à mão, mas não disputa atenção
+    // com as ações do dia. Abre as issues do repositório no navegador; sem
+    // formulário próprio, porque um relato precisa de conta e de conversa, e o
+    // GitHub já dá as duas.
+    auto* acReportar = new QAction(QStringLiteral("Bugs && sugestões"), this);  // "&&": um "&" sozinho vira atalho de teclado e some do rótulo
+    // Em <p>: dica em rich text o Qt quebra em linhas; em texto puro ela sai
+    // numa faixa única da largura da tela.
+    acReportar->setToolTip(QStringLiteral(
+        "<p>Encontrou um erro ou tem uma ideia? Abre a página de issues do projeto "
+        "no GitHub. Ajuda muito dizer a versão (Opções) e o que você fez antes.</p>"));
+    connect(acReportar, &QAction::triggered, this, [] {
+        QDesktopServices::openUrl(QUrl(QStringLiteral(
+            "https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/issues")));
+    });
+    barra->insertAction(formulario_->acOpcoes, acReportar);
+
+    // Um único primário por área: "Atualizar" é o que se faz todo dia.
+    // "Atualizar tudo" e "Conta" são secundários (com moldura); o resto é
+    // discreto. O papel vira seletor em estilo.qss.
+    auto marcar = [barra](QAction* a, const char* papel) {
+        if (auto* w = barra->widgetForAction(a)) w->setProperty("papel", papel);
+    };
+    marcar(formulario_->acAtualizar, "primario");
+    marcar(formulario_->acAtualizarTudo, "secundario");
+    marcar(formulario_->acConta, "conta");
+    if (auto* botao = barra->widgetForAction(formulario_->acConta)) {
+        qobject_cast<QToolButton*>(botao)->setIconSize(QSize(26, 26));
+    }
     if (auto* botao = qobject_cast<QToolButton*>(
             formulario_->barraAcoes->widgetForAction(formulario_->acConta))) {
         botao->setPopupMode(QToolButton::InstantPopup);
@@ -737,8 +965,120 @@ void JanelaPrincipal::montarProvas() {
     proxy->setRecursiveFilteringEnabled(true);
     formulario_->tvProvas->setModel(proxy);
 
+    // UM painel, duas colunas — e não três cartões iguais.
+    //
+    // Três caixas do mesmo tamanho diziam que as três coisas pesam o mesmo, e
+    // não pesam: a próxima prova é a manchete, o que vem depois é a pauta, e
+    // "quantas datas conferir" é uma nota de rodapé. Aqui as duas primeiras
+    // viram metades de uma superfície só, separadas por um filete, e a
+    // terceira sai do painel (ver `montarPilulaConfirmar`).
+    //
+    // Os QFrames do .ui são reaproveitados como colunas: perdem a moldura de
+    // cartão e passam a morar dentro do painel.
+    auto* painel = new QFrame(formulario_->abaProvas);
+    painel->setObjectName(QStringLiteral("painelResumoProvas"));
+    painel->setProperty("classe", QStringLiteral("cartao"));
+    auto* colunas = new QHBoxLayout(painel);
+    colunas->setContentsMargins(0, 0, 0, 0);
+    colunas->setSpacing(0);
+    auto* filete = new QFrame(painel);
+    filete->setObjectName(QStringLiteral("fileteVertical"));
+    filete->setFixedWidth(1);
+    for (QFrame* c : {formulario_->cartaoProxima, formulario_->cartaoTrinta,
+                      formulario_->cartaoConfirmar}) {
+        formulario_->layoutCartoes->removeWidget(c);
+        c->setProperty("classe", QString());
+        c->setFrameShape(QFrame::NoFrame);
+        c->style()->unpolish(c);
+        c->style()->polish(c);
+        c->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        // O conteúdo encosta no topo; a sobra de altura vira espaço no pé da
+        // coluna, e não vão entre título, valor e lista.
+        if (auto* v = qobject_cast<QVBoxLayout*>(c->layout())) {
+            v->setContentsMargins(tema::esp(5), tema::esp(4), tema::esp(5), tema::esp(4));
+            v->addStretch(1);
+        }
+    }
+    colunas->addWidget(formulario_->cartaoProxima, 1);
+    colunas->addWidget(filete);
+    // Coluna do meio: "Em seguida", ao lado da próxima prova e não embaixo
+    // dela — as duas respondem "o que vem aí", e lado a lado se leem juntas
+    // sem empurrar a matéria para baixo.
+    auto* fileteSeguintes = new QFrame(painel);
+    fileteSeguintes->setObjectName(QStringLiteral("fileteVertical"));
+    fileteSeguintes->setFixedWidth(1);
+    colunaSeguintes_ = new QWidget(painel);
+    {
+        // Mesma anatomia da coluna da esquerda: título, prova em destaque,
+        // detalhe em rich text e o botão da turma.
+        auto* v = new QVBoxLayout(colunaSeguintes_);
+        v->setContentsMargins(tema::esp(5), tema::esp(4), tema::esp(5), tema::esp(4));
+        v->setSpacing(formulario_->cartaoProxima->layout()->spacing());
+        auto* tituloS = new QLabel(colunaSeguintes_);
+        tituloS->setObjectName(QStringLiteral("tituloSeguintes"));
+        tituloS->setTextFormat(Qt::RichText);
+        auto* valorS = new QLabel(colunaSeguintes_);
+        valorS->setObjectName(QStringLiteral("valorSeguintes"));
+        valorS->setWordWrap(true);
+        auto* lista = new QLabel(colunaSeguintes_);
+        lista->setObjectName(QStringLiteral("listaSeguintes"));
+        lista->setTextFormat(Qt::RichText);
+        lista->setWordWrap(true);
+        lista->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+        auto* botaoS = new QPushButton(QStringLiteral("Abrir turma"), colunaSeguintes_);
+        botaoS->setAutoDefault(false);
+        botaoS->setToolTip(QStringLiteral("Abre a turma desta prova: aulas, arquivos e o Baixar tudo."));
+        connect(botaoS, &QPushButton::clicked, this, [this] {
+            for (const auto& t : snapshot_.turmas) {
+                if (t.idTurma == idTurmaSeguinte_) {
+                    abrirJanelaDaTurma(t);
+                    return;
+                }
+            }
+        });
+        v->addWidget(tituloS);
+        v->addWidget(valorS);
+        v->addWidget(lista);
+        v->addWidget(botaoS, 0, Qt::AlignLeft);
+        v->addStretch(1);
+    }
+    colunas->insertWidget(colunas->indexOf(filete), fileteSeguintes);
+    colunas->insertWidget(colunas->indexOf(filete), colunaSeguintes_, 1);
+    fileteSeguintes_ = fileteSeguintes;
+    colunas->addWidget(formulario_->cartaoTrinta, 1);
+    formulario_->cartaoConfirmar->hide();
+    formulario_->layoutCartoes->addWidget(painel);
+
+    // A linha do painel não cresce com a janela: a altura que sobra é do
+    // calendário e da tabela, que é onde há o que ler.
+    if (auto* aba = formulario_->layoutProvas) {
+        aba->setStretch(aba->indexOf(formulario_->layoutCartoes), 0);
+        aba->setStretch(aba->indexOf(formulario_->divisorProvas), 1);
+    }
+
+    // "A confirmar" vira pílula na linha de controle da tabela: é ali, na
+    // lista, que a data se confirma, e é ali que o lembrete serve.
+    // Clicável: abre "Datas a confirmar", com as três respostas por prova.
+    auto* pilula = new QToolButton(formulario_->abaProvas);
+    pilula->setObjectName(QStringLiteral("pilulaConfirmar"));
+    pilula->setProperty("classe", QStringLiteral("pilulaAviso"));
+    pilula->setCursor(Qt::PointingHandCursor);
+    pilula->setToolTip(QStringLiteral(
+        "Datas deduzidas de tópico de aula, não cadastradas pelo professor. "
+        "Clique para confirmar, corrigir ou remover cada uma."));
+    connect(pilula, &QToolButton::clicked, this, &JanelaPrincipal::abrirConfirmarDatas);
+    pilula->hide();
+    pilula->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    formulario_->layoutFiltro->insertWidget(
+        formulario_->layoutFiltro->indexOf(formulario_->rotuloFiltro) + 1, pilula, 0,
+        Qt::AlignVCenter);
+
+    // As fontes DEPOIS de montar o painel: repolir as colunas (acima)
+    // remonta a fonte dos rótulos filhos a partir da folha, e o que viesse
+    // antes — caixa-alta do título, o valor grande — sumia sem aviso.
     for (QLabel* l : {formulario_->tituloCartaoProxima, formulario_->tituloCartaoTrinta,
-                      formulario_->tituloCartaoConfirmar}) {
+                      formulario_->tituloCartaoConfirmar,
+                      colunaSeguintes_->findChild<QLabel*>(QStringLiteral("tituloSeguintes"))}) {
         escalarFonte(l, 0.82, /*negrito=*/true);
         esmaecer(l);
     }
@@ -753,11 +1093,183 @@ void JanelaPrincipal::montarProvas() {
         esmaecer(l);
     }
 
+    // --- Coluna esquerda: a próxima prova, com o que estudar ---------------
+    // Título ("PRÓXIMA PROVA · em 7 dias"), nome da prova no lugar do número
+    // grande, e o detalhe em rich text: quando/onde, origem, matéria.
+    formulario_->tituloCartaoProxima->setTextFormat(Qt::RichText);
+    {
+        QFont f = tema::fonte(tema::Papel::Subtitulo);
+        f.setWeight(QFont::Bold);
+        formulario_->valorCartaoProxima->setFont(f);
+        formulario_->valorCartaoProxima->setWordWrap(true);
+        // A coluna "Em seguida" tem a mesma anatomia, e as mesmas fontes.
+        colunaSeguintes_->findChild<QLabel*>(QStringLiteral("valorSeguintes"))->setFont(f);
+        auto* listaSeg = colunaSeguintes_->findChild<QLabel*>(QStringLiteral("listaSeguintes"));
+        listaSeg->setFont(tema::fonte(tema::Papel::Corpo));
+        QPalette p = listaSeg->palette();
+        p.setColor(QPalette::WindowText, tema::token("text-2"));
+        listaSeg->setPalette(p);
+        colunaSeguintes_->findChild<QLabel*>(QStringLiteral("tituloSeguintes"))
+            ->setTextFormat(Qt::RichText);
+    }
+    auto* detalhe = formulario_->detalheCartaoProxima;
+    detalhe->setTextFormat(Qt::RichText);
+    detalhe->setWordWrap(true);
+    detalhe->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    detalhe->setFont(tema::fonte(tema::Papel::Corpo));
+    {
+        QPalette p = detalhe->palette();
+        p.setColor(QPalette::WindowText, tema::token("text-2"));
+        detalhe->setPalette(p);
+    }
+    // O material fica na janela da turma, onde "Baixar tudo" já existe — o
+    // botão leva até lá em vez de duplicar o download aqui.
+    botaoTurmaProxima_ = new QPushButton(QStringLiteral("Abrir turma"), formulario_->cartaoProxima);
+    botaoTurmaProxima_->setAutoDefault(false);
+    botaoTurmaProxima_->setToolTip(QStringLiteral(
+        "Abre a turma desta prova: aulas, arquivos e o Baixar tudo."));
+    botaoTurmaProxima_->hide();
+    if (auto* v = qobject_cast<QVBoxLayout*>(formulario_->cartaoProxima->layout())) {
+        v->insertWidget(v->count() - 1, botaoTurmaProxima_, 0, Qt::AlignLeft);
+    }
+    connect(botaoTurmaProxima_, &QPushButton::clicked, this, [this] {
+        for (const auto& t : snapshot_.turmas) {
+            if (t.idTurma == idTurmaProxima_) {
+                abrirJanelaDaTurma(t);
+                return;
+            }
+        }
+    });
+
+    // --- Coluna direita: carga por semana --------------------------------
+    formulario_->tituloCartaoTrinta->setTextFormat(Qt::RichText);
+    formulario_->valorCartaoTrinta->hide();
+    formulario_->detalheCartaoTrinta->hide();
+    carga_ = new CargaSemanal(formulario_->cartaoTrinta);
+    auto* legenda = new QLabel(formulario_->cartaoTrinta);
+    legenda->setTextFormat(Qt::RichText);
+    legenda->setFont(tema::fonte(tema::Papel::Legenda));
+    legenda->setObjectName(QStringLiteral("legendaCarga"));
+    if (auto* v = qobject_cast<QVBoxLayout*>(formulario_->cartaoTrinta->layout())) {
+        // O gráfico ocupa a altura que a coluna tiver — as outras duas colunas
+        // ditam a altura do painel, e um gráfico de altura fixa deixava meio
+        // painel vazio embaixo. A mola do fim sai; quem estica é o gráfico.
+        if (auto* item = v->itemAt(v->count() - 1); item && item->spacerItem()) {
+            delete v->takeAt(v->count() - 1);
+        }
+        v->addWidget(carga_, 1);
+        v->addWidget(legenda);
+    }
+    // Título, setas e "Período inteiro" na mesma linha. As setas andam de
+    // janela em janela (6 semanas) — de uma em uma, chegar em dezembro seriam
+    // dez cliques. O botão abre o período letivo inteiro num diálogo, para
+    // quem quer se organizar olhando o semestre de uma vez.
+    if (auto* v = qobject_cast<QVBoxLayout*>(formulario_->cartaoTrinta->layout())) {
+        auto* linha = new QHBoxLayout;
+        linha->setSpacing(tema::esp(1));
+        const int i = v->indexOf(formulario_->tituloCartaoTrinta);
+        v->removeWidget(formulario_->tituloCartaoTrinta);
+        linha->addWidget(formulario_->tituloCartaoTrinta, 1);
+        cargaAnterior_ = new QToolButton(formulario_->cartaoTrinta);
+        cargaSeguinte_ = new QToolButton(formulario_->cartaoTrinta);
+        cargaAnterior_->setText(QStringLiteral("‹"));
+        cargaSeguinte_->setText(QStringLiteral("›"));
+        cargaAnterior_->setToolTip(QStringLiteral("6 semanas antes"));
+        cargaSeguinte_->setToolTip(QStringLiteral("6 semanas depois"));
+        auto* completa = new QToolButton(formulario_->cartaoTrinta);
+        completa->setText(QStringLiteral("Período inteiro"));
+        completa->setToolTip(QStringLiteral("Todas as semanas do período, com provas e entregas."));
+        for (QToolButton* b : {cargaAnterior_, cargaSeguinte_}) {
+            b->setObjectName(QStringLiteral("setaCarga"));
+            b->setFixedSize(26, 26);
+            b->setCursor(Qt::PointingHandCursor);
+        }
+        completa->setObjectName(QStringLiteral("botaoCargaCompleta"));
+        completa->setCursor(Qt::PointingHandCursor);
+        linha->addWidget(cargaAnterior_);
+        linha->addWidget(cargaSeguinte_);
+        linha->addSpacing(tema::esp(1));
+        linha->addWidget(completa);
+        v->insertLayout(i, linha);
+
+        constexpr int kPasso = 6;
+        connect(cargaAnterior_, &QToolButton::clicked, this, [this] {
+            deslocCarga_ -= kPasso;
+            atualizarCarga();
+        });
+        connect(cargaSeguinte_, &QToolButton::clicked, this, [this] {
+            deslocCarga_ += kPasso;
+            atualizarCarga();
+        });
+        connect(completa, &QToolButton::clicked, this, &JanelaPrincipal::abrirCargaCompleta);
+    }
+
+    connect(carga_, &CargaSemanal::semanaClicada, this, [this](QDate inicio) {
+        // Clicar de novo na mesma semana desfaz — o mesmo gesto do calendário.
+        filtrarProvasPorSemana(inicio == semanaFiltrada_ ? QDate() : inicio);
+    });
+
     // O calendário tem largura natural; a lista é quem deve engolir a sobra ao
     // maximizar a janela.
     formulario_->divisorProvas->setStretchFactor(0, 0);
     formulario_->divisorProvas->setStretchFactor(1, 1);
     formulario_->divisorProvas->setSizes({340, 660});
+
+    // --- O mês seguinte, embaixo do calendário -----------------------------
+    //
+    // A coluna do calendário é alta e o mês cabe em ~330 px: esticar o mês
+    // para ocupar tudo deixava cada dia do tamanho de um botão e a grade
+    // ilegível. O espaço vai para o MÊS SEGUINTE — é o que se consulta na
+    // virada do mês, quando a próxima prova está a dias mas já no outro mês.
+    // Acompanha a navegação do primeiro; a própria barra de mês fica escondida
+    // (um título simples basta, e duas setas duplicadas confundiriam).
+    {
+        auto* coluna = formulario_->layoutPainelCalendario;
+        tituloCalSeguinte_ = new QLabel(formulario_->painelCalendario);
+        tituloCalSeguinte_->setAlignment(Qt::AlignHCenter);
+        QFont f = tema::fonte(tema::Papel::Corpo);
+        f.setWeight(QFont::Bold);
+        tituloCalSeguinte_->setFont(f);
+        tituloCalSeguinte_->setContentsMargins(0, tema::esp(3), 0, tema::esp(1));
+        calSeguinte_ = new CalendarioProvas(formulario_->painelCalendario);
+        calSeguinte_->setNavigationBarVisible(false);
+        calSeguinte_->naoPosicionarSozinho();
+        const int depoisDoPrincipal = coluna->indexOf(formulario_->calProvas) + 1;
+        coluna->insertWidget(depoisDoPrincipal, tituloCalSeguinte_);
+        coluna->insertWidget(depoisDoPrincipal + 1, calSeguinte_);
+        // Os dois meses crescem juntos até um teto: abaixo dele a grade fica
+        // espremida (linhas de 20 px), acima vira o calendário esticado. O
+        // que passar do teto vai para a mola do fim, no pé da coluna.
+        constexpr int kAlturaMaxMes = 300;
+        for (QCalendarWidget* c : {static_cast<QCalendarWidget*>(formulario_->calProvas),
+                                   static_cast<QCalendarWidget*>(calSeguinte_)}) {
+            c->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+            c->setMaximumHeight(kAlturaMaxMes);
+            coluna->setStretchFactor(c, 1);
+        }
+        coluna->addStretch(0);
+        // O Qt sempre desenha a data selecionada — e o 30/09 do mês principal
+        // aparecia destacado na grade de outubro, entre os dias "de fora". No
+        // segundo mês o destaque só vale quando o dia filtrado é dele (ver
+        // filtrarProvasPorDia).
+        calSeguinte_->mostrarSelecao(false);
+
+        auto sincronizar = [this](int ano, int mes) {
+            const QDate seguinte = QDate(ano, mes, 1).addMonths(1);
+            calSeguinte_->setCurrentPage(seguinte.year(), seguinte.month());
+            tituloCalSeguinte_->setText(
+                QLocale(QLocale::Portuguese, QLocale::Brazil)
+                    .toString(seguinte, QStringLiteral("MMMM 'de' yyyy")));
+        };
+        connect(formulario_->calProvas, &QCalendarWidget::currentPageChanged, this, sincronizar);
+        sincronizar(formulario_->calProvas->yearShown(), formulario_->calProvas->monthShown());
+        connect(calSeguinte_, &QCalendarWidget::clicked, this, [this](QDate d) {
+            filtrarProvasPorDia(d == diaFiltrado_ ? QDate() : d);
+        });
+        // Altura: os dois meses só quando cabem. Medido no painel, e não na
+        // janela, porque é o divisor quem decide a altura dele.
+        formulario_->painelCalendario->installEventFilter(this);
+    }
 
     connect(formulario_->calProvas, &QCalendarWidget::clicked, this, [this](QDate d) {
         // Clicar de novo no mesmo dia desfaz o filtro. É o gesto que as pessoas
@@ -769,9 +1281,223 @@ void JanelaPrincipal::montarProvas() {
             [this] { filtrarProvasPorDia(QDate()); });
 }
 
+void JanelaPrincipal::atualizarCarga() {
+    constexpr int kSemanas = 6;
+    const QDateTime agora = QDateTime::currentDateTime();
+    const QDate hoje = segundaDe(agora.date());
+
+    // As setas param nas bordas do período: antes da primeira e depois da
+    // última prova/entrega só haveria semanas "livres", que não informam nada.
+    const auto [ini, fim] = periodoDaCarga(provas_, snapshot_.atividades);
+    if (ini.isValid()) {
+        const int minimo = static_cast<int>(hoje.daysTo(ini) / 7);
+        const int maximo = std::max(0, static_cast<int>(hoje.daysTo(fim) / 7) - kSemanas + 1);
+        deslocCarga_ = std::clamp(deslocCarga_, std::min(0, minimo), std::max(0, maximo));
+        cargaAnterior_->setEnabled(deslocCarga_ > std::min(0, minimo));
+        cargaSeguinte_->setEnabled(deslocCarga_ < std::max(0, maximo));
+    } else {
+        deslocCarga_ = 0;
+        cargaAnterior_->setEnabled(false);
+        cargaSeguinte_->setEnabled(false);
+    }
+
+    const QDate primeira = hoje.addDays(7 * deslocCarga_);
+    const QDate ultima = primeira.addDays(7 * (kSemanas - 1));
+    // Fora da janela de hoje, o título diz ONDE se está — sem isso, "5 out"
+    // na primeira coluna parece a semana atual.
+    const QString onde = deslocCarga_ == 0
+        ? QStringLiteral("provas + entregas")
+        : QStringLiteral("%1 – %2").arg(primeira.toString(QStringLiteral("dd/MM")),
+                                        ultima.addDays(6).toString(QStringLiteral("dd/MM")));
+    formulario_->tituloCartaoTrinta->setText(
+        QStringLiteral("CARGA POR SEMANA&nbsp;&nbsp;<span style=\"font-weight:400\">%1</span>")
+            .arg(onde));
+    carga_->definir(cargaPorSemana(provas_, snapshot_.atividades, agora, primeira, kSemanas));
+    carga_->destacar(semanaFiltrada_);
+}
+
+void JanelaPrincipal::abrirCargaCompleta() {
+    const auto [ini, fim] = periodoDaCarga(provas_, snapshot_.atividades);
+    if (!ini.isValid()) {
+        status(QStringLiteral("Nenhuma prova ou entrega coletada ainda."));
+        return;
+    }
+    const int semanas = static_cast<int>(ini.daysTo(fim) / 7) + 1;
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(QStringLiteral("Carga do período"));
+    auto* raiz = new QVBoxLayout(&dlg);
+    raiz->setContentsMargins(tema::esp(5), tema::esp(5), tema::esp(5), tema::esp(4));
+    raiz->setSpacing(tema::esp(3));
+
+    auto* titulo = new QLabel(QStringLiteral("Carga do período"), &dlg);
+    QFont ft = tema::fonte(tema::Papel::Subtitulo);
+    ft.setWeight(QFont::Bold);
+    titulo->setFont(ft);
+    raiz->addWidget(titulo);
+    auto* explica = new QLabel(
+        QStringLiteral("%1 semanas, de %2 a %3: todas as provas e entregas conhecidas. "
+                       "Clique numa semana para ver as provas dela na lista.")
+            .arg(semanas)
+            .arg(ini.toString(QStringLiteral("dd/MM")), fim.addDays(6).toString(QStringLiteral("dd/MM"))),
+        &dlg);
+    explica->setWordWrap(true);
+    explica->setProperty("classe", QStringLiteral("nota"));
+    raiz->addWidget(explica);
+
+    // Largura fixa por semana e rolagem horizontal: um semestre tem ~20
+    // semanas, e espremê-las na largura da tela faria colunas de 30 px.
+    auto* grafico = new CargaSemanal(&dlg);
+    grafico->definir(cargaPorSemana(provas_, snapshot_.atividades, QDateTime::currentDateTime(),
+                                    ini, semanas));
+    grafico->destacar(semanaFiltrada_);
+    grafico->marcarSemanaAtual(true);
+    grafico->setMinimumWidth(semanas * 72);
+    grafico->setMinimumHeight(260);
+    auto* rolagem = new QScrollArea(&dlg);
+    rolagem->setWidget(grafico);
+    rolagem->setWidgetResizable(true);
+    rolagem->setFrameShape(QFrame::NoFrame);
+    rolagem->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    raiz->addWidget(rolagem, 1);
+
+    if (auto* legendaPainel = findChild<QLabel*>(QStringLiteral("legendaCarga"))) {
+        auto* legenda = new QLabel(legendaPainel->text(), &dlg);
+        legenda->setTextFormat(Qt::RichText);
+        legenda->setFont(legendaPainel->font());
+        raiz->addWidget(legenda);
+    }
+
+    auto* botoes = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
+    botoes->button(QDialogButtonBox::Close)->setText(QStringLiteral("Fechar"));
+    botoes->button(QDialogButtonBox::Close)->setAutoDefault(false);
+    botoes->button(QDialogButtonBox::Close)->setIcon(QIcon());
+    connect(botoes, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    raiz->addWidget(botoes);
+
+    // Clicar numa semana filtra a lista e fecha: o diálogo é para achar a
+    // semana, e a lista é onde ela se lê.
+    connect(grafico, &CargaSemanal::semanaClicada, &dlg, [this, &dlg](QDate inicio) {
+        filtrarProvasPorSemana(inicio);
+        dlg.accept();
+    });
+
+    const QRect tela = screen() ? screen()->availableGeometry() : QRect(0, 0, 1280, 800);
+    dlg.resize(std::min(semanas * 72 + tema::esp(10), tela.width() - 80), 480);
+    // Abre com a semana de hoje à vista, não no começo do semestre.
+    const QDate hoje = segundaDe(QDate::currentDate());
+    const int colunaHoje = static_cast<int>(ini.daysTo(hoje) / 7);
+    QTimer::singleShot(0, &dlg, [rolagem, colunaHoje] {
+        rolagem->horizontalScrollBar()->setValue(std::max(0, colunaHoje - 2) * 72);
+    });
+    dlg.exec();
+}
+
+QString JanelaPrincipal::detalheDaProva(const avaliacao::Efetiva& prova) const {
+    const QString corTexto = tema::token("text").name();
+    const QString corApoio = tema::token("text-3").name();
+    const auto& av = prova.av;
+
+    // Linha 1: dia · hora · local. O local vem da turma — é o que o aluno
+    // procura na manhã da prova, e o SIGAA só o mostra dentro da turma.
+    QStringList onde{diaCurto(QDate(av.quando.year, av.quando.month, av.quando.day))};
+    if (av.quando.hasTime) {
+        onde << QTime(av.quando.hour, av.quando.minute).toString(QStringLiteral("HH:mm"));
+    }
+    for (const auto& t : snapshot_.turmas) {
+        if (t.idTurma == av.idTurma && !t.local.empty()) onde << QString::fromStdString(t.local);
+    }
+    QString h = QStringLiteral("<div style=\"color:%1\">%2</div>")
+                    .arg(corTexto, onde.join(QStringLiteral(" · ")).toHtmlEscaped());
+
+    // Linha 2: de onde veio a data. A mesma honestidade da coluna Origem.
+    QString origem;
+    switch (prova.estado) {
+    case avaliacao::Estado::Editada: {
+        const QDate ds(prova.quandoSigaa.year, prova.quandoSigaa.month, prova.quandoSigaa.day);
+        origem = QStringLiteral("<span style=\"color:%1; font-weight:600\">✓ você corrigiu</span>"
+                                "<span style=\"color:%2\">&nbsp;&nbsp;SIGAA diz %3</span>")
+                     .arg(tema::cor::sucesso().name(), corApoio,
+                          ds.isValid() ? ds.toString(QStringLiteral("dd/MM")) : QStringLiteral("—"));
+        break;
+    }
+    case avaliacao::Estado::Inferida:
+        origem = QStringLiteral("<span style=\"color:%1; font-weight:600\">○ inferida — confirme</span>")
+                     .arg(cor::inferido().name());
+        break;
+    case avaliacao::Estado::Confirmada:
+        origem = QStringLiteral("<span style=\"color:%1\">✓ você confirmou</span>")
+                     .arg(tema::cor::sucesso().name());
+        break;
+    case avaliacao::Estado::Criada:
+        origem = QStringLiteral("<span style=\"color:%1\">✎ você cadastrou</span>")
+                     .arg(tema::cor::sucesso().name());
+        break;
+    default:
+        origem = QStringLiteral("<span style=\"color:%1\">painel do professor</span>").arg(corApoio);
+    }
+    h += QStringLiteral("<div style=\"margin-top:2px\">%1</div>").arg(origem);
+
+    // Matéria: tópicos desde a prova anterior da turma.
+    const MateriaDaProva m = materiaDaProva(snapshot_, prova, provas_);
+    const QString desde = m.desde.isValid()
+        ? QStringLiteral("Matéria desde %1 (%2)")
+              .arg(m.provaAnterior.toHtmlEscaped(), m.desde.toString(QStringLiteral("dd/MM")))
+        : QStringLiteral("Matéria desde o início do período");
+    h += QStringLiteral("<hr style=\"border:none; height:1px; background:%1\">")
+             .arg(tema::token("line").name());
+    if (!m.coletada) {
+        h += QStringLiteral("<div style=\"color:%1\">Ainda não coletei as aulas desta turma — "
+                            "use Atualizar tudo para ver a matéria.</div>").arg(corApoio);
+    } else if (m.topicos.empty()) {
+        h += QStringLiteral("<div style=\"color:%1\">%2 · nenhum tópico registrado pelo "
+                            "professor</div>").arg(corApoio, desde);
+    } else {
+        h += QStringLiteral("<div style=\"color:%1\">%2 · %3 tópico(s)</div><ol style=\"margin:2px 0 0 0; "
+                            "-qt-list-indent:1; color:%4\">")
+                 .arg(corApoio, desde).arg(m.topicos.size()).arg(corTexto);
+        constexpr size_t kMaxTopicos = 5;
+        for (size_t i = 0; i < m.topicos.size() && i < kMaxTopicos; ++i) {
+            h += QStringLiteral("<li>%1</li>").arg(cortar(m.topicos[i], 56).toHtmlEscaped());
+        }
+        h += QStringLiteral("</ol>");
+        if (m.topicos.size() > kMaxTopicos) {
+            h += QStringLiteral("<div style=\"color:%1\">+%2 tópicos</div>")
+                     .arg(corApoio).arg(m.topicos.size() - kMaxTopicos);
+        }
+    }
+    // Arquivos: conferidos no cache local, o mesmo que a janela da turma usa
+    // para o selo "✓ offline".
+    if (!m.idsArquivos.empty()) {
+        int salvos = 0;
+        for (const auto& t : snapshot_.turmas) {
+            if (t.idTurma != av.idTurma) continue;
+            const sync::CacheLocal cache(
+                sync::pastaDaTurma(pastaBaseMateriais().toStdString(), t.nome));
+            for (const auto& id : m.idsArquivos) salvos += cache.temNoDisco(id) ? 1 : 0;
+        }
+        const int total = static_cast<int>(m.idsArquivos.size());
+        h += QStringLiteral("<div style=\"margin-top:6px; color:%1\">%2 arquivo(s) · %3</div>")
+                 .arg(corApoio)
+                 .arg(total)
+                 .arg(salvos == total ? QStringLiteral("<span style=\"color:%1\">✓ todos offline</span>")
+                                            .arg(tema::cor::sucesso().name())
+                                      : QStringLiteral("%1 ainda não salvo(s)").arg(total - salvos));
+    }
+    return h;
+}
+
 void JanelaPrincipal::atualizarResumoProvas(const Snapshot& s) {
     const ResumoProvas r = resumoProvas(provas_);
-    formulario_->calProvas->definirProvas(provasPorDia(provas_));
+    const auto porDia = provasPorDia(provas_);
+    formulario_->calProvas->definirProvas(porDia);
+    if (calSeguinte_) {
+        calSeguinte_->definirProvas(porDia);
+        // O principal pode ter saltado para o mês da próxima prova agora.
+        const QDate seguinte = QDate(formulario_->calProvas->yearShown(),
+                                     formulario_->calProvas->monthShown(), 1).addMonths(1);
+        calSeguinte_->setCurrentPage(seguinte.year(), seguinte.month());
+    }
 
     auto pintar = [](QLabel* l, const QColor& c) {
         QPalette p = l->palette();
@@ -779,41 +1505,227 @@ void JanelaPrincipal::atualizarResumoProvas(const Snapshot& s) {
         l->setPalette(p);
     };
 
-    if (r.data.isValid()) {
-        formulario_->valorCartaoProxima->setText(
-            r.emDias == 0   ? QStringLiteral("é hoje")
-            : r.emDias == 1 ? QStringLiteral("é amanhã")
-                            : QStringLiteral("em %1 dias").arg(r.emDias));
-        formulario_->detalheCartaoProxima->setText(
-            QStringLiteral("%1 · %2 · %3")
-                .arg(r.descricao, r.turma, r.data.toString(QStringLiteral("dd/MM"))));
-        pintar(formulario_->valorCartaoProxima,
-               r.emDias <= 7 ? cor::urgente()
-                             : palette().color(QPalette::WindowText));
-    } else {
-        formulario_->valorCartaoProxima->setText(QStringLiteral("nenhuma"));
-        // Distinguir "acabou o semestre" de "nunca entrei nas turmas" importa:
-        // as duas telas são idênticas e só uma delas é problema do usuário.
-        formulario_->detalheCartaoProxima->setText(
-            r.total > 0
-                ? QStringLiteral("as %1 conhecidas já passaram").arg(r.total)
-                : QStringLiteral("nenhuma prova coletada — use Atualizar tudo"));
-        pintar(formulario_->valorCartaoProxima, palette().color(QPalette::PlaceholderText));
+    const QDate hoje = QDate::currentDate();
+
+    const QString corTexto = tema::token("text").name();
+    const QString corApoio = tema::token("text-3").name();
+
+    // --- Próxima prova e Em seguida: duas colunas do mesmo formato ---------
+    //
+    // "Em seguida" já foi uma lista estreita de blocos, e sobrava coluna: a
+    // pergunta que ela responde ("e depois?") merece a mesma resposta que a
+    // primeira — onde é, de onde veio a data, o que estudar. Agora são duas
+    // colunas iguais, e a segunda mostra a prova seguinte por inteiro.
+    const QDateTime agora = QDateTime::currentDateTime();
+    std::vector<const avaliacao::Efetiva*> futuras;
+    for (const auto& p : provas_) {
+        if (p.av.quando.valid() && !jaPassou(p.av.quando, agora)) futuras.push_back(&p);
     }
 
-    formulario_->valorCartaoTrinta->setText(QString::number(r.proximos30));
-    formulario_->detalheCartaoTrinta->setText(
-        r.proximos30 == 1 ? QStringLiteral("prova marcada")
-                          : QStringLiteral("provas marcadas"));
-    pintar(formulario_->valorCartaoTrinta, palette().color(QPalette::WindowText));
+    auto rotuloQuando = [&](const avaliacao::Efetiva& p) {
+        const QDate d(p.av.quando.year, p.av.quando.month, p.av.quando.day);
+        const qint64 dias = hoje.daysTo(d);
+        const QString q = dias == 0   ? QStringLiteral("é hoje")
+                          : dias == 1 ? QStringLiteral("amanhã")
+                                      : QStringLiteral("em %1 dias").arg(dias);
+        return QStringLiteral("&nbsp;&nbsp;<span style=\"color:%1\">◷ %2</span>")
+            .arg(dias <= 7 ? cor::urgente().name() : corTexto, q);
+    };
+    auto titulo = [](const avaliacao::Efetiva& p) {
+        return QStringLiteral("%1 · %2").arg(umaLinhaQt(p.av.descricao), umaLinhaQt(p.av.turmaNome));
+    };
 
-    formulario_->valorCartaoConfirmar->setText(QString::number(r.inferidas));
-    formulario_->detalheCartaoConfirmar->setText(
-        r.inferidas == 0
-            ? QStringLiteral("todas vieram do painel do professor")
-            : QStringLiteral("deduzidas de tópico de aula — confirme a data"));
-    pintar(formulario_->valorCartaoConfirmar,
-           r.inferidas > 0 ? cor::inferido() : palette().color(QPalette::PlaceholderText));
+    auto* detalhe = formulario_->detalheCartaoProxima;
+    auto* tituloSeg = colunaSeguintes_->findChild<QLabel*>(QStringLiteral("tituloSeguintes"));
+    auto* valorSeg = colunaSeguintes_->findChild<QLabel*>(QStringLiteral("valorSeguintes"));
+    auto* detalheSeg = colunaSeguintes_->findChild<QLabel*>(QStringLiteral("listaSeguintes"));
+    idTurmaProxima_.clear();
+    idTurmaSeguinte_.clear();
+    botaoTurmaProxima_->hide();
+
+    // Agrupa por dia: o primeiro dia com prova e o que vem depois dele.
+    auto diaDe = [](const avaliacao::Efetiva& p) {
+        return QDate(p.av.quando.year, p.av.quando.month, p.av.quando.day);
+    };
+    std::vector<const avaliacao::Efetiva*> doPrimeiroDia;
+    std::vector<const avaliacao::Efetiva*> doSegundoDia;
+    if (!futuras.empty()) {
+        const QDate dia1 = diaDe(*futuras[0]);
+        QDate dia2;
+        for (const auto* p : futuras) {
+            const QDate d = diaDe(*p);
+            if (d == dia1) {
+                doPrimeiroDia.push_back(p);
+            } else if (!dia2.isValid() || d == dia2) {
+                dia2 = d;
+                doSegundoDia.push_back(p);
+            } else {
+                break;
+            }
+        }
+    }
+
+    // Lista compacta de provas de um dia: uma por linha, hora e prova em cima,
+    // turma · local · matéria embaixo. Até kMaxLinhas; o resto é "+N", e a
+    // tabela logo abaixo tem todas.
+    constexpr size_t kMaxLinhas = 5;
+    auto listaDoDia = [&](const std::vector<const avaliacao::Efetiva*>& v, size_t desde) {
+        QString t;
+        for (size_t i = desde; i < v.size() && i < desde + kMaxLinhas; ++i) {
+            const auto& p = *v[i];
+            const QString hora = p.av.quando.hasTime
+                ? QTime(p.av.quando.hour, p.av.quando.minute).toString(QStringLiteral("HH:mm"))
+                : QStringLiteral("sem hora");
+            const QString marca = p.estado == avaliacao::Estado::Inferida
+                ? QStringLiteral(" <span style=\"color:%1; font-weight:400\">○ inferida</span>")
+                      .arg(cor::inferido().name())
+                : QString();
+            QStringList apoio{cortar(umaLinhaQt(p.av.turmaNome), 34)};
+            for (const auto& tu : snapshot_.turmas) {
+                if (tu.idTurma == p.av.idTurma && !tu.local.empty()) {
+                    apoio << QString::fromStdString(tu.local);
+                }
+            }
+            const MateriaDaProva m = materiaDaProva(snapshot_, p, provas_);
+            if (!m.topicos.empty()) {
+                apoio << (m.topicos.size() == 1 ? QStringLiteral("1 tópico")
+                                                : QStringLiteral("%1 tópicos").arg(m.topicos.size()));
+            }
+            t += QStringLiteral("<div style=\"margin-top:%1px\"><span style=\"color:%2; font-weight:700\">"
+                                "%3</span>&nbsp;&nbsp;<span style=\"color:%4; font-weight:600\">%5</span>%6"
+                                "<br><span style=\"color:%7\">%8</span></div>")
+                     .arg(i == desde ? 0 : 8)
+                     .arg(corTexto, hora, corTexto,
+                          cortar(umaLinhaQt(p.av.descricao), 40).toHtmlEscaped(), marca, corApoio,
+                          apoio.join(QStringLiteral(" · ")).toHtmlEscaped());
+        }
+        if (v.size() > desde + kMaxLinhas) {
+            t += QStringLiteral("<div style=\"margin-top:8px; color:%1\">+%2 — veja na tabela abaixo</div>")
+                     .arg(corApoio).arg(v.size() - desde - kMaxLinhas);
+        }
+        return t;
+    };
+
+    if (doPrimeiroDia.size() == 1) {
+        // Uma prova no dia: o destaque completo, com a matéria.
+        const auto& p1 = *doPrimeiroDia[0];
+        formulario_->tituloCartaoProxima->setText(QStringLiteral("PRÓXIMA PROVA") + rotuloQuando(p1));
+        formulario_->valorCartaoProxima->setText(titulo(p1));
+        detalhe->setText(detalheDaProva(p1));
+        idTurmaProxima_ = p1.av.idTurma;
+        botaoTurmaProxima_->show();
+    } else if (!doPrimeiroDia.empty()) {
+        // Várias no mesmo dia: a lista do dia. Duas colunas "completas" do
+        // mesmo dia, mais uma lista de extras, contavam a mesma história em
+        // três camadas — o dia vira UMA coluna, e cada prova uma linha dela.
+        const auto& p1 = *doPrimeiroDia[0];
+        formulario_->tituloCartaoProxima->setText(QStringLiteral("PRÓXIMAS PROVAS") + rotuloQuando(p1));
+        formulario_->valorCartaoProxima->setText(
+            QStringLiteral("%1 provas · %2").arg(doPrimeiroDia.size()).arg(diaCurto(diaDe(p1))));
+        detalhe->setText(listaDoDia(doPrimeiroDia, 0));
+        // Sem "Abrir turma": com várias turmas no dia, qual abriria? A lista
+        // e a tabela levam cada uma à sua.
+    } else {
+        formulario_->tituloCartaoProxima->setText(QStringLiteral("PRÓXIMA PROVA"));
+        formulario_->valorCartaoProxima->setText(QStringLiteral("Nenhuma à frente"));
+        // Distinguir "acabou o semestre" de "nunca entrei nas turmas" importa:
+        // as duas telas são idênticas e só uma delas é problema do usuário.
+        detalhe->setText(
+            r.total > 0
+                ? QStringLiteral("As %1 provas conhecidas já passaram.").arg(r.total)
+                : QStringLiteral("Nenhuma prova coletada — use Atualizar tudo."));
+    }
+
+    // Em seguida: o próximo DIA com prova, depois do primeiro. Nunca repete o
+    // dia da esquerda. Uma prova nele: completa; várias: a primeira completa
+    // e as outras em lista curta embaixo.
+    const bool temSeguinte = !doSegundoDia.empty();
+    colunaSeguintes_->setVisible(temSeguinte);
+    fileteSeguintes_->setVisible(temSeguinte);
+    if (temSeguinte) {
+        const auto& p2 = *doSegundoDia[0];
+        tituloSeg->setText(QStringLiteral("EM SEGUIDA") + rotuloQuando(p2));
+        valorSeg->setText(titulo(p2));
+        QString h = detalheDaProva(p2);
+        if (doSegundoDia.size() > 1) {
+            h += QStringLiteral("<div style=\"margin-top:8px; color:%1; font-weight:600\">+%2 no mesmo dia</div>")
+                     .arg(cor::urgente().name())
+                     .arg(doSegundoDia.size() - 1);
+            h += listaDoDia(doSegundoDia, 1);
+        }
+        detalheSeg->setText(h);
+        idTurmaSeguinte_ = p2.av.idTurma;
+    }
+
+    // --- Carga por semana --------------------------------------------------
+    atualizarCarga();
+    if (auto* legenda = findChild<QLabel*>(QStringLiteral("legendaCarga"))) {
+        legenda->setText(
+            QStringLiteral("<span style=\"color:%1\">■</span> prova&nbsp;&nbsp;&nbsp;"
+                           "<span style=\"color:%1\">□</span> deduzida&nbsp;&nbsp;&nbsp;"
+                           "<span style=\"color:%2\">■</span> entrega pendente&nbsp;&nbsp;&nbsp;"
+                           "<span style=\"color:%4\">■</span> já passou"
+                           "<span style=\"color:%3\">&nbsp;&nbsp;·&nbsp;&nbsp;clique numa semana para filtrar</span>")
+                .arg(cor::urgente().name(), tema::token("surface-3").name(), corApoio,
+                     CargaSemanal::corPassado().name()));
+    }
+
+    // --- A confirmar: pílula na linha da tabela -------------------------
+    if (auto* pilula = findChild<QToolButton*>(QStringLiteral("pilulaConfirmar"))) {
+        pilula->setVisible(r.inferidas > 0);
+        pilula->setText(r.inferidas == 1 ? QStringLiteral("○ 1 data a confirmar")
+                                         : QStringLiteral("○ %1 datas a confirmar")
+                                               .arg(r.inferidas));
+    }
+    // O diálogo aberto acompanha: toda ação dele termina num `mostrar`, que
+    // passa por aqui com a lista nova.
+    atualizarDialogoConfirmar();
+}
+
+
+void JanelaPrincipal::filtrarProvasPorSemana(QDate inicio) {
+    auto* proxy = qobject_cast<QSortFilterProxyModel*>(formulario_->tvProvas->model());
+    if (!proxy) return;
+    if (!inicio.isValid()) {
+        semanaFiltrada_ = QDate();
+        filtrarProvasPorDia(QDate());
+        return;
+    }
+
+    // Semana sem prova: a mesma regra do dia vazio — recusar o filtro e dizer
+    // por quê, em vez de deixar uma tabela em branco.
+    int provas = 0;
+    for (int i = 0; i < 7; ++i) provas += formulario_->calProvas->provasEm(inicio.addDays(i));
+    if (provas == 0) {
+        semanaFiltrada_ = QDate();
+        filtrarProvasPorDia(QDate());
+        formulario_->rotuloFiltro->setText(
+            QStringLiteral("A semana de %1 não tem prova — mostrando todas")
+                .arg(inicio.toString(QStringLiteral("dd/MM"))));
+        return;
+    }
+
+    semanaFiltrada_ = inicio;
+    diaFiltrado_ = QDate();
+    carga_->destacar(inicio);
+    // Os sete prefixos ISO da semana, alternados: a chave da coluna Data é
+    // "2026-09-28" ou "2026-09-28T15:45".
+    QStringList dias;
+    for (int i = 0; i < 7; ++i) dias << inicio.addDays(i).toString(Qt::ISODate);
+    proxy->setFilterRegularExpression(
+        QRegularExpression(QStringLiteral("^(%1)").arg(dias.join(QLatin1Char('|')))));
+    formulario_->botaoTodasProvas->setEnabled(true);
+    formulario_->tvProvas->expandAll();
+    for (int c = 0; c < proxy->columnCount(); ++c) formulario_->tvProvas->resizeColumnToContents(c);
+    contarProvasFiltradas(QStringLiteral("na semana de %1")
+                              .arg(inicio.toString(QStringLiteral("dd/MM"))));
+}
+
+void JanelaPrincipal::contarProvasFiltradas(const QString& onde) {
+    auto* proxy = formulario_->tvProvas->model();
+    int n = 0;
+    for (int g = 0; g < proxy->rowCount(); ++g) n += proxy->rowCount(proxy->index(g, 0));
+    formulario_->rotuloFiltro->setText(QStringLiteral("%1 prova(s) %2").arg(n).arg(onde));
 }
 
 void JanelaPrincipal::filtrarProvasPorDia(QDate dia) {
@@ -832,6 +1744,15 @@ void JanelaPrincipal::filtrarProvasPorDia(QDate dia) {
     }
 
     diaFiltrado_ = dia;
+    if (calSeguinte_) {
+        const bool doSeguinte = dia.isValid() && dia.year() == calSeguinte_->yearShown() &&
+                                dia.month() == calSeguinte_->monthShown();
+        if (doSeguinte) calSeguinte_->setSelectedDate(dia);
+        calSeguinte_->mostrarSelecao(doSeguinte);
+    }
+    // Dia e semana são filtros exclusivos, e "mostrar todas" desfaz os dois.
+    semanaFiltrada_ = QDate();
+    if (carga_) carga_->destacar(QDate());
     // Prefixo ISO: a chave da coluna Data é "2026-09-04" ou "2026-09-04T15:45",
     // e o "contém" do proxy pega os dois sem precisar de regex.
     proxy->setFilterFixedString(dia.isValid() ? dia.toString(Qt::ISODate) : QString());
@@ -1058,7 +1979,8 @@ void JanelaPrincipal::mostrar(const Snapshot& s) {
     // Cartões e calendário depois de trocar o modelo: o filtro por dia é
     // reaplicado sobre o modelo novo, e precisa dele no lugar.
     atualizarResumoProvas(s);
-    filtrarProvasPorDia(diaFiltrado_);
+    if (semanaFiltrada_.isValid()) filtrarProvasPorSemana(semanaFiltrada_);
+    else filtrarProvasPorDia(diaFiltrado_);
     montarAgenda();
 
     // A contagem na aba continua sendo a de HOJE mesmo com a agenda paginada
@@ -1073,15 +1995,35 @@ void JanelaPrincipal::mostrar(const Snapshot& s) {
     // FONTE, não do proxy: com um dia filtrado o proxy contaria só aquele dia, e
     // a aba passaria a dizer "Provas (1)" com 14 provas no semestre.
     abas->setTabText(1, QStringLiteral("Provas (%1)").arg(resumoProvas(provas_).total));
+    if (navegacao_) navegacao_->sincronizar();
 }
 
 void JanelaPrincipal::montarBarraAgenda() {
     // A faixa de datas é o título da tela agora que ela pagina: sem peso
     // tipográfico ela se perde entre dois botões e a pessoa não repara que
     // mudou de semana.
-    escalarFonte(formulario_->rotuloDia, 1.1, /*negrito=*/true);
-    escalarFonte(formulario_->rotuloResumoDia, 0.9);
-    esmaecer(formulario_->rotuloResumoDia);
+    formulario_->rotuloDia->setFont(tema::fonte(tema::Papel::Titulo));
+    formulario_->rotuloDia->setTextFormat(Qt::RichText);
+    rotuloDeSecao(formulario_->rotuloAulas);
+    // 32 px entre a linha da semana e a seção, como no protótipo: o título
+    // pertence à página, não à lista de aulas.
+    formulario_->rotuloAulas->setContentsMargins(0, tema::esp(4), 0, tema::esp(1));
+    rotuloDeSecao(formulario_->rotuloPrazos);
+    // O resumo divide a linha com o título, à direita, como no protótipo: é o
+    // dado que responde "tenho aula hoje?" antes de a pessoa ler a lista. Corpo
+    // inteiro, não legenda — os números em negrito precisam ser lidos de longe.
+    formulario_->rotuloResumoDia->setTextFormat(Qt::RichText);
+
+    // Setas quadradas de 32 e "Hoje" na mesma altura, medidas da referência.
+    // Em código porque o QSS não fixa tamanho de QToolButton (min-height
+    // conta só o conteúdo, e o glifo ◀ tem altura diferente da palavra).
+    for (QToolButton* b : {formulario_->botaoSemanaAnterior, formulario_->botaoSemanaSeguinte}) {
+        b->setFixedSize(32, 32);
+        QFont f = b->font();
+        f.setPointSizeF(f.pointSizeF() * 0.8);   // 11/14: a seta é sinal, não texto
+        b->setFont(f);
+    }
+    formulario_->botaoHoje->setFixedHeight(32);
 
     // Alt+← / Alt+→: é o par que o sistema já reserva para "voltar/avançar", e
     // aqui a semana é exatamente isso. Vem de QKeySequence e não de teclas
@@ -1102,6 +2044,16 @@ void JanelaPrincipal::montarBarraAgenda() {
 }
 
 bool JanelaPrincipal::eventFilter(QObject* alvo, QEvent* ev) {
+    if (alvo == formulario_->painelCalendario && ev->type() == QEvent::Resize && calSeguinte_) {
+        // Cabe o segundo mês? Altura natural dos dois, mais título e legenda.
+        const int precisa = 2 * formulario_->calProvas->minimumSizeHint().height() +
+                            tituloCalSeguinte_->sizeHint().height() +
+                            formulario_->legendaCalendario->sizeHint().height() + tema::esp(4);
+        const bool cabe = formulario_->painelCalendario->height() >= precisa;
+        calSeguinte_->setVisible(cabe);
+        tituloCalSeguinte_->setVisible(cabe);
+        return QMainWindow::eventFilter(alvo, ev);
+    }
     if (alvo != formulario_->arvoreHoje->viewport() || ev->type() != QEvent::Wheel) {
         return QMainWindow::eventFilter(alvo, ev);
     }
@@ -1175,10 +2127,17 @@ void JanelaPrincipal::montarAgenda() {
     // rótulo que diz sempre a mesma coisa não avisa que a pessoa está paginada
     // três semanas à frente — e é aí que ela lê "nenhuma aula" e se assusta.
     const qint64 delta = segundaDaSemana(hoje).daysTo(inicio) / kDiasPorPagina;
-    QString titulo = faixaDaSemana(inicio, fim);
-    if (delta == 0) titulo += QStringLiteral(" · esta semana");
-    else if (delta == 1) titulo += QStringLiteral(" · semana que vem");
-    else if (delta == -1) titulo += QStringLiteral(" · semana passada");
+    QString relativo;
+    if (delta == 0) relativo = QStringLiteral("esta semana");
+    else if (delta == 1) relativo = QStringLiteral("semana que vem");
+    else if (delta == -1) relativo = QStringLiteral("semana passada");
+    // A faixa em negrito e o "· esta semana" em peso normal e cinza, como no
+    // protótipo: são duas informações, e a de peso é a data.
+    QString titulo = faixaDaSemana(inicio, fim).toHtmlEscaped();
+    if (!relativo.isEmpty()) {
+        titulo += QStringLiteral(" <span style=\"font-weight:400; color:%1\">· %2</span>")
+                      .arg(tema::token("text-3").name(), relativo);
+    }
     formulario_->rotuloDia->setText(titulo);
 
     const ResumoDia r = resumoDia(s, hoje);
@@ -1193,13 +2152,18 @@ void JanelaPrincipal::montarAgenda() {
             "Ainda não coletei as aulas. Use “Atualizar tudo” — só esse ciclo "
             "entra em cada turma e lê a linha do tempo do professor."));
     } else if (delta == 0) {
+        // Número em negrito na cor do texto, rótulo em text-2, separador em
+        // text-3: o olho pega "4 · 4 · 18" primeiro e só lê as palavras se
+        // precisar.
+        const QString num = QStringLiteral("<b style=\"color:%1\">%2</b>")
+                                .arg(tema::token("text").name(), QStringLiteral("%1"));
+        const QString ponto = QStringLiteral("&nbsp;&nbsp;<span style=\"color:%1\">·</span>&nbsp;&nbsp;")
+                                  .arg(tema::token("text-3").name());
         formulario_->rotuloResumoDia->setText(
-            QStringLiteral("%1 hoje · %2 amanhã · %3 nesta semana")
-                .arg(r.aulasHoje == 1 ? QStringLiteral("1 aula")
-                                      : QStringLiteral("%1 aulas").arg(r.aulasHoje))
-                .arg(r.aulasAmanha == 1 ? QStringLiteral("1 aula")
-                                        : QStringLiteral("%1 aulas").arg(r.aulasAmanha))
-                .arg(naSemana));
+            num.arg(r.aulasHoje) +
+            (r.aulasHoje == 1 ? QStringLiteral(" aula hoje") : QStringLiteral(" aulas hoje")) +
+            ponto + num.arg(r.aulasAmanha) + QStringLiteral(" amanhã") + ponto +
+            num.arg(naSemana) + QStringLiteral(" nesta semana"));
     } else if (naSemana == 0 && faixa.valida() && (fim < faixa.primeiro || inicio > faixa.ultimo)) {
         // Fora do que a coleta cobre. Dizer "nenhuma aula" aqui seria afirmar
         // algo que não sabemos — o professor pode ter publicado a aula e nós
@@ -1761,9 +2725,12 @@ void JanelaPrincipal::aoAbrir() {
         }
         sessao_.login = d.login().toStdString();
         sessao_.senha = d.senha().toStdString();
+        atualizarAvatar(d.login());
         agendarProxima();   // já dispara a primeira coleta, completa
         return;
     }
+
+    atualizarAvatar(QString::fromStdString(res.cred.login));
 
     if (res.origem == plat::Origem::DotEnv && plat::cofreDisponivel()) {
         const auto r = QMessageBox::question(
@@ -1802,6 +2769,7 @@ void JanelaPrincipal::trocarConta() {
     if (d.exec() != QDialog::Accepted) return;
     sessao_.login = d.login().toStdString();
     sessao_.senha = d.senha().toStdString();
+    atualizarAvatar(d.login());
     status(QStringLiteral("Conta atualizada."));
 }
 

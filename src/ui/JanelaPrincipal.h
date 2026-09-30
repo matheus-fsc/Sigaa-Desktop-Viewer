@@ -38,6 +38,7 @@
 
 class QLabel;
 class QProgressBar;
+class QPushButton;
 class QSystemTrayIcon;
 class QTimer;
 
@@ -51,6 +52,10 @@ class QToolButton;
 namespace sigaa::ui {
 
 class Trabalhador;
+class NavegacaoAbas;
+class CargaSemanal;
+class CalendarioProvas;
+class DialogoConfirmarDatas;
 class JanelaDiagnostico;
 
 class JanelaPrincipal : public QMainWindow {
@@ -126,6 +131,17 @@ private:
 
     void corrigirProva();
     void confirmarProva();
+    // As mesmas ações, sobre uma prova dada em vez da selecionada na tabela —
+    // é o que o diálogo "Datas a confirmar" chama.
+    void corrigir(const avaliacao::Efetiva& prova);
+    void confirmar(const avaliacao::Efetiva& prova);
+    void descartar(const avaliacao::Efetiva& prova);
+    void restaurar(const avaliacao::Ajuste& ajuste);
+    void abrirConfirmarDatas();
+    void atualizarDialogoConfirmar();
+    // Dia · hora · local, origem, matéria e arquivos de uma prova, em rich
+    // text. Usada pelas duas colunas do painel (Próxima prova, Em seguida).
+    QString detalheDaProva(const avaliacao::Efetiva& prova) const;
     void criarProva();
     void desfazerCorrecao();
     void verHistorico();
@@ -139,6 +155,8 @@ private:
     void montarStatus();
     void montarBandeja();
     void aplicarIcones();
+    // Iniciais do login no botão Conta, como o avatar do protótipo.
+    void atualizarAvatar(const QString& login);
 
     // Tráfego com o SIGAA, ao vivo. Fica atrás de uma ação em vez de uma aba
     // porque não é informação de rotina — é a resposta para "por que o SIGAA
@@ -170,6 +188,9 @@ private:
     void atualizarResumoProvas(const Snapshot& s);
     // Data inválida = sem filtro, lista o semestre inteiro.
     void filtrarProvasPorDia(QDate dia);
+    // A semana (segunda) clicada no gráfico de carga. Exclui o filtro por dia.
+    void filtrarProvasPorSemana(QDate inicio);
+    void contarProvasFiltradas(const QString& onde);
 
     // --- turmas ------------------------------------------------------------
     void montarTurmas();
@@ -202,6 +223,10 @@ private:
 
     // Widgets da barra de status: o Designer não sabe povoar uma QStatusBar.
     QLabel* rotulo_{nullptr};
+    // As abas embutidas no cabeçalho (ver ui/Cabecalho.h). Espelham o
+    // QTabWidget, que continua dono das páginas.
+    NavegacaoAbas* navegacao_{nullptr};
+    QString loginAvatar_;
     QProgressBar* barra_{nullptr};
     QSystemTrayIcon* bandeja_{nullptr};
 
@@ -268,6 +293,28 @@ private:
     // do usuário, e trocar o modelo por baixo dele não deveria devolvê-lo à
     // lista inteira sem ele pedir.
     QDate diaFiltrado_;
+    QDate semanaFiltrada_;
+
+    // Painel de resumo da aba Provas (ver montarProvas).
+    CargaSemanal* carga_{nullptr};
+    // Quantas semanas a janela da carga está deslocada da semana de hoje
+    // (setas ‹ ›). Sobrevive ao sync pelo mesmo motivo do filtro: é escolha
+    // do usuário.
+    int deslocCarga_{0};
+    QToolButton* cargaAnterior_{nullptr};
+    QToolButton* cargaSeguinte_{nullptr};
+    void atualizarCarga();
+    void abrirCargaCompleta();
+    // O mês seguinte ao do calendário principal, embaixo dele (ver
+    // montarProvas). Some quando a coluna não tem altura para os dois.
+    CalendarioProvas* calSeguinte_{nullptr};
+    QLabel* tituloCalSeguinte_{nullptr};
+    QPushButton* botaoTurmaProxima_{nullptr};
+    QWidget* colunaSeguintes_{nullptr};   // "Em seguida", ao lado da próxima
+    QWidget* fileteSeguintes_{nullptr};
+    std::string idTurmaProxima_;
+    std::string idTurmaSeguinte_;
+    DialogoConfirmarDatas* dlgConfirmar_{nullptr};   // aberto, ou nulo
 
     // Segunda-feira da semana mostrada na agenda. Inválida = ainda não ancorada
     // (o primeiro `mostrar` a coloca na semana de hoje). Sobrevive ao sync pelo
