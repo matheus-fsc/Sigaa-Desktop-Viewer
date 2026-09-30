@@ -1,5 +1,14 @@
 # SIGAA-Desktop-Viewer
 
+> [!WARNING]
+> **ATENÇÃO: ESTE PROGRAMA NÃO DEVE SER BAIXADO FORA DA SUA MÁQUINA, VISTO QUE ELE
+> GUARDA SUAS CREDENCIAIS NO COFRE DO SEU SISTEMA OPERACIONAL.**
+>
+> Use só no seu computador pessoal. Num computador de laboratório, compartilhado
+> ou de outra pessoa, o login e a senha do SIGAA ficariam guardados na conta de
+> quem usa aquela máquina. Se precisar remover, use **Conta ▸ Esquecer
+> credenciais deste computador** antes de apagar o programa.
+
 Cliente desktop multiplataforma para o **SIGAA da UNIFEI**, agrega prazos,
 atualizações das turmas e calendário de provas num só lugar, com notificações
 nativas.
