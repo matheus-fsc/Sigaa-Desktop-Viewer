@@ -3,13 +3,14 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
-#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QGridLayout>
 #include <QLabel>
+#include <QListWidget>
 #include <QLocale>
 #include <QMessageBox>
 #include <QPainter>
@@ -17,6 +18,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -227,115 +229,25 @@ void GraficoPressao::paintEvent(QPaintEvent*) {
 }
 
 // ---------------------------------------------------------------------------
-// Horas e dificuldade
+// Planejamento
 // ---------------------------------------------------------------------------
 
-DialogoPreferenciasEstudo::DialogoPreferenciasEstudo(
-    const planejamento::Preferencias& atual,
-    const std::vector<std::pair<std::string, std::string>>& turmas, QWidget* pai)
-    : QDialog(pai), prefs_(atual) {
-    setWindowTitle(QStringLiteral("Horas e dificuldade"));
-    setModal(true);
-    // Largo o bastante para o nome da matéria caber em uma ou duas linhas.
-    setMinimumWidth(560);
-
+PainelPlanejamento::PainelPlanejamento(QWidget* pai) : QWidget(pai) {
     auto* raiz = new QVBoxLayout(this);
-    raiz->setContentsMargins(tema::esp(5), tema::esp(5), tema::esp(5), tema::esp(4));
+    raiz->setContentsMargins(0, 0, 0, 0);
     raiz->setSpacing(tema::esp(3));
 
-    auto* horasBox = new QGroupBox(QStringLiteral("Horas livres para estudar"), this);
-    auto* fh = new QFormLayout(horasBox);
-    static const char* kDias[] = {"Segunda", "Terça", "Quarta", "Quinta",
-                                  "Sexta",   "Sábado", "Domingo"};
-    std::vector<QDoubleSpinBox*> campos;
-    for (int d = 0; d < 7; ++d) {
-        auto* c = new QDoubleSpinBox(horasBox);
-        c->setRange(0, 12);
-        c->setSingleStep(0.5);
-        c->setDecimals(1);
-        c->setSuffix(QStringLiteral(" h"));
-        c->setValue(atual.minutosPorDia[static_cast<size_t>(d)] / 60.0);
-        fh->addRow(QString::fromUtf8(kDias[d]), c);
-        campos.push_back(c);
-    }
-    raiz->addWidget(horasBox);
-
-    auto* difBox = new QGroupBox(QStringLiteral("Dificuldade de cada matéria"), this);
-    auto* fd = new QFormLayout(difBox);
-    auto* explica = rotulo(QStringLiteral("Matéria difícil recebe 50% mais tempo; fácil, 30% "
-                                          "menos."),
-                           tema::Papel::Legenda, false, "nota", difBox);
-    fd->addRow(explica);
-    std::vector<std::pair<std::string, QComboBox*>> combos;
-    for (const auto& [id, nome] : turmas) {
-        auto* c = new QComboBox(difBox);
-        c->addItem(QStringLiteral("Fácil"), 1);
-        c->addItem(QStringLiteral("Média"), 2);
-        c->addItem(QStringLiteral("Difícil"), 3);
-        c->setCurrentIndex(static_cast<int>(atual.dificuldadeDe(id)) - 1);
-        auto* nomeL = new QLabel(q(nome), difBox);
-        nomeL->setWordWrap(true);
-        fd->addRow(nomeL, c);
-        combos.emplace_back(id, c);
-    }
-    raiz->addWidget(difBox);
-
-    auto* botoes = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
-    botoes->button(QDialogButtonBox::Save)->setText(QStringLiteral("Salvar"));
-    botoes->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Cancelar"));
-    connect(botoes, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    connect(botoes, &QDialogButtonBox::accepted, this, [this, campos, combos] {
-        for (int d = 0; d < 7; ++d) {
-            prefs_.minutosPorDia[static_cast<size_t>(d)] =
-                static_cast<int>(campos[static_cast<size_t>(d)]->value() * 60);
-        }
-        prefs_.dificuldade.clear();
-        for (const auto& [id, c] : combos) {
-            const auto dif = static_cast<planejamento::Dificuldade>(c->currentData().toInt());
-            // Média é o padrão: só guarda o que difere dele.
-            if (dif != planejamento::Dificuldade::Media) prefs_.dificuldade[id] = dif;
-        }
-        accept();
-    });
-    raiz->addWidget(botoes);
-}
-
-// ---------------------------------------------------------------------------
-// A janela
-// ---------------------------------------------------------------------------
-
-DialogoPlanejamento::DialogoPlanejamento(Entradas e, QWidget* pai)
-    : QDialog(pai), entradas_(std::move(e)) {
-    setWindowTitle(QStringLiteral("Planejamento de estudo"));
-    setModal(true);
-
-    auto* raiz = new QVBoxLayout(this);
-    raiz->setContentsMargins(tema::esp(5), tema::esp(5), tema::esp(5), tema::esp(4));
-    raiz->setSpacing(tema::esp(3));
-
-    // Título, resumo e o botão das preferências na mesma faixa.
-    auto* topo = new QHBoxLayout;
-    auto* textos = new QVBoxLayout;
-    textos->setSpacing(2);
-    auto* titulo = new QLabel(QStringLiteral("Planejamento de estudo"), this);
+    auto* titulo = new QLabel(QStringLiteral("Planejamento"), this);
     QFont ft = tema::fonte(tema::Papel::Subtitulo);
     ft.setWeight(QFont::Bold);
     titulo->setFont(ft);
-    textos->addWidget(titulo);
+    raiz->addWidget(titulo);
     resumo_ = rotulo(QString(), tema::Papel::Corpo, false, "nota", this);
-    textos->addWidget(resumo_);
-    topo->addLayout(textos, 1);
-    auto* prefs = new QPushButton(QStringLiteral("Horas e dificuldade…"), this);
-    prefs->setProperty("papel", QStringLiteral("secundario"));
-    prefs->setAutoDefault(false);
-    connect(prefs, &QPushButton::clicked, this, &DialogoPlanejamento::abrirPreferencias);
-    topo->addWidget(prefs, 0, Qt::AlignTop);
-    raiz->addLayout(topo);
+    raiz->addWidget(resumo_);
 
     // --- mapa de pressão ---
-    auto* secaoMapa = rotulo(QStringLiteral("ONDE APERTA"), tema::Papel::Legenda, true, "secao",
-                             this);
-    raiz->addWidget(secaoMapa);
+    raiz->addWidget(rotulo(QStringLiteral("ONDE APERTA"), tema::Papel::Legenda, true, "secao",
+                           this));
     grafico_ = new GraficoPressao(this);
     rolagemGrafico_ = new QScrollArea(this);
     rolagemGrafico_->setWidget(grafico_);
@@ -349,12 +261,13 @@ DialogoPlanejamento::DialogoPlanejamento(Entradas e, QWidget* pai)
         const QString verde = tema::cor::sucesso().name();
         const QString linha = tema::token("line-strong").name();
         auto* legenda = new QLabel(
-            QStringLiteral("<span style='color:%1'>□</span> tempo livre · "
+            QStringLiteral("<span style='color:%1'>□</span> tempo para estudar (já sem as "
+                           "aulas) · "
                            "<span style='color:%2'>■</span> estudo planejado · "
                            "<span style='color:%3'>■</span> já feito · "
                            "<span style='color:%4'>●</span> prova · "
                            "<span style='color:%4'>■</span> semana crítica (80%+ do tempo "
-                           "livre tomado, ou 3+ provas)")
+                           "tomado, ou 3+ provas)")
                 .arg(linha, accent, verde, laranja),
             this);
         legenda->setTextFormat(Qt::RichText);
@@ -367,9 +280,8 @@ DialogoPlanejamento::DialogoPlanejamento(Entradas e, QWidget* pai)
     // --- dicas | plano ---
     auto* divisor = new QSplitter(Qt::Horizontal, this);
     divisor->setChildrenCollapsible(false);
-
-    auto montarColuna = [this, divisor](const QString& titulo, QVBoxLayout** area,
-                                        QWidget** conteudo) {
+    auto montarColuna = [divisor](const QString& titulo, QVBoxLayout** area,
+                                  QWidget** conteudo) {
         auto* coluna = new QWidget(divisor);
         auto* v = new QVBoxLayout(coluna);
         v->setContentsMargins(0, 0, tema::esp(2), 0);
@@ -391,37 +303,40 @@ DialogoPlanejamento::DialogoPlanejamento(Entradas e, QWidget* pai)
     divisor->setStretchFactor(0, 2);
     divisor->setStretchFactor(1, 3);
     raiz->addWidget(divisor, 1);
+}
 
-    auto* botoes = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    auto* fechar = botoes->button(QDialogButtonBox::Close);
-    fechar->setText(QStringLiteral("Fechar"));
-    fechar->setAutoDefault(false);
-    fechar->setIcon(QIcon());
-    connect(botoes, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    raiz->addWidget(botoes);
+void PainelPlanejamento::definirEntradas(const EntradasEstudo& e) {
+    entradas_ = e;
+    pendente_ = true;
+    // Escondido, fica para quando aparecer: replanejar grava no banco, e o
+    // planejamento só passa a existir quando o aluno o abre (opt-in).
+    if (isVisible()) replanejar();
+}
 
-    resize(1100, 760);
+void PainelPlanejamento::showEvent(QShowEvent* e) {
+    QWidget::showEvent(e);
+    // Sempre ao aparecer, e não só com entradas novas: um check dado na
+    // Agenda, ou um dia que virou, mudam o plano.
     replanejar();
 }
 
-void DialogoPlanejamento::replanejar() {
+void PainelPlanejamento::replanejar() {
+    pendente_ = false;
     store::Database db;
     if (!db.aberto() || !db.migrar()) {
         resumo_->setText(QStringLiteral("Banco indisponível — não dá para guardar o plano."));
         return;
     }
-    prefs_ = db.carregarPreferenciasEstudo();
     const QDate h = QDate::currentDate();
     DateTime hoje;
     hoje.year = h.year();
     hoje.month = h.month();
     hoje.day = h.day();
-    plano_ = planejamento::planejar(entradas_.provas, entradas_.entregas, prefs_,
-                                    db.carregarSessoesEstudo(), hoje);
+    plano_ = planejamento::planejar(entradas_.provas, entradas_.entregas,
+                                    db.carregarPreferenciasEstudo(), db.carregarSessoesEstudo(),
+                                    hoje, entradas_.aulas);
     if (!db.substituirSessoesEstudo(plano_.sessoes)) {
-        QMessageBox::warning(this, QStringLiteral("Plano não salvo"),
-                             QStringLiteral("Não consegui guardar o plano: %1")
-                                 .arg(q(db.erro())));
+        resumo_->setText(QStringLiteral("Não consegui guardar o plano: %1").arg(q(db.erro())));
     }
 
     grafico_->definir(plano_.semanas, plano_.sessoes);
@@ -430,9 +345,10 @@ void DialogoPlanejamento::replanejar() {
     atualizarResumo();
     mostrarDicas();
     mostrarPlano();
+    if (aoMudar) aoMudar();
 }
 
-void DialogoPlanejamento::atualizarResumo() {
+void PainelPlanejamento::atualizarResumo() {
     int provas = 0;
     for (const auto& w : plano_.semanas) provas += w.provas;
     int planejado = 0, feito = 0;
@@ -452,7 +368,7 @@ void DialogoPlanejamento::atualizarResumo() {
                          .arg(horas(planejado), horas(feito)));
 }
 
-void DialogoPlanejamento::mostrarDicas() {
+void PainelPlanejamento::mostrarDicas() {
     esvaziar(areaDicas_);
     if (plano_.dicas.empty()) {
         areaDicas_->addWidget(rotulo(QStringLiteral("Nada a destacar: o plano cabe com folga."),
@@ -471,7 +387,7 @@ void DialogoPlanejamento::mostrarDicas() {
     areaDicas_->addStretch();
 }
 
-void DialogoPlanejamento::mostrarPlano() {
+void PainelPlanejamento::mostrarPlano() {
     esvaziar(areaPlano_);
     const QDate hoje = QDate::currentDate();
 
@@ -512,7 +428,7 @@ void DialogoPlanejamento::mostrarPlano() {
         c->setChecked(s.feita);
         c->setToolTip(QStringLiteral("Marque quando tiver estudado. O que fica feito é "
                                      "descontado da prova; o resto do plano se ajusta da "
-                                     "próxima vez que esta janela abrir."));
+                                     "próxima vez que esta página aparecer."));
         connect(c, &QCheckBox::toggled, this, [this, i](bool on) { marcar(i, on); });
         areaPlano_->addWidget(c);
     }
@@ -524,7 +440,7 @@ void DialogoPlanejamento::mostrarPlano() {
     areaPlano_->addStretch();
 }
 
-void DialogoPlanejamento::marcar(size_t i, bool feita) {
+void PainelPlanejamento::marcar(size_t i, bool feita) {
     if (i >= plano_.sessoes.size()) return;
     store::Database db;
     if (!db.aberto() ||
@@ -535,23 +451,216 @@ void DialogoPlanejamento::marcar(size_t i, bool feita) {
         return;
     }
     // Só a marca muda agora; o plano não é refeito debaixo do cursor. Ele se
-    // reajusta na próxima abertura, ou ao mudar horas e dificuldade.
+    // reajusta da próxima vez que a página aparecer.
     plano_.sessoes[i].feita = feita;
     grafico_->definir(plano_.semanas, plano_.sessoes);
     atualizarResumo();
+    if (aoMudar) aoMudar();
 }
 
-void DialogoPlanejamento::abrirPreferencias() {
-    DialogoPreferenciasEstudo d(prefs_, entradas_.turmas, this);
-    if (d.exec() != QDialog::Accepted) return;
+// ---------------------------------------------------------------------------
+// Horas e dificuldade
+// ---------------------------------------------------------------------------
+
+PainelDisponibilidade::PainelDisponibilidade(QWidget* pai) : QWidget(pai) {
+    auto* raiz = new QVBoxLayout(this);
+    raiz->setContentsMargins(0, 0, 0, 0);
+    raiz->setSpacing(tema::esp(3));
+
+    auto* titulo = new QLabel(QStringLiteral("Horas e dificuldade"), this);
+    QFont ft = tema::fonte(tema::Papel::Subtitulo);
+    ft.setWeight(QFont::Bold);
+    titulo->setFont(ft);
+    raiz->addWidget(titulo);
+    raiz->addWidget(rotulo(
+        QStringLiteral("Quanto tempo você tem para a faculdade em cada dia — aulas e estudo "
+                       "juntos. O app desconta as aulas da sua grade (cada horário conta "
+                       "%1 min) e planeja o estudo no que sobra. Tudo é salvo na hora.")
+            .arg(planejamento::kMinutosPorHoraAula),
+        tema::Papel::Corpo, false, "nota", this));
+
+    auto* rol = new QScrollArea(this);
+    rol->setWidgetResizable(true);
+    rol->setFrameShape(QFrame::NoFrame);
+    conteudo_ = new QWidget(rol);
+    area_ = new QVBoxLayout(conteudo_);
+    area_->setContentsMargins(0, 0, tema::esp(2), 0);
+    area_->setSpacing(tema::esp(4));
+    rol->setWidget(conteudo_);
+    raiz->addWidget(rol, 1);
+
+    // Um intervalo curto antes de gravar: girar o spin de 2 para 6 h não
+    // precisa de cinco escritas no banco e cinco replanos.
+    adiar_ = new QTimer(this);
+    adiar_->setSingleShot(true);
+    adiar_->setInterval(400);
+    connect(adiar_, &QTimer::timeout, this, &PainelDisponibilidade::salvar);
+}
+
+void PainelDisponibilidade::definirEntradas(const EntradasEstudo& e) {
+    // Não remonta com uma edição pendente: o formulário sumiria debaixo do
+    // dedo de quem está digitando.
+    if (adiar_->isActive()) salvar();
+    entradas_ = e;
     store::Database db;
-    if (!db.aberto() || !db.migrar() || !db.gravarPreferenciasEstudo(d.preferencias())) {
+    if (db.aberto() && db.migrar()) prefs_ = db.carregarPreferenciasEstudo();
+    montar();
+}
+
+void PainelDisponibilidade::montar() {
+    esvaziar(area_);
+
+    // --- tempo por dia ---
+    auto* horasBox = new QGroupBox(QStringLiteral("Tempo disponível por dia"), conteudo_);
+    auto* grade = new QGridLayout(horasBox);
+    grade->setHorizontalSpacing(tema::esp(4));
+    grade->setVerticalSpacing(tema::esp(2));
+    static const char* kDias[] = {"Segunda", "Terça", "Quarta", "Quinta",
+                                  "Sexta",   "Sábado", "Domingo"};
+    for (int d = 0; d < 7; ++d) {
+        const auto i = static_cast<size_t>(d);
+        auto* nome = new QLabel(QString::fromUtf8(kDias[d]), horasBox);
+        auto* campo = new QDoubleSpinBox(horasBox);
+        campo->setRange(0, 16);
+        campo->setSingleStep(0.5);
+        campo->setDecimals(1);
+        campo->setSuffix(QStringLiteral(" h"));
+        campo->setValue(prefs_.minutosPorDia[i] / 60.0);
+        auto* conta = new QLabel(horasBox);
+        conta->setProperty("classe", QStringLiteral("nota"));
+
+        // "− 3h20 de aula = 2h40 para estudar": a conta à vista, para o
+        // desconto não ser mágica.
+        auto atualizarConta = [this, conta, i] {
+            const int aula = entradas_.aulas[i];
+            const int estudo = planejamento::minutosParaEstudo(prefs_, entradas_.aulas,
+                                                               static_cast<int>(i));
+            QString t;
+            if (aula > 0) {
+                t = QStringLiteral("− %1 de aula (%2 horários) = ")
+                        .arg(horas(aula))
+                        .arg(aula / planejamento::kMinutosPorHoraAula);
+            }
+            t += QStringLiteral("<b>%1</b> para estudar").arg(horas(estudo));
+            conta->setText(t);
+        };
+        atualizarConta();
+        connect(campo, &QDoubleSpinBox::valueChanged, this, [this, i, atualizarConta](double v) {
+            prefs_.minutosPorDia[i] = static_cast<int>(v * 60);
+            atualizarConta();
+            adiar_->start();
+        });
+
+        grade->addWidget(nome, d, 0);
+        grade->addWidget(campo, d, 1);
+        grade->addWidget(conta, d, 2);
+    }
+    grade->setColumnStretch(2, 1);
+    horasBox->setMaximumWidth(760);
+    area_->addWidget(horasBox);
+
+    // --- dificuldade ---
+    auto* difBox = new QGroupBox(QStringLiteral("Dificuldade de cada matéria"), conteudo_);
+    difBox->setMaximumWidth(760);
+    auto* fd = new QFormLayout(difBox);
+    // Os combos no tamanho do texto deles: esticados até a borda da janela,
+    // o "Média" ficava a meio metro do nome da matéria.
+    fd->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+    fd->setHorizontalSpacing(tema::esp(4));
+    fd->addRow(rotulo(QStringLiteral("Matéria difícil recebe 50% mais tempo de estudo; fácil, "
+                                     "30% menos."),
+                      tema::Papel::Legenda, false, "nota", difBox));
+    for (const auto& [id, nomeTurma] : entradas_.turmas) {
+        auto* c = new QComboBox(difBox);
+        c->addItem(QStringLiteral("Fácil"), 1);
+        c->addItem(QStringLiteral("Média"), 2);
+        c->addItem(QStringLiteral("Difícil"), 3);
+        c->setCurrentIndex(static_cast<int>(prefs_.dificuldadeDe(id)) - 1);
+        c->setMinimumWidth(160);
+        auto* nomeL = new QLabel(q(nomeTurma), difBox);
+        nomeL->setWordWrap(true);
+        const std::string idTurma = id;
+        connect(c, &QComboBox::currentIndexChanged, this, [this, c, idTurma] {
+            const auto dif = static_cast<planejamento::Dificuldade>(c->currentData().toInt());
+            // Média é o padrão: só guarda o que difere dele.
+            if (dif == planejamento::Dificuldade::Media) prefs_.dificuldade.erase(idTurma);
+            else prefs_.dificuldade[idTurma] = dif;
+            adiar_->start();
+        });
+        fd->addRow(nomeL, c);
+    }
+    if (entradas_.turmas.empty()) {
+        fd->addRow(rotulo(QStringLiteral("Nenhuma turma coletada ainda."), tema::Papel::Corpo,
+                          false, "nota", difBox));
+    }
+    area_->addWidget(difBox);
+    area_->addStretch();
+}
+
+void PainelDisponibilidade::salvar() {
+    adiar_->stop();
+    store::Database db;
+    if (!db.aberto() || !db.migrar() || !db.gravarPreferenciasEstudo(prefs_)) {
         QMessageBox::warning(this, QStringLiteral("Não salvo"),
                              QStringLiteral("Não consegui guardar as preferências: %1")
                                  .arg(q(db.erro())));
         return;
     }
-    replanejar();
+    if (aoSalvar) aoSalvar();
 }
+
+// ---------------------------------------------------------------------------
+// A aba
+// ---------------------------------------------------------------------------
+
+PainelEstudo::PainelEstudo(QWidget* pai) : QWidget(pai) {
+    auto* raiz = new QHBoxLayout(this);
+    raiz->setContentsMargins(0, 0, 0, 0);
+    raiz->setSpacing(0);
+
+    menu_ = new QListWidget(this);
+    menu_->setObjectName(QStringLiteral("menuEstudo"));
+    menu_->setFixedWidth(220);
+    menu_->setFrameShape(QFrame::NoFrame);
+    menu_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    menu_->addItem(QStringLiteral("Planejamento"));
+    menu_->addItem(QStringLiteral("Horas e dificuldade"));
+    raiz->addWidget(menu_);
+
+    auto* filete = new QFrame(this);
+    filete->setObjectName(QStringLiteral("fileteVertical"));
+    filete->setFixedWidth(1);
+    raiz->addWidget(filete);
+
+    auto* direita = new QWidget(this);
+    auto* v = new QVBoxLayout(direita);
+    v->setContentsMargins(tema::esp(6), tema::esp(5), tema::esp(6), tema::esp(4));
+    paginas_ = new QStackedWidget(direita);
+    planejamento_ = new PainelPlanejamento(paginas_);
+    disponibilidade_ = new PainelDisponibilidade(paginas_);
+    paginas_->addWidget(planejamento_);
+    paginas_->addWidget(disponibilidade_);
+    v->addWidget(paginas_);
+    raiz->addWidget(direita, 1);
+
+    connect(menu_, &QListWidget::currentRowChanged, paginas_, &QStackedWidget::setCurrentIndex);
+    menu_->setCurrentRow(0);
+
+    planejamento_->aoMudar = [this] {
+        if (aoMudarPlano) aoMudarPlano();
+    };
+    // Horas ou dificuldade novas mudam o plano; ele é refeito ao voltar à
+    // página Planejamento (showEvent), e a Agenda precisa saber já.
+    disponibilidade_->aoSalvar = [this] {
+        if (aoMudarPlano) aoMudarPlano();
+    };
+}
+
+void PainelEstudo::definirEntradas(const EntradasEstudo& e) {
+    planejamento_->definirEntradas(e);
+    disponibilidade_->definirEntradas(e);
+}
+
+void PainelEstudo::mostrarPlanejamento() { menu_->setCurrentRow(0); }
 
 } // namespace sigaa::ui

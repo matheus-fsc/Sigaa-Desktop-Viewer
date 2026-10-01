@@ -308,10 +308,14 @@ private:
     QToolButton* cargaSeguinte_{nullptr};
     void atualizarCarga();
     void abrirCargaCompleta();
-    // A janela de planejamento de estudo, sobre `pai` (o "Carga do período").
-    void abrirPlanejamento(QWidget* pai);
-    // O que o planejamento recebe: provas futuras, entregas e turmas.
-    DialogoPlanejamento::Entradas entradasDoPlanejamento() const;
+    // --- aba Estudo ----------------------------------------------------------
+    void montarEstudo();
+    // Leva à aba Estudo, na página Planejamento.
+    void irParaPlanejamento();
+    // O que o planejamento recebe: provas futuras, entregas, turmas e aulas.
+    EntradasEstudo entradasDoPlanejamento() const;
+    // "Estudo (1h hoje)": o estudo pendente de hoje no rótulo da aba.
+    void atualizarTituloEstudo();
     // Refaz o plano em silêncio, se o aluno já usa o planejamento, e guarda
     // as sessões em `estudo_` para a Agenda. Sem plano guardado, não faz nada:
     // o planejamento é opt-in.
@@ -337,6 +341,8 @@ private:
     QDate inicioAgenda_;
     // As sessões do plano de estudo, para a Agenda. Vazio = sem planejamento.
     std::vector<planejamento::Sessao> estudo_;
+    PainelEstudo* painelEstudo_{nullptr};
+    int abaEstudo_{-1};
 
     // Acumulador da roda horizontal: um trackpad manda dezenas de eventos de
     // poucos graus, e virar a semana em cada um daria um borrão de meses.

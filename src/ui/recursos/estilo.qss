@@ -839,3 +839,29 @@ QLabel[classe="alerta"] {
 QLabel[classe="nota"] {
     color: @text-3;
 }
+
+/* --- Menu lateral da aba Estudo ------------------------------------------ */
+
+QListWidget#menuEstudo {
+    background: @surface;
+    border: none;
+    padding: 16px 10px;
+    outline: none;
+}
+
+QListWidget#menuEstudo::item {
+    padding: 9px 12px;
+    margin: 1px 0;
+    border-radius: 8px;
+    color: @text-2;
+}
+
+QListWidget#menuEstudo::item:hover {
+    background: @surface-2;
+    color: @text;
+}
+
+QListWidget#menuEstudo::item:selected {
+    background: @accent-soft;
+    color: @accent;
+}

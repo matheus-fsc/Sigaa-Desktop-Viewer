@@ -1,18 +1,22 @@
 #pragma once
-// A janela de Planejamento de estudo, aberta pelo "Carga do período".
+// A aba Estudo: um menu lateral à esquerda e, à direita, a página escolhida.
 //
-// Três perguntas, de cima para baixo:
-//   - ONDE APERTA: o mapa de pressão, uma coluna por semana com o tempo de
-//     estudo planejado contra o tempo livre; as semanas críticas em laranja.
-//   - O QUE FAZER: as dicas, geradas pelo núcleo a partir do plano.
-//   - QUANDO ESTUDAR O QUÊ: o plano, dia a dia, com um check por sessão.
+//   - Planejamento: o mapa de pressão (onde aperta), as dicas (o que fazer) e
+//     o plano dia a dia com um check por sessão.
+//   - Horas e dificuldade: o tempo disponível por dia da semana, com as aulas
+//     da grade já descontadas, e o peso de cada matéria.
 //
-// A conta é toda do núcleo (core/planejamento). Esta janela só lê o banco,
-// pede o plano, grava as sessões e mostra.
+// POR QUE UMA ABA, E NÃO UM DIÁLOGO: o plano é para consultar todo dia, não
+// uma tela que se abre uma vez. E o menu lateral deixa lugar para o que mais
+// vier do estudo — histórico de sessões, metas — sem abrir outra aba no topo.
+//
+// A conta é toda do núcleo (core/planejamento). Estes painéis só leem o
+// banco, pedem o plano, gravam e mostram.
 
-#include <QDialog>
 #include <QWidget>
 
+#include <array>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -20,10 +24,23 @@
 #include "core/planejamento/Planejamento.h"
 
 class QLabel;
+class QListWidget;
 class QScrollArea;
+class QStackedWidget;
+class QTimer;
 class QVBoxLayout;
 
 namespace sigaa::ui {
+
+// O que o planejamento recebe da janela principal.
+struct EntradasEstudo {
+    std::vector<planejamento::ProvaAlvo> provas;
+    std::vector<planejamento::EntregaAlvo> entregas;
+    // (idTurma, nome) de todas as turmas, para a dificuldade.
+    std::vector<std::pair<std::string, std::string>> turmas;
+    // Minutos de aula da grade por dia da semana ([0] = segunda).
+    std::array<int, 7> aulas{};
+};
 
 // O mapa de pressão: uma coluna por semana.
 class GraficoPressao : public QWidget {
@@ -43,40 +60,31 @@ private:
     std::vector<int> feitosPorSemana_;   // minutos já feitos, por coluna
 };
 
-// Horas livres por dia da semana e dificuldade por matéria.
-class DialogoPreferenciasEstudo : public QDialog {
+class PainelPlanejamento : public QWidget {
 public:
-    DialogoPreferenciasEstudo(const planejamento::Preferencias& atual,
-                              const std::vector<std::pair<std::string, std::string>>& turmas,
-                              QWidget* pai = nullptr);
-    planejamento::Preferencias preferencias() const { return prefs_; }
+    explicit PainelPlanejamento(QWidget* pai = nullptr);
 
-private:
-    planejamento::Preferencias prefs_;
-};
-
-class DialogoPlanejamento : public QDialog {
-public:
-    struct Entradas {
-        std::vector<planejamento::ProvaAlvo> provas;
-        std::vector<planejamento::EntregaAlvo> entregas;
-        // (idTurma, nome) de todas as turmas, para a dificuldade.
-        std::vector<std::pair<std::string, std::string>> turmas;
-    };
-
-    explicit DialogoPlanejamento(Entradas e, QWidget* pai = nullptr);
-
-private:
-    // Lê o banco, recalcula, grava e redesenha tudo.
+    // Guarda as entradas; replaneja já se o painel estiver à vista, ou da
+    // próxima vez que aparecer.
+    void definirEntradas(const EntradasEstudo& e);
+    // Lê o banco, recalcula, grava e redesenha.
     void replanejar();
+
+    // Chamado quando o plano no banco muda (replano ou check), para a Agenda
+    // acompanhar.
+    std::function<void()> aoMudar;
+
+protected:
+    void showEvent(QShowEvent* e) override;
+
+private:
     void mostrarDicas();
     void mostrarPlano();
     void atualizarResumo();
-    void abrirPreferencias();
     void marcar(size_t i, bool feita);
 
-    Entradas entradas_;
-    planejamento::Preferencias prefs_;
+    EntradasEstudo entradas_;
+    bool pendente_{true};    // entradas novas ainda não planejadas
     planejamento::Plano plano_;
 
     QLabel* resumo_{nullptr};
@@ -86,6 +94,45 @@ private:
     QWidget* conteudoDicas_{nullptr};
     QVBoxLayout* areaPlano_{nullptr};
     QWidget* conteudoPlano_{nullptr};
+};
+
+// Tempo disponível por dia e dificuldade por matéria. Salva sozinho, a cada
+// mudança: um formulário com botão "Salvar" dentro de uma aba esquece o que
+// se digitou quando a pessoa troca de página sem clicar.
+class PainelDisponibilidade : public QWidget {
+public:
+    explicit PainelDisponibilidade(QWidget* pai = nullptr);
+    void definirEntradas(const EntradasEstudo& e);
+
+    // Depois de gravar no banco.
+    std::function<void()> aoSalvar;
+
+private:
+    void montar();
+    void salvar();
+
+    EntradasEstudo entradas_;
+    planejamento::Preferencias prefs_;
+    QVBoxLayout* area_{nullptr};
+    QWidget* conteudo_{nullptr};
+    QTimer* adiar_{nullptr};
+};
+
+class PainelEstudo : public QWidget {
+public:
+    explicit PainelEstudo(QWidget* pai = nullptr);
+
+    void definirEntradas(const EntradasEstudo& e);
+    void mostrarPlanejamento();
+
+    // Repassado do planejamento: o plano no banco mudou.
+    std::function<void()> aoMudarPlano;
+
+private:
+    QListWidget* menu_{nullptr};
+    QStackedWidget* paginas_{nullptr};
+    PainelPlanejamento* planejamento_{nullptr};
+    PainelDisponibilidade* disponibilidade_{nullptr};
 };
 
 } // namespace sigaa::ui

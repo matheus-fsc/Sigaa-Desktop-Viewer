@@ -237,6 +237,7 @@ JanelaPrincipal::JanelaPrincipal(QWidget* pai)
     formulario_->setupUi(this);
 
     montarListas();
+    montarEstudo();         // antes da aba lembrada e da navegação: é uma aba
     montarAbaLembrada();
     montarAcoes();
     montarStatus();
@@ -1409,13 +1410,16 @@ void JanelaPrincipal::abrirCargaCompleta() {
     botoes->button(QDialogButtonBox::Close)->setIcon(QIcon());
     connect(botoes, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     // O passo seguinte a "onde aperta": como distribuir o estudo até lá.
-    auto* planejar = botoes->addButton(QStringLiteral("Planejamento…"),
+    auto* planejar = botoes->addButton(QStringLiteral("Ver planejamento"),
                                        QDialogButtonBox::ActionRole);
     planejar->setProperty("papel", QStringLiteral("primario"));
     planejar->setAutoDefault(false);
     planejar->setToolTip(QStringLiteral("Distribui suas horas livres de estudo entre as "
                                         "provas que vêm, e mostra onde o semestre aperta."));
-    connect(planejar, &QPushButton::clicked, &dlg, [this, &dlg] { abrirPlanejamento(&dlg); });
+    connect(planejar, &QPushButton::clicked, &dlg, [this, &dlg] {
+        dlg.accept();
+        irParaPlanejamento();
+    });
     raiz->addWidget(botoes);
 
     // Clicar numa semana filtra a lista e fecha: o diálogo é para achar a
@@ -1436,8 +1440,8 @@ void JanelaPrincipal::abrirCargaCompleta() {
     dlg.exec();
 }
 
-DialogoPlanejamento::Entradas JanelaPrincipal::entradasDoPlanejamento() const {
-    DialogoPlanejamento::Entradas e;
+EntradasEstudo JanelaPrincipal::entradasDoPlanejamento() const {
+    EntradasEstudo e;
     const QDateTime agora = QDateTime::currentDateTime();
     for (const auto& p : provas_) {
         if (jaPassou(p.av.quando, agora)) continue;
@@ -1465,15 +1469,42 @@ DialogoPlanejamento::Entradas JanelaPrincipal::entradasDoPlanejamento() const {
         e.entregas.push_back({at.idTurma, at.turmaNome, at.titulo, at.prazo});
     }
     for (const auto& t : snapshot_.turmas) e.turmas.emplace_back(t.idTurma, t.nome);
+    // As aulas da grade saem do tempo de estudo de cada dia da semana.
+    e.aulas = planejamento::minutosDeAulaPorDia(snapshot_.turmas);
     return e;
 }
 
-void JanelaPrincipal::abrirPlanejamento(QWidget* pai) {
-    DialogoPlanejamento d(entradasDoPlanejamento(), pai ? pai : this);
-    d.exec();
-    // O plano pode ter nascido ou mudado: a Agenda passa a mostrá-lo.
-    atualizarEstudo();
-    montarAgenda();
+void JanelaPrincipal::montarEstudo() {
+    painelEstudo_ = new PainelEstudo(formulario_->abas);
+    // No fim: as outras abas têm índice fixo (setTabText por número) e a aba
+    // lembrada é guardada por índice.
+    abaEstudo_ = formulario_->abas->addTab(painelEstudo_, QStringLiteral("Estudo"));
+    // O painel replanejou ou recebeu um check: a Agenda lê o banco de novo.
+    // Sem replanejar aqui — o painel acabou de fazer isso.
+    painelEstudo_->aoMudarPlano = [this] {
+        store::Database db;
+        if (db.aberto() && db.migrar()) estudo_ = db.carregarSessoesEstudo();
+        montarAgenda();
+        atualizarTituloEstudo();
+    };
+}
+
+void JanelaPrincipal::irParaPlanejamento() {
+    painelEstudo_->mostrarPlanejamento();
+    formulario_->abas->setCurrentIndex(abaEstudo_);
+}
+
+void JanelaPrincipal::atualizarTituloEstudo() {
+    const QDate hoje = QDate::currentDate();
+    int minutos = 0;
+    for (const auto& se : estudo_) {
+        if (!se.feita && QDate(se.dia.year, se.dia.month, se.dia.day) == hoje) minutos += se.minutos;
+    }
+    formulario_->abas->setTabText(
+        abaEstudo_, minutos > 0 ? QStringLiteral("Estudo (%1 hoje)")
+                                      .arg(QString::fromStdString(planejamento::duracao(minutos)))
+                                : QStringLiteral("Estudo"));
+    if (navegacao_) navegacao_->sincronizar();
 }
 
 void JanelaPrincipal::atualizarEstudo() {
@@ -1482,6 +1513,7 @@ void JanelaPrincipal::atualizarEstudo() {
     const auto guardadas = db.carregarSessoesEstudo();
     if (guardadas.empty()) {
         estudo_.clear();
+        atualizarTituloEstudo();
         return;
     }
     // Replanejar a cada recarga, e não só quando a janela abre: uma prova
@@ -1494,9 +1526,10 @@ void JanelaPrincipal::atualizarEstudo() {
     hoje.day = h.day();
     const auto e = entradasDoPlanejamento();
     auto plano = planejamento::planejar(e.provas, e.entregas, db.carregarPreferenciasEstudo(),
-                                        guardadas, hoje);
+                                        guardadas, hoje, e.aulas);
     db.substituirSessoesEstudo(plano.sessoes);
     estudo_ = std::move(plano.sessoes);
+    atualizarTituloEstudo();
 }
 
 void JanelaPrincipal::marcarEstudoDaAgenda(QStandardItem* it) {
@@ -2121,6 +2154,7 @@ void JanelaPrincipal::mostrar(const Snapshot& s) {
     atualizarResumoProvas(s);
     if (semanaFiltrada_.isValid()) filtrarProvasPorSemana(semanaFiltrada_);
     else filtrarProvasPorDia(diaFiltrado_);
+    painelEstudo_->definirEntradas(entradasDoPlanejamento());
     atualizarEstudo();
     montarAgenda();
 
