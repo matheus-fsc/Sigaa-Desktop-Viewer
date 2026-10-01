@@ -930,10 +930,21 @@ void JanelaPrincipal::montarStatus() {
     rotulo_ = new QLabel;
     barra_ = new QProgressBar;
     barra_->setRange(0, 0);          // indeterminado: não dá para prever o SIGAA
-    barra_->setMaximumWidth(140);
+    barra_->setFixedSize(120, 6);
+    barra_->setTextVisible(false);
     barra_->setVisible(false);
-    formulario_->statusbar->addWidget(rotulo_, 1);
-    formulario_->statusbar->addPermanentWidget(barra_);
+
+    // A barra vai COLADA ao texto, e não como widget permanente: permanente, o
+    // QStatusBar a joga para a borda direita, longe do "Sincronizando…" que ela
+    // acompanha. No Windows, além disso, ela herdava a altura da linha e
+    // aparecia como um bloco solto no canto. Altura fixa, centrada na vertical.
+    auto* linha = new QWidget;
+    auto* h = new QHBoxLayout(linha);
+    h->setContentsMargins(tema::esp(2), 0, 0, 0);
+    h->setSpacing(0);
+    h->addWidget(barra_, 0, Qt::AlignVCenter);
+    h->addWidget(rotulo_, 1, Qt::AlignVCenter);
+    formulario_->statusbar->addWidget(linha, 1);
 }
 
 void JanelaPrincipal::montarProvas() {
