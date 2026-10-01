@@ -25,6 +25,7 @@
 #include <algorithm>
 
 #include "core/store/Database.h"
+#include "ui/Agentes.h"
 #include "ui/Tema.h"
 
 namespace sigaa::ui {
@@ -332,9 +333,14 @@ void PainelPlanejamento::replanejar() {
     hoje.year = h.year();
     hoje.month = h.month();
     hoje.day = h.day();
+    // O que os agentes de IA registraram entra na conta: estudo feito com
+    // eles desconta da prova, e cada dificuldade aberta pede mais tempo.
+    planejamento::DoAgente agente;
+    agente.estudos = db.carregarRegistrosEstudo();
+    agente.focos = db.carregarFocos({}, /*soAbertos=*/true);
     plano_ = planejamento::planejar(entradas_.provas, entradas_.entregas,
                                     db.carregarPreferenciasEstudo(), db.carregarSessoesEstudo(),
-                                    hoje, entradas_.aulas);
+                                    hoje, entradas_.aulas, agente);
     if (!db.substituirSessoesEstudo(plano_.sessoes)) {
         resumo_->setText(QStringLiteral("Não consegui guardar o plano: %1").arg(q(db.erro())));
     }
@@ -362,10 +368,14 @@ void PainelPlanejamento::atualizarResumo() {
                                         "enquanto."));
         return;
     }
-    resumo_->setText(QStringLiteral("%1 %2 pela frente · %3 de estudo planejado · %4 já feito")
+    int comAgente = 0;
+    for (const auto& [chave, m] : plano_.comAgente) comAgente += m;
+    resumo_->setText(QStringLiteral("%1 %2 pela frente · %3 de estudo planejado · %4 já feito%5")
                          .arg(provas)
                          .arg(provas == 1 ? QStringLiteral("prova") : QStringLiteral("provas"))
-                         .arg(horas(planejado), horas(feito)));
+                         .arg(horas(planejado), horas(feito))
+                         .arg(comAgente ? QStringLiteral(" · %1 com agentes de IA").arg(horas(comAgente))
+                                        : QString()));
 }
 
 void PainelPlanejamento::mostrarDicas() {
@@ -378,8 +388,12 @@ void PainelPlanejamento::mostrarDicas() {
         auto* l = rotulo(q(d.texto), tema::Papel::Corpo, false, nullptr, conteudoDicas_);
         // Déficit e provas no mesmo dia pedem ação: cartão de alerta. O resto
         // é recado.
+        // Texto puro: a dica de foco cita o que o agente de IA escreveu, e um
+        // QLabel em modo automático interpretaria HTML vindo dele.
+        l->setTextFormat(Qt::PlainText);
         const bool alerta = d.tipo == planejamento::TipoDica::Deficit ||
-                            d.tipo == planejamento::TipoDica::MesmoDia;
+                            d.tipo == planejamento::TipoDica::MesmoDia ||
+                            d.tipo == planejamento::TipoDica::Foco;
         l->setProperty("classe", alerta ? QStringLiteral("alerta") : QStringLiteral("recado"));
         l->setTextInteractionFlags(Qt::TextSelectableByMouse);
         areaDicas_->addWidget(l);
@@ -613,7 +627,7 @@ void PainelDisponibilidade::salvar() {
 // A aba
 // ---------------------------------------------------------------------------
 
-PainelEstudo::PainelEstudo(QWidget* pai) : QWidget(pai) {
+PainelEstudo::PainelEstudo(QString banco, QString materiais, QWidget* pai) : QWidget(pai) {
     auto* raiz = new QHBoxLayout(this);
     raiz->setContentsMargins(0, 0, 0, 0);
     raiz->setSpacing(0);
@@ -624,7 +638,9 @@ PainelEstudo::PainelEstudo(QWidget* pai) : QWidget(pai) {
     menu_->setFrameShape(QFrame::NoFrame);
     menu_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     menu_->addItem(QStringLiteral("Planejamento"));
+    menu_->addItem(QStringLiteral("Progresso"));
     menu_->addItem(QStringLiteral("Horas e dificuldade"));
+    menu_->addItem(QStringLiteral("Agentes de IA"));
     raiz->addWidget(menu_);
 
     auto* filete = new QFrame(this);
@@ -637,9 +653,14 @@ PainelEstudo::PainelEstudo(QWidget* pai) : QWidget(pai) {
     v->setContentsMargins(tema::esp(6), tema::esp(5), tema::esp(6), tema::esp(4));
     paginas_ = new QStackedWidget(direita);
     planejamento_ = new PainelPlanejamento(paginas_);
+    progresso_ = new PainelProgresso(banco, paginas_);
     disponibilidade_ = new PainelDisponibilidade(paginas_);
+    agentes_ = new PainelAgentes(banco, materiais, paginas_);
+    // Na mesma ordem do menu.
     paginas_->addWidget(planejamento_);
+    paginas_->addWidget(progresso_);
     paginas_->addWidget(disponibilidade_);
+    paginas_->addWidget(agentes_);
     v->addWidget(paginas_);
     raiz->addWidget(direita, 1);
 
@@ -654,13 +675,27 @@ PainelEstudo::PainelEstudo(QWidget* pai) : QWidget(pai) {
     disponibilidade_->aoSalvar = [this] {
         if (aoMudarPlano) aoMudarPlano();
     };
+    // Sem agente conectado, o Progresso oferece o caminho até a conexão.
+    progresso_->aoPedirConexao = [this] { mostrarAgentes(); };
+    // Um foco resolvido ou um registro apagado mudam o que o plano reserva.
+    progresso_->aoMudar = [this] {
+        if (aoMudarPlano) aoMudarPlano();
+    };
 }
 
 void PainelEstudo::definirEntradas(const EntradasEstudo& e) {
     planejamento_->definirEntradas(e);
     disponibilidade_->definirEntradas(e);
+    // Recarga do banco (um sync, ou um agente que gravou): o Progresso à
+    // vista relê; escondido, relê ao aparecer.
+    if (progresso_->isVisible()) progresso_->atualizar();
 }
 
 void PainelEstudo::mostrarPlanejamento() { menu_->setCurrentRow(0); }
+
+void PainelEstudo::mostrarAgentes() {
+    menu_->setCurrentRow(3);
+    agentes_->mostrarConexao();
+}
 
 } // namespace sigaa::ui

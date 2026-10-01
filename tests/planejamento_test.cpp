@@ -301,3 +301,62 @@ TEST_CASE("planejamento: preferencias e sessoes no banco", "[planejamento][datab
     std::error_code ec;
     std::filesystem::remove(caminho, ec);
 }
+
+// --- o que os agentes de IA registraram ------------------------------------
+
+namespace {
+
+estudo::RegistroEstudo estudoDoAgente(const std::string& turma, int minutos, DateTime quando,
+                                      const std::string& prova = {}) {
+    estudo::RegistroEstudo r;
+    r.origem = "claude-code";
+    r.idTurma = turma;
+    r.minutos = minutos;
+    r.quando = quando;
+    r.prova = prova;
+    return r;
+}
+
+} // namespace
+
+TEST_CASE("planejamento: estudo registrado pelo agente desconta da prova", "[planejamento]") {
+    const auto p1 = prova("1", "Prova 1", dia(2026, 10, 15));
+    const auto p2 = prova("1", "Prova 2", dia(2026, 11, 20));
+    const int precisa = minutosNecessarios(p1, Dificuldade::Media);
+
+    DoAgente ag;
+    ag.estudos = {estudoDoAgente("1", 60, dia(2026, 9, 30), "P1"),        // "P1" = Prova 1
+                  estudoDoAgente("1", 90, dia(2026, 9, 30)),              // sem prova: a próxima (P1)
+                  estudoDoAgente("1", 45, dia(2026, 10, 20), "Prova 1")}; // depois da prova: não conta
+    const auto pl = planejar({p1, p2}, {}, Preferencias{}, {}, kHoje, {}, ag);
+
+    CHECK(pl.comAgente.at("1|Prova 1") == 150);
+    CHECK(minutosDaProva(pl, "1", "Prova 1") == precisa - 150);
+    // "Prova 1" depois da Prova 1 não vai para a Prova 2.
+    CHECK(pl.comAgente.count("1|Prova 2") == 0);
+}
+
+TEST_CASE("planejamento: foco aberto pede mais tempo e vira dica", "[planejamento]") {
+    const auto p = prova("1", "Prova 1", dia(2026, 10, 15));
+    const int base = minutosNecessarios(p, Dificuldade::Media);
+
+    estudo::PontoFoco f;
+    f.idTurma = "1";
+    f.topico = "FIRST e FOLLOW";
+    f.nivel = 2;
+    f.motivo = "errou 2 de 3";
+    DoAgente ag;
+    ag.focos = {f};
+    auto pl = planejar({p}, {}, Preferencias{}, {}, kHoje, {}, ag);
+    CHECK(minutosDaProva(pl, "1", "Prova 1") == base + 60);
+    REQUIRE(temDica(pl, TipoDica::Foco));
+    for (const auto& d : pl.dicas) {
+        if (d.tipo == TipoDica::Foco) CHECK(d.texto.find("FIRST e FOLLOW") != std::string::npos);
+    }
+
+    // Resolvido, não pesa nem aparece.
+    ag.focos[0].resolvido = true;
+    pl = planejar({p}, {}, Preferencias{}, {}, kHoje, {}, ag);
+    CHECK(minutosDaProva(pl, "1", "Prova 1") == base);
+    CHECK_FALSE(temDica(pl, TipoDica::Foco));
+}

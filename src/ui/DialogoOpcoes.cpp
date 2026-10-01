@@ -254,7 +254,7 @@ DialogoOpcoes::DialogoOpcoes(const Config& atual, QWidget* pai) : QDialog(pai) {
     notaAgentes->setFont(tema::fonte(tema::Papel::Legenda));
     lg->addWidget(notaAgentes);
     auto* linhaAgentes = new QHBoxLayout;
-    auto* bAgentes = new QPushButton(QStringLiteral("Configurar agentes…"), agentes);
+    auto* bAgentes = new QPushButton(QStringLiteral("Abrir na aba Estudo"), agentes);
     connect(bAgentes, &QPushButton::clicked, this, &DialogoOpcoes::pediuAgentes);
     linhaAgentes->addWidget(bAgentes);
     linhaAgentes->addStretch();

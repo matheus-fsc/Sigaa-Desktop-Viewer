@@ -218,8 +218,8 @@ provas e PDFs, sem arrastar arquivo nem copiar e colar. O app traz um servidor
 banco local do app. O plano completo, com as decisões e os riscos, está em
 [`docs/MCP.md`](docs/MCP.md).
 
-**Conectar.** Em **Opções > Agentes de IA**, libere o que o agente pode fazer e
-clique em *Conectar* no agente que você usa. Pelo terminal é o mesmo:
+**Conectar.** Na aba **Estudo > Agentes de IA**, libere o que o agente pode
+fazer e clique em *Conectar* no agente que você usa. Pelo terminal é o mesmo:
 
 ```sh
 sigaa-cli mcp permitir leitura arquivos        # o que o agente pode ler
@@ -249,8 +249,10 @@ acento, pelo código ou pela sigla ("edo", "ia"), e a prova como "P2".
 **O que nunca sai:** a sua senha (as ferramentas de rede usam o cofre por
 dentro) e a lista de participantes da turma, que são dados dos seus colegas.
 Tudo que um agente lê ou grava fica em **Atividade**, e o que ele registrou
-aparece em **O que os agentes registraram**, com quem gravou e um botão para
-apagar.
+aparece em **Estudo > Progresso**: os pontos de foco (com *Já domino* e
+*Apagar*), o desempenho por tópico e o histórico, com quem gravou. O
+Planejamento usa os mesmos dados: o estudo feito com o agente desconta da
+prova, e cada ponto de foco aberto reserva mais tempo e vira dica.
 
 **Chat na web**, que não roda servidor local: **Kit para IA**, na janela da
 turma (ou `sigaa-cli mcp kit <turma> [prova]`), junta numa pasta o

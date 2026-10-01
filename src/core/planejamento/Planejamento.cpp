@@ -1,6 +1,7 @@
 #include "core/planejamento/Planejamento.h"
 
 #include "core/calendar/Calendario.h"
+#include "core/util/Texto.h"
 
 #include <algorithm>
 #include <chrono>
@@ -136,7 +137,8 @@ int minutosParaEstudo(const Preferencias& p, const std::array<int, 7>& aulas, in
 
 Plano planejar(const std::vector<ProvaAlvo>& provasIn, const std::vector<EntregaAlvo>& entregas,
                const Preferencias& prefs, const std::vector<Sessao>& guardadas,
-               const DateTime& hojeDt, const std::array<int, 7>& aulas) {
+               const DateTime& hojeDt, const std::array<int, 7>& aulas,
+               const DoAgente& agente) {
     Plano plano;
     const int hoje = paraDia(hojeDt);
 
@@ -185,13 +187,45 @@ Plano planejar(const std::vector<ProvaAlvo>& provasIn, const std::vector<Entrega
         }
     }
 
+    // --- o que os agentes registraram ---------------------------------------
+    // A prova de um registro: a citada nele, ou a próxima da turma depois do
+    // dia em que estudou. Estudo depois da prova não conta para ela.
+    auto provaDoRegistro = [&](const estudo::RegistroEstudo& r) -> const ProvaAlvo* {
+        const int dia = r.quando.valid() ? paraDia(r.quando) : hoje;
+        const ProvaAlvo* proxima = nullptr;
+        for (const auto& p : provas) {
+            if (p.idTurma != r.idTurma || paraDia(p.data) <= dia) continue;
+            if (!r.prova.empty() && util::casaProva(r.prova, p.descricao)) return &p;
+            if (!proxima) proxima = &p;
+        }
+        return r.prova.empty() ? proxima : nullptr;
+    };
+    for (const auto& r : agente.estudos) {
+        if (const ProvaAlvo* p = provaDoRegistro(r)) {
+            const std::string chaveP = p->idTurma + "|" + p->descricao;
+            feito[chaveP] += r.minutos;
+            plano.comAgente[chaveP] += r.minutos;
+        }
+    }
+    // Dificuldade marcada pelo agente pede mais tempo na prova mais próxima
+    // da turma.
+    std::map<std::string, int> extraPorFoco;
+    for (const auto& f : agente.focos) {
+        if (f.resolvido) continue;
+        for (const auto& p : provas) {
+            if (p.idTurma != f.idTurma || paraDia(p.data) <= hoje) continue;
+            extraPorFoco[p.idTurma + "|" + p.descricao] += 30 * std::clamp(f.nivel, 1, 3);
+            break;
+        }
+    }
+
     // --- distribuição, prova a prova ----------------------------------------
     std::map<std::string, int> primeiraSessao;   // por chaveProva: primeiro dia
     for (const auto& p : provas) {
         const int alvo = paraDia(p.data);
         const Dificuldade dif = prefs.dificuldadeDe(p.idTurma);
         const std::string chaveP = p.idTurma + "|" + p.descricao;
-        int falta = minutosNecessarios(p, dif) - feito[chaveP];
+        int falta = minutosNecessarios(p, dif) + extraPorFoco[chaveP] - feito[chaveP];
         if (falta <= 0) continue;
 
         const int inicio = std::max(hoje, alvo - kJanela);
@@ -297,6 +331,31 @@ Plano planejar(const std::vector<ProvaAlvo>& provasIn, const std::vector<Entrega
                      " do que cabe no seu tempo livre antes dela. Aumente as horas de "
                      "algum dia ou comece a revisar já.");
         }
+    }
+
+    // Pontos de foco abertos, por prova próxima: o que o agente viu o aluno
+    // errar é o primeiro lugar para onde o tempo de revisão deve ir.
+    for (const auto& p : provas) {
+        const int faltam = paraDia(p.data) - hoje;
+        if (faltam > 21) continue;
+        std::string lista;
+        int maior = 0;
+        for (const auto& f : agente.focos) {
+            if (f.resolvido || f.idTurma != p.idTurma) continue;
+            // Só a prova mais próxima da turma leva a dica.
+            bool primeira = true;
+            for (const auto& q : provas) {
+                if (q.idTurma == p.idTurma && paraDia(q.data) < paraDia(p.data) && paraDia(q.data) >= hoje) primeira = false;
+            }
+            if (!primeira) continue;
+            lista += (lista.empty() ? "" : "; ") + f.topico + (f.motivo.empty() ? "" : " (" + f.motivo + ")");
+            maior = std::max(maior, f.nivel);
+        }
+        if (lista.empty()) continue;
+        dica(TipoDica::Foco, maior >= 3 ? 95 : 85,
+             "Antes de " + nomeProva(p) + " (" + ddmm(paraDia(p.data)) +
+                 "), o agente de IA marcou dificuldade em: " + lista +
+                 ". Comece as revisões por aí; o plano já reservou tempo a mais para isso.");
     }
 
     for (const auto& [d, n] : provasNoDia) {

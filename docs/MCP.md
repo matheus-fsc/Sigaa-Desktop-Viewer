@@ -408,11 +408,13 @@ Diferenças em relação ao plano:
 - **Orçamento de rede:** 24 requisições por sessão do agente, 20 s entre duas
   operações, `baixar_arquivo` custa 6 e `atualizar_turma` 8. Arquivo já
   baixado não gasta nada.
-- **A página Progresso** ficou em Opções > Agentes de IA > *O que os agentes
-  registraram*, e não na aba Estudo, que saiu do `main` para ser redesenhada.
-  Quando ela voltar, a página vai para lá, e o `registro_estudo` passa a
-  descontar o tempo que o planejamento reserva para a prova (§5), que ainda
-  não acontece.
+- **A aba Estudo** (branch `estudo`, com o `mcp` juntado) ganhou duas páginas
+  no menu lateral: **Progresso** (pontos de foco com *Já domino* e *Apagar*,
+  desempenho por tópico, histórico) e **Agentes de IA** (permissões, conectar,
+  atividade). Opções só leva até lá. O planejamento usa os dados do agente:
+  `registro_estudo` desconta da prova citada (ou da próxima da turma), e cada
+  ponto de foco aberto soma 30 min × nível à prova mais próxima e vira a dica
+  `Foco` quando ela está a até 21 dias.
 - **A janela recarrega pelo `meta`** (`mcp.alteracao`, gravado a cada
   ferramenta de escrita bem-sucedida), e não por `PRAGMA data_version`, que
   só faz sentido numa conexão que fica aberta, e a UI abre uma por operação.

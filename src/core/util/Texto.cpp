@@ -82,6 +82,30 @@ std::string sigla(std::string_view s) {
     return out;
 }
 
+bool casaProva(std::string_view pedido, std::string_view descricao) {
+    const std::string q = dobrar(pedido), d = dobrar(descricao);
+    if (q.empty()) return false;
+    if (q == d || d.find(q) != std::string::npos) return true;
+    if (q.size() > 4) return false;
+    std::string num, letras;
+    for (char ch : q) {
+        if (std::isdigit(static_cast<unsigned char>(ch))) num += ch;
+        else if (ch != ' ') letras += ch;
+    }
+    if (num.empty() || letras.size() > 2) return false;
+    for (size_t i = 0; i < d.size();) {
+        if (!std::isdigit(static_cast<unsigned char>(d[i]))) {
+            ++i;
+            continue;
+        }
+        size_t j = i;
+        while (j < d.size() && std::isdigit(static_cast<unsigned char>(d[j]))) ++j;
+        if (d.compare(i, j - i, num) == 0 && j - i == num.size()) return true;
+        i = j;
+    }
+    return false;
+}
+
 bool contemDobrado(std::string_view palheiro, std::string_view agulha) {
     return dobrar(palheiro).find(dobrar(agulha)) != std::string::npos;
 }

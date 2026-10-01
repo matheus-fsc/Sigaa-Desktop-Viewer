@@ -13,6 +13,7 @@
 // A conta é toda do núcleo (core/planejamento). Estes painéis só leem o
 // banco, pedem o plano, gravam e mostram.
 
+#include <QString>
 #include <QWidget>
 
 #include <array>
@@ -118,12 +119,19 @@ private:
     QTimer* adiar_{nullptr};
 };
 
+class PainelAgentes;
+class PainelProgresso;
+
 class PainelEstudo : public QWidget {
 public:
-    explicit PainelEstudo(QWidget* pai = nullptr);
+    // `banco` e `materiais`: os caminhos absolutos que este app usa, para o
+    // registro do servidor MCP em cada agente (ui/Agentes.h).
+    PainelEstudo(QString banco, QString materiais, QWidget* pai = nullptr);
 
     void definirEntradas(const EntradasEstudo& e);
     void mostrarPlanejamento();
+    // A página Agentes de IA, na aba Conectar (o caminho vindo de Opções).
+    void mostrarAgentes();
 
     // Repassado do planejamento: o plano no banco mudou.
     std::function<void()> aoMudarPlano;
@@ -133,6 +141,8 @@ private:
     QStackedWidget* paginas_{nullptr};
     PainelPlanejamento* planejamento_{nullptr};
     PainelDisponibilidade* disponibilidade_{nullptr};
+    PainelProgresso* progresso_{nullptr};
+    PainelAgentes* agentes_{nullptr};
 };
 
 } // namespace sigaa::ui

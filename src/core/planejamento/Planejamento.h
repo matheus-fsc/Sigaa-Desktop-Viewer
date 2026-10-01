@@ -36,6 +36,7 @@
 #include <string>
 #include <vector>
 
+#include "core/estudo/Registros.h"
 #include "core/model/Models.h"
 
 namespace sigaa::planejamento {
@@ -113,6 +114,7 @@ enum class TipoDica {
     Atrasadas,         // sessões passadas que não foram feitas
     EntregaNaVespera,  // entrega na véspera ou no dia de uma prova
     Estrategia,        // como estudar numa semana crítica
+    Foco,              // ponto de dificuldade marcado por um agente de IA
 };
 
 struct Dica {
@@ -121,12 +123,25 @@ struct Dica {
     std::string texto;
 };
 
+// O que os agentes de IA registraram pelo MCP (docs/MCP.md §5), para o plano
+// levar em conta:
+//   - o estudo registrado conta como feito para a prova citada nele (ou, sem
+//     prova, para a próxima da turma depois do dia em que estudou);
+//   - cada ponto de foco ABERTO numa turma acrescenta 30 min × nível à prova
+//     mais próxima dela, e vira dica quando essa prova está a até 21 dias.
+struct DoAgente {
+    std::vector<estudo::RegistroEstudo> estudos;
+    std::vector<estudo::PontoFoco> focos;
+};
+
 struct Plano {
     std::vector<Sessao> sessoes;        // feitas + pendentes, por dia
     std::vector<SemanaPlano> semanas;   // de hoje à última prova
     std::vector<Dica> dicas;            // por prioridade
     // Minutos que não couberam, por chaveProva.
     std::map<std::string, int> deficit;
+    // Minutos que agentes registraram para cada prova (chaveProva).
+    std::map<std::string, int> comAgente;
 };
 
 // Duração de um horário da grade. O código diz QUANTOS horários há ("M23" =
@@ -154,7 +169,8 @@ int minutosNecessarios(const ProvaAlvo& p, Dificuldade d);
 // `aulas` é `minutosDeAulaPorDia` da grade; zeros = nada a descontar.
 Plano planejar(const std::vector<ProvaAlvo>& provas, const std::vector<EntregaAlvo>& entregas,
                const Preferencias& prefs, const std::vector<Sessao>& guardadas,
-               const DateTime& hoje, const std::array<int, 7>& aulas = {});
+               const DateTime& hoje, const std::array<int, 7>& aulas = {},
+               const DoAgente& agente = {});
 
 // "1h30", "45 min", "2h".
 std::string duracao(int minutos);

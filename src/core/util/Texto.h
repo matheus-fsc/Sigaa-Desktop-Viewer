@@ -21,6 +21,11 @@ std::string dobrar(std::string_view s);
 // preposições ("de", "e", "da"...) não entram — é assim que o aluno abrevia.
 std::string sigla(std::string_view s);
 
+// O pedido do aluno ("P2", "N1", "AV2", "prova 2") aponta para esta prova
+// ("Prova 2", "Avaliação 2 (N2)")? Igual ou contido, dobrados; ou, num pedido
+// curto, o mesmo número.
+bool casaProva(std::string_view pedido, std::string_view descricao);
+
 // `agulha` aparece em `palheiro`, os dois dobrados.
 bool contemDobrado(std::string_view palheiro, std::string_view agulha);
 

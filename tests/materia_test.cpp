@@ -62,6 +62,16 @@ TEST_CASE("texto: sigla como o aluno abrevia a materia", "[texto]") {
     CHECK(util::sigla("COMPILADORES") == "c");
 }
 
+TEST_CASE("texto: casaProva entende P2, N1 e o nome inteiro", "[texto]") {
+    CHECK(util::casaProva("P2", "Prova 2"));
+    CHECK(util::casaProva("n2", "Avaliação 2 (N2)"));
+    CHECK(util::casaProva("prova 2", "Prova 2"));
+    CHECK(util::casaProva("Avaliação 2", "AVALIACAO 2 (N2)"));
+    CHECK_FALSE(util::casaProva("P2", "Prova 12"));
+    CHECK_FALSE(util::casaProva("P1", "Prova 2"));
+    CHECK_FALSE(util::casaProva("", "Prova 2"));
+}
+
 TEST_CASE("materia: so os topicos entre a prova anterior e esta", "[materia]") {
     Snapshot s;
     s.topicos = {topico("Introdução", dia(2026, 8, 10)),

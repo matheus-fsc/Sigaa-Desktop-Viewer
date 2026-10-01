@@ -96,34 +96,6 @@ bool booleano(const json& a, const char* k, bool padrao) {
     return a[k].get<bool>();
 }
 
-// "P2", "N1", "AV2", "2": o jeito curto de dizer a prova, que o aluno usa e
-// o SIGAA não. Casa com a descrição que tem o mesmo número ("Prova 2",
-// "Avaliação 2 (N2)"). Só para pedidos curtos: "Prova 2 de laboratório" tem
-// de casar pelo texto.
-bool mesmoNumero(const std::string& pedido, const std::string& descricao) {
-    const std::string q = util::dobrar(pedido);
-    if (q.size() > 4) return false;
-    std::string num, letras;
-    for (char ch : q) {
-        if (std::isdigit(static_cast<unsigned char>(ch))) num += ch;
-        else if (ch != ' ') letras += ch;
-    }
-    if (num.empty() || letras.size() > 2) return false;
-    // Os números da descrição, como palavras inteiras.
-    const std::string d = util::dobrar(descricao);
-    for (size_t i = 0; i < d.size();) {
-        if (!std::isdigit(static_cast<unsigned char>(d[i]))) {
-            ++i;
-            continue;
-        }
-        size_t j = i;
-        while (j < d.size() && std::isdigit(static_cast<unsigned char>(d[j]))) ++j;
-        if (d.substr(i, j - i) == num) return true;
-        i = j;
-    }
-    return false;
-}
-
 json propriedadeTurma() {
     return {{"type", "string"},
             {"description", "Id da turma, código (ECO2207), sigla (\"edo\", \"ia\") ou "
@@ -326,7 +298,7 @@ Resultado materiaDaProva(Contexto& c, const json& a) {
             candidatas = {&p};
             break;
         }
-        if (util::contemDobrado(p.av.descricao, q) || mesmoNumero(q, p.av.descricao)) {
+        if (util::casaProva(q, p.av.descricao)) {
             candidatas.push_back(&p);
         }
     }

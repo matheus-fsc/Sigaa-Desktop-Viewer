@@ -51,7 +51,6 @@
 #include "ui/CargaSemanal.h"
 #include "core/sync/Baixador.h"
 #include "ui/CalendarioProvas.h"
-#include "ui/DialogoAgentes.h"
 #include "ui/DialogoAtualizar.h"
 #include "ui/DialogoLogin.h"
 #include "core/atualizacao/Atualizador.h"
@@ -1491,7 +1490,8 @@ EntradasEstudo JanelaPrincipal::entradasDoPlanejamento() const {
 }
 
 void JanelaPrincipal::montarEstudo() {
-    painelEstudo_ = new PainelEstudo(formulario_->abas);
+    painelEstudo_ = new PainelEstudo(QDir::current().absoluteFilePath(QStringLiteral("sigaa-viewer.db")),
+                                     pastaBaseMateriais(), formulario_->abas);
     // No fim: as outras abas têm índice fixo (setTabText por número) e a aba
     // lembrada é guardada por índice.
     abaEstudo_ = formulario_->abas->addTab(painelEstudo_, QStringLiteral("Estudo"));
@@ -1541,8 +1541,11 @@ void JanelaPrincipal::atualizarEstudo() {
     hoje.month = h.month();
     hoje.day = h.day();
     const auto e = entradasDoPlanejamento();
+    planejamento::DoAgente agente;
+    agente.estudos = db.carregarRegistrosEstudo();
+    agente.focos = db.carregarFocos({}, /*soAbertos=*/true);
     auto plano = planejamento::planejar(e.provas, e.entregas, db.carregarPreferenciasEstudo(),
-                                        guardadas, hoje, e.aulas);
+                                        guardadas, hoje, e.aulas, agente);
     db.substituirSessoesEstudo(plano.sessoes);
     estudo_ = std::move(plano.sessoes);
     atualizarTituloEstudo();
@@ -2787,12 +2790,13 @@ void JanelaPrincipal::abrirOpcoes() {
 
     // O diagnóstico e o relatório abrem SOBRE o diálogo, sem fechá-lo: quem
     // foi ali investigar um problema quase sempre volta para mexer na rotina.
-    connect(&dlg, &DialogoOpcoes::pediuAgentes, this, [&dlg] {
-        // Os caminhos que vão no registro do servidor em cada agente: os que
-        // ESTE app usa agora (docs/MCP.md, D3).
-        DialogoAgentes(QDir::current().absoluteFilePath(QStringLiteral("sigaa-viewer.db")),
-                       pastaBaseMateriais(), &dlg)
-            .exec();
+    connect(&dlg, &DialogoOpcoes::pediuAgentes, this, [this, &dlg] {
+        // Os agentes moram na aba Estudo. Aceitar (e não rejeitar) Opções:
+        // o aluno pode ter mudado algo antes de clicar, e perder em silêncio
+        // seria pior que salvar.
+        dlg.accept();
+        painelEstudo_->mostrarAgentes();
+        formulario_->abas->setCurrentIndex(abaEstudo_);
     });
     connect(&dlg, &DialogoOpcoes::pediuDiagnostico, this, [this, &dlg] {
         JanelaDiagnostico(&dlg).exec();
