@@ -1,7 +1,7 @@
 # Agentes de IA — servidor MCP e conector
 
-> Plano de arquitetura. **Nada aqui está implementado.** As decisões de §12
-> estão respondidas; resta só a 2 (extração de PDF), que depende da Fase 2.
+> Plano de arquitetura, **implementado no branch `mcp`** (fases 0 a 4). O que
+> mudou em relação ao plano, e o que ficou de fora, está em §13.
 
 ## 1. Objetivo
 
@@ -381,3 +381,54 @@ arquivo" para quem usa agente de terminal.
 
 A aba Estudo (planejamento) saiu do `main` para o branch `estudo` e não vai no
 próximo deploy: será redesenhada junto da página Progresso (Fase 3).
+
+## 13. Estado da implementação (01/10/2026)
+
+Fases 0 a 4 implementadas no branch `mcp`, com testes em `tests/mcp_test.cpp`,
+`tests/instalar_test.cpp`, `tests/materia_test.cpp` e `tests/pastas_test.cpp`.
+
+| Fase | Onde |
+|---|---|
+| 0 | `core/avaliacao/Materia` (a matéria da prova fora da UI), `core/util/Texto` e `Pastas`, `busy_timeout`, `Abertura::SoExistente`, `lerMeta/gravarMeta` |
+| 1 | `src/mcp/Servidor`, `Leitura`, `Comando`; `sigaa-cli mcp` |
+| 2 | `src/mcp/Instalar` e `Kit`; `sigaa-ui mcp` para o AppImage; Opções > Agentes de IA (`ui/DialogoAgentes`); Kit para IA na janela da turma |
+| 3 | `core/estudo/Registros`, tabelas `registro_estudo`, `desempenho`, `ponto_foco`; `src/mcp/Escrita` |
+| 4 | `src/mcp/Rede`: `baixar_arquivo` e `atualizar_turma` |
+
+Diferenças em relação ao plano:
+
+- **`ponto_foco` sem `UNIQUE`.** O mesmo tópico pode ser resolvido e voltar a
+  ser foco; as linhas resolvidas são histórico. Quem evita duplicar o ponto
+  aberto é `marcarFoco`, pela coluna `topico_chave` (o tópico sem acento e
+  sem caixa).
+- **Turma pela sigla** ("edo", "ia", "paa"), além de id, código e nome. Foi o
+  primeiro tropeço no teste com dados de exemplo.
+- **"Quiz" deixou de contar como matéria**, como já não contavam "prova",
+  "avaliação" e "revisão".
+- **Orçamento de rede:** 24 requisições por sessão do agente, 20 s entre duas
+  operações, `baixar_arquivo` custa 6 e `atualizar_turma` 8. Arquivo já
+  baixado não gasta nada.
+- **A página Progresso** ficou em Opções > Agentes de IA > *O que os agentes
+  registraram*, e não na aba Estudo, que saiu do `main` para ser redesenhada.
+  Quando ela voltar, a página vai para lá, e o `registro_estudo` passa a
+  descontar o tempo que o planejamento reserva para a prova (§5), que ainda
+  não acontece.
+- **A janela recarrega pelo `meta`** (`mcp.alteracao`, gravado a cada
+  ferramenta de escrita bem-sucedida), e não por `PRAGMA data_version`, que
+  só faz sentido numa conexão que fica aberta, e a UI abre uma por operação.
+- **O registro passa `--url`**, a instituição: a chave da senha no cofre sai
+  do host, e o servidor iniciado pelo agente não sabe qual SIGAA o app usa.
+
+Testado à mão (§10) com o Claude Code de verdade, por `--mcp-config` com o
+banco de exemplo: listou a prova, explicou a data corrigida pelo aluno, deu a
+matéria e registrou o estudo, tudo com a origem `claude-code` na auditoria.
+
+Ainda em aberto:
+
+- o caminho do `mcp_config.json` do **Antigravity** (usei
+  `~/.gemini/antigravity/mcp_config.json`, a confirmar);
+- **Codex e Gemini CLI** não foram testados com o agente de verdade, só o
+  formato do arquivo;
+- extração de texto de PDF no app (§12, item 2);
+- a Fase 5 (servidor remoto para chats na web).
+
