@@ -27,6 +27,7 @@ class QStandardItemModel;
 
 #include "core/avaliacao/Ajustes.h"
 #include "core/frequencia/Presenca.h"
+#include "core/planejamento/Planejamento.h"
 
 namespace sigaa {
 struct ArquivoTurma;
@@ -299,8 +300,14 @@ FaixaAgenda faixaAgenda(const Snapshot& s);
 
 // Um grupo por dia em [inicio, fim], inclusive. `hoje` só decide o destaque —
 // a faixa não precisa conter o dia de hoje.
+//
+// `estudo` são as sessões do planejamento (core/planejamento): entram no dia
+// delas, depois das aulas, com um check — marcar ali é o mesmo que marcar na
+// janela de Planejamento. A chave da sessão vai em `PapelChaveSessao`.
+inline constexpr int PapelChaveSessao = Qt::UserRole + 31;
 QStandardItemModel* modeloAgenda(const Snapshot& s, QDate inicio, QDate fim, QDate hoje,
-                                 QObject* pai);
+                                 QObject* pai,
+                                 const std::vector<planejamento::Sessao>& estudo = {});
 
 // --- turma -----------------------------------------------------------------
 

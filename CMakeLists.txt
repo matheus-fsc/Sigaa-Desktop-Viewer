@@ -246,6 +246,7 @@ elseif(SIGAA_UI)
     src/ui/InstanciaUnica.cpp
     src/ui/Modelos.cpp
     src/ui/PainelNoticias.cpp
+    src/ui/Planejamento.cpp
     src/ui/Tema.cpp
     src/ui/Trabalhador.cpp
 

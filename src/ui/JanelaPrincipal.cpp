@@ -6,6 +6,7 @@
 #include <QDialog>
 #include <QScrollBar>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QApplication>
 #include <QDesktopServices>
 #include <QEvent>
@@ -63,6 +64,7 @@
 #include "ui/JanelaDiagnostico.h"
 #include "ui/JanelaTurma.h"
 #include "ui/Modelos.h"
+#include "ui/Planejamento.h"
 #include "ui/Tema.h"
 #include "ui/Trabalhador.h"
 #include "ui_JanelaPrincipal.h"
@@ -1406,6 +1408,14 @@ void JanelaPrincipal::abrirCargaCompleta() {
     botoes->button(QDialogButtonBox::Close)->setAutoDefault(false);
     botoes->button(QDialogButtonBox::Close)->setIcon(QIcon());
     connect(botoes, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    // O passo seguinte a "onde aperta": como distribuir o estudo até lá.
+    auto* planejar = botoes->addButton(QStringLiteral("Planejamento…"),
+                                       QDialogButtonBox::ActionRole);
+    planejar->setProperty("papel", QStringLiteral("primario"));
+    planejar->setAutoDefault(false);
+    planejar->setToolTip(QStringLiteral("Distribui suas horas livres de estudo entre as "
+                                        "provas que vêm, e mostra onde o semestre aperta."));
+    connect(planejar, &QPushButton::clicked, &dlg, [this, &dlg] { abrirPlanejamento(&dlg); });
     raiz->addWidget(botoes);
 
     // Clicar numa semana filtra a lista e fecha: o diálogo é para achar a
@@ -1424,6 +1434,88 @@ void JanelaPrincipal::abrirCargaCompleta() {
         rolagem->horizontalScrollBar()->setValue(std::max(0, colunaHoje - 2) * kColunaPeriodo);
     });
     dlg.exec();
+}
+
+DialogoPlanejamento::Entradas JanelaPrincipal::entradasDoPlanejamento() const {
+    DialogoPlanejamento::Entradas e;
+    const QDateTime agora = QDateTime::currentDateTime();
+    for (const auto& p : provas_) {
+        if (jaPassou(p.av.quando, agora)) continue;
+        // Substitutiva e reposição só faz quem precisa. Planejar para elas
+        // de saída tiraria horas das provas que todos fazem.
+        const QString desc = QString::fromStdString(p.av.descricao).toLower();
+        if (desc.contains(QStringLiteral("substitutiv")) ||
+            desc.contains(QStringLiteral("reposi"))) {
+            continue;
+        }
+        planejamento::ProvaAlvo a;
+        a.idTurma = p.av.idTurma;
+        a.turmaNome = p.av.turmaNome;
+        a.descricao = p.av.descricao;
+        a.data = p.av.quando;
+        a.inferida = p.estado == avaliacao::Estado::Inferida;
+        // O tamanho da matéria: os tópicos entre esta prova e a anterior, os
+        // mesmos que a "Próxima prova" lista.
+        const MateriaDaProva m = materiaDaProva(snapshot_, p, provas_);
+        a.topicos = m.coletada ? static_cast<int>(m.topicos.size()) : -1;
+        e.provas.push_back(std::move(a));
+    }
+    for (const auto& at : snapshot_.atividades) {
+        if (at.status == StatusAtividade::Concluida || jaPassou(at.prazo, agora)) continue;
+        e.entregas.push_back({at.idTurma, at.turmaNome, at.titulo, at.prazo});
+    }
+    for (const auto& t : snapshot_.turmas) e.turmas.emplace_back(t.idTurma, t.nome);
+    return e;
+}
+
+void JanelaPrincipal::abrirPlanejamento(QWidget* pai) {
+    DialogoPlanejamento d(entradasDoPlanejamento(), pai ? pai : this);
+    d.exec();
+    // O plano pode ter nascido ou mudado: a Agenda passa a mostrá-lo.
+    atualizarEstudo();
+    montarAgenda();
+}
+
+void JanelaPrincipal::atualizarEstudo() {
+    store::Database db;
+    if (!db.aberto() || !db.migrar()) return;
+    const auto guardadas = db.carregarSessoesEstudo();
+    if (guardadas.empty()) {
+        estudo_.clear();
+        return;
+    }
+    // Replanejar a cada recarga, e não só quando a janela abre: uma prova
+    // confirmada ou uma entrega nova mudam o plano, e a Agenda de amanhã tem
+    // de refletir isso sem o aluno lembrar de abrir o Planejamento.
+    const QDate h = QDate::currentDate();
+    DateTime hoje;
+    hoje.year = h.year();
+    hoje.month = h.month();
+    hoje.day = h.day();
+    const auto e = entradasDoPlanejamento();
+    auto plano = planejamento::planejar(e.provas, e.entregas, db.carregarPreferenciasEstudo(),
+                                        guardadas, hoje);
+    db.substituirSessoesEstudo(plano.sessoes);
+    estudo_ = std::move(plano.sessoes);
+}
+
+void JanelaPrincipal::marcarEstudoDaAgenda(QStandardItem* it) {
+    const QString chave = it->data(PapelChaveSessao).toString();
+    if (chave.isEmpty()) return;
+    const bool feita = it->checkState() == Qt::Checked;
+    store::Database db;
+    if (!db.aberto() ||
+        !db.marcarSessaoEstudo(chave.toStdString(), feita, QDateTime::currentSecsSinceEpoch())) {
+        status(QStringLiteral("Não consegui guardar a marcação do estudo."));
+        return;
+    }
+    for (auto& se : estudo_) {
+        if (QString::fromStdString(se.chave()) == chave) se.feita = feita;
+    }
+    // A cor muda junto com o check: feito fica apagado, como aula passada.
+    // Sem `blockSignals`, mudar a cor dispararia `itemChanged` de novo.
+    QSignalBlocker bloqueio(it->model());
+    it->setForeground(QBrush(feita ? tema::cor::apagado() : tema::cor::acento()));
 }
 
 QString JanelaPrincipal::detalheDaProva(const avaliacao::Efetiva& prova, QString* dica) const {
@@ -2029,6 +2121,7 @@ void JanelaPrincipal::mostrar(const Snapshot& s) {
     atualizarResumoProvas(s);
     if (semanaFiltrada_.isValid()) filtrarProvasPorSemana(semanaFiltrada_);
     else filtrarProvasPorDia(diaFiltrado_);
+    atualizarEstudo();
     montarAgenda();
 
     // A contagem na aba continua sendo a de HOJE mesmo com a agenda paginada
@@ -2155,7 +2248,10 @@ void JanelaPrincipal::montarAgenda() {
     auto* arvore = formulario_->arvoreHoje;
 
     auto* antigo = arvore->model();
-    arvore->setModel(modeloAgenda(s, inicio, fim, hoje, arvore));
+    auto* modelo = modeloAgenda(s, inicio, fim, hoje, arvore, estudo_);
+    connect(modelo, &QStandardItemModel::itemChanged, this,
+            &JanelaPrincipal::marcarEstudoDaAgenda);
+    arvore->setModel(modelo);
     delete antigo;
 
     // Expandir só os dias com aula: sete grupos abertos, cinco deles com uma

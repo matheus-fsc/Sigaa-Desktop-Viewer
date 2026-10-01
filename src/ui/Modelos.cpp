@@ -856,7 +856,7 @@ QStandardItem* celulaFaltas(const Frequencia* f) {
 }  // namespace
 
 QStandardItemModel* modeloAgenda(const Snapshot& s, QDate inicio, QDate fim, QDate hoje,
-                                 QObject* pai) {
+                                 QObject* pai, const std::vector<planejamento::Sessao>& estudo) {
     auto* m = novoModelo(pai, {QStringLiteral("Turma"), QStringLiteral("Aula"),
                                QStringLiteral("Horário"), QStringLiteral("Material"),
                                QStringLiteral("Faltas")});
@@ -911,6 +911,27 @@ QStandardItemModel* modeloAgenda(const Snapshot& s, QDate inicio, QDate fim, QDa
                                     : QStringLiteral("%1 arquivo(s)").arg(a.materiais),
                                 a.materiais),
                            celulaFaltas(freq.value(a.idTurma, nullptr))});
+        }
+
+        // As sessões de estudo do plano, depois das aulas: a aula é o que
+        // acontece, o estudo é o que o aluno se propôs a fazer.
+        for (const auto& se : estudo) {
+            if (paraQDate(se.dia) != dia) continue;
+            auto* turma = item(umaLinha(se.turmaNome));
+            turma->setData(QString::fromStdString(se.idTurma), PapelIdTurma);
+            const QDate dp = paraQDate(se.dataProva);
+            auto* oque = item(QStringLiteral("Estudar para %1 (%2)")
+                                  .arg(QString::fromStdString(se.prova),
+                                       dp.toString(QStringLiteral("dd/MM"))));
+            oque->setCheckable(true);
+            oque->setCheckState(se.feita ? Qt::Checked : Qt::Unchecked);
+            oque->setData(QString::fromStdString(se.chave()), PapelChaveSessao);
+            oque->setForeground(QBrush(se.feita ? cor::apagado() : tema::cor::acento()));
+            oque->setToolTip(QStringLiteral("Sessão do seu planejamento de estudo. Marque "
+                                            "quando tiver estudado."));
+            filhos.append({turma, oque,
+                           item(QString::fromStdString(planejamento::duracao(se.minutos)), 99),
+                           item(QString()), item(QString())});
         }
 
         const int n = filhos.size();

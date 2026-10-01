@@ -33,12 +33,14 @@
 #include "core/http/SessaoViva.h"
 #include "ui/DialogoAtualizar.h"
 #include "ui/DialogoOpcoes.h"
+#include "ui/Planejamento.h"
 #include "core/model/Models.h"
 #include "platform/Credenciais.h"
 
 class QLabel;
 class QProgressBar;
 class QPushButton;
+class QStandardItem;
 class QSystemTrayIcon;
 class QTimer;
 
@@ -306,6 +308,16 @@ private:
     QToolButton* cargaSeguinte_{nullptr};
     void atualizarCarga();
     void abrirCargaCompleta();
+    // A janela de planejamento de estudo, sobre `pai` (o "Carga do período").
+    void abrirPlanejamento(QWidget* pai);
+    // O que o planejamento recebe: provas futuras, entregas e turmas.
+    DialogoPlanejamento::Entradas entradasDoPlanejamento() const;
+    // Refaz o plano em silêncio, se o aluno já usa o planejamento, e guarda
+    // as sessões em `estudo_` para a Agenda. Sem plano guardado, não faz nada:
+    // o planejamento é opt-in.
+    void atualizarEstudo();
+    // O check de uma sessão de estudo marcado na Agenda.
+    void marcarEstudoDaAgenda(QStandardItem* it);
     // O mês seguinte ao do calendário principal, embaixo dele (ver
     // montarProvas). Some quando a coluna não tem altura para os dois.
     CalendarioProvas* calSeguinte_{nullptr};
@@ -323,6 +335,8 @@ private:
     // automático de 20 minutos não pode arrastá-lo de volta para hoje enquanto
     // ele olha a semana que vem.
     QDate inicioAgenda_;
+    // As sessões do plano de estudo, para a Agenda. Vazio = sem planejamento.
+    std::vector<planejamento::Sessao> estudo_;
 
     // Acumulador da roda horizontal: um trackpad manda dezenas de eventos de
     // poucos graus, e virar a semana em cada um daria um borrão de meses.
