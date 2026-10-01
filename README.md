@@ -52,13 +52,9 @@ a janela Qt mostra prazos, provas e atualizações e dispara sync em segundo pla
 
 ## As telas
 
-Capturas do app com dados de exemplo. O tema acompanha o do sistema; as
-imagens abaixo estão no escuro.
+Capturas do app com dados de exemplo (turmas, provas e notícias fictícias). O
+tema acompanha o do sistema; as imagens abaixo estão no escuro.
 
-> As capturas ainda são do visual anterior. A interface ganhou o desenho do
-> protótipo de telas (cabeçalho com as abas embutidas, painel de resumo na aba
-> Provas, tema por tokens); o conteúdo e a hierarquia descritos aqui são os
-> mesmos, e as imagens serão refeitas com os dados de exemplo.
 
 ### Agenda
 
@@ -89,13 +85,28 @@ dos arquivos; ao lado, a prova seguinte no mesmo formato; e a **carga por
 semana**, provas e entregas empilhadas por semana, com o período inteiro a um
 clique.
 
-Datas deduzidas de tópico de aula se confirmam juntas: a pílula **○ N datas a
-confirmar** abre a lista delas, com o título do tópico de onde cada uma saiu, e
-três respostas por linha: confirmar, corrigir a data ou dizer que **não é
-prova** ("Revisão para a P1" menciona prova, mas não é uma). O descarte tira a
-data da tabela, do calendário e do `.ics`, e se desfaz ali mesmo.
-
 ![Provas](docs/img/provas.png)
+
+### Carga do período
+
+**Período inteiro**, no canto da carga por semana, abre o semestre todo. Cada
+coluna é uma semana, com o intervalo dela ("29 set - 4 out"); o que já passou
+fica na base, apagado. Embaixo, um quadradinho por dia, de segunda a domingo:
+laranja com prova (com um ponto quando há duas no mesmo dia), cinza com
+entrega, só o contorno quando o dia está livre. Clicar numa semana filtra a
+lista de provas para ela.
+
+![Carga do período](docs/img/carga-periodo.png)
+
+### Datas a confirmar
+
+Datas deduzidas de tópico de aula se confirmam juntas: a pílula **○ N datas a
+confirmar** abre a lista delas, com três respostas por linha: confirmar,
+corrigir a data ou dizer que **não é prova** ("Revisão para a P1" menciona
+prova, mas não é uma). O descarte tira a data da tabela, do calendário e do
+`.ics`, e se desfaz ali mesmo.
+
+<img src="docs/img/datas-confirmar.png" width="620" alt="Datas a confirmar">
 
 ### Corrigir a data de uma prova
 
@@ -119,8 +130,12 @@ a fez.
 Aulas com o material pendurado em cada uma. O `✓ offline` marca o que já está
 no seu disco: a janela abre sem rede depois da primeira vez.
 
+Acima das aulas ficam as **notícias** do professor, a mais nova primeiro, com
+‹ › para voltar às antigas. É onde ele avisa que a prova mudou de dia ou o que
+cai nela; notícia nova também gera aviso na bandeja.
+
 **Resumo .md** grava um `turma.md` na pasta da turma com aulas, datas,
-materiais e provas: é o arquivo para colar num assistente de IA junto com os
+materiais, provas e notícias: é o arquivo para colar num assistente de IA junto com os
 PDFs, para ele receber o fio da disciplina e não vinte arquivos soltos.
 
 ![Janela da turma](docs/img/turma.png)
