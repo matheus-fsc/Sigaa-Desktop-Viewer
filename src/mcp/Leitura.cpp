@@ -528,8 +528,12 @@ bool permitido(store::Database& db, Permissao p) {
     return db.lerMeta(std::string("mcp.") + nomePermissao(p)) == "1";
 }
 
-Contexto::Contexto(store::Database& db, std::string materiais, std::string cliente)
-    : db_(db), materiais_(std::move(materiais)), cliente_(std::move(cliente)) {}
+Contexto::Contexto(store::Database& db, std::string materiais, std::string cliente,
+                   std::string caminhoBanco)
+    : db_(db),
+      materiais_(std::move(materiais)),
+      cliente_(std::move(cliente)),
+      caminhoBanco_(std::move(caminhoBanco)) {}
 
 const Snapshot& Contexto::snapshot() {
     if (!snapshot_) {

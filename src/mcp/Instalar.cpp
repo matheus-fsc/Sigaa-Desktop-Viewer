@@ -7,6 +7,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "core/config/Instituicao.h"
 #include "core/util/Caminho.h"
 
 #ifdef _WIN32
@@ -232,7 +233,9 @@ Lancamento lancamento(const std::string& banco, const std::string& materiais) {
         std::error_code ec;
         l.comando = util::paraUtf8(fs::exists(cli, ec) ? cli : atual);
     }
-    l.args = {"mcp", "--banco", absoluto(banco)};
+    // A instituição vai explícita: a chave da senha no cofre sai do host, e o
+    // servidor iniciado pelo agente não sabe qual SIGAA o app está usando.
+    l.args = {"mcp", "--url", config::selecionada().baseUrl, "--banco", absoluto(banco)};
     if (!materiais.empty()) {
         l.args.push_back("--materiais");
         l.args.push_back(absoluto(materiais));

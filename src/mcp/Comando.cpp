@@ -11,6 +11,7 @@
 #include <io.h>
 #endif
 
+#include "core/config/Instituicao.h"
 #include "core/store/Database.h"
 #include "core/util/Caminho.h"
 #include "core/util/Pastas.h"
@@ -39,6 +40,14 @@ Caminhos resolver(std::vector<std::string>& args) {
     std::vector<std::string> resto;
     for (size_t i = 0; i < args.size(); ++i) {
         if (args[i] == "--banco" && i + 1 < args.size()) c.banco = args[++i];
+        else if ((args[i] == "--url" || args[i] == "--instituicao") && i + 1 < args.size()) {
+            // A instituição antes de tudo: a chave da senha no cofre sai do
+            // host do SIGAA, e o AppImage chega aqui sem passar pela UI que
+            // restauraria a escolhida.
+            const std::string alvo = args[++i];
+            if (auto inst = config::porId(alvo)) config::selecionar(*inst);
+            else if (auto inst = config::personalizada(alvo); inst.valida()) config::selecionar(inst);
+        }
         else if (args[i] == "--materiais" && i + 1 < args.size()) c.materiais = args[++i];
         else resto.push_back(args[i]);
     }

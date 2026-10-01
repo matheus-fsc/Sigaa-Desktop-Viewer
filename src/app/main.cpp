@@ -28,6 +28,7 @@
 #include "core/config/DotEnv.h"
 #include "core/config/Instituicao.h"
 #include "mcp/Comando.h"
+#include "mcp/Rede.h"
 #include "app/Prompt.h"
 #include "core/http/SigaaSession.h"
 #include "core/http/Trafego.h"
@@ -701,7 +702,16 @@ int main(int argc, char** argv) {
 
     if (std::string(argv[1]) == "login") return cmdLogin();
     if (std::string(argv[1]) == "logout") return cmdLogout();
-    if (std::string(argv[1]) == "mcp") return sigaa::mcp::comando(argc, argv);
+    if (std::string(argv[1]) == "mcp") {
+        // A senha do cofre, para as ferramentas de rede. Só por aqui: a
+        // biblioteca do MCP não conhece o cofre, e o agente nunca vê a senha.
+        sigaa::mcp::definirProvedorDeCredenciais([]() -> std::optional<sigaa::mcp::Credenciais> {
+            auto r = sigaa::plat::resolverCredenciais();
+            if (!r.ok()) return std::nullopt;
+            return sigaa::mcp::Credenciais{std::move(r.cred.login), std::move(r.cred.senha)};
+        });
+        return sigaa::mcp::comando(argc, argv);
+    }
 
     if (std::string(argv[1]) == "arquivos") {
         if (argc < 3) return usage();

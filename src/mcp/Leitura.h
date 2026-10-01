@@ -37,11 +37,14 @@ bool permitido(store::Database& db, Permissao p);
 // aberto, e a resposta seguinte já tem de refletir isso.
 class Contexto {
 public:
-    Contexto(store::Database& db, std::string materiais, std::string cliente);
+    Contexto(store::Database& db, std::string materiais, std::string cliente,
+             std::string caminhoBanco = {});
 
     store::Database& db() { return db_; }
     const std::string& materiais() const { return materiais_; }
     const std::string& cliente() const { return cliente_; }
+    // O arquivo do banco, para quem precisa abrir o seu (a coleta da rede).
+    const std::string& caminhoBanco() const { return caminhoBanco_; }
 
     const Snapshot& snapshot();
     // Efetivas: SIGAA + correções do aluno, em ordem cronológica.
@@ -55,6 +58,7 @@ private:
     store::Database& db_;
     std::string materiais_;
     std::string cliente_;
+    std::string caminhoBanco_;
     std::optional<Snapshot> snapshot_;
     std::optional<std::vector<avaliacao::Efetiva>> provas_;
 };

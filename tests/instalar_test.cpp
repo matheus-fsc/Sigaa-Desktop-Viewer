@@ -163,9 +163,11 @@ TEST_CASE("instalar: detectado pela pasta do agente", "[instalar]") {
 
 TEST_CASE("instalar: lancamento leva caminhos absolutos e prefere o AppImage", "[instalar]") {
     const auto l = lancamento("sigaa-viewer.db", "materiais");
-    REQUIRE(l.args.size() == 5);
-    CHECK(fs::path(l.args[2]).is_absolute());
+    REQUIRE(l.args.size() == 7);
+    CHECK(l.args[1] == "--url");
+    CHECK(l.args[2].rfind("https://", 0) == 0);
     CHECK(fs::path(l.args[4]).is_absolute());
+    CHECK(fs::path(l.args[6]).is_absolute());
     CHECK_FALSE(l.comando.empty());
 }
 

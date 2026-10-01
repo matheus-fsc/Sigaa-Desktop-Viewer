@@ -22,7 +22,9 @@
 
 #include "core/store/Database.h"
 #include "core/sync/Baixador.h"
+#include "core/config/Instituicao.h"
 #include "mcp/Escrita.h"
+#include "mcp/Rede.h"
 #include "mcp/Servidor.h"
 
 using namespace sigaa;
@@ -608,4 +610,107 @@ TEST_CASE("mcp escrita: apagar do agente, por linha e por origem", "[mcp][escrit
     REQUIRE(db.carregarRegistrosEstudo().size() == 1);
     CHECK(db.apagarDoAgente(store::Database::TabelaAgente::Estudo, id));
     CHECK(db.carregarRegistrosEstudo().empty());
+}
+
+// --- rede (Fase 4) -----------------------------------------------------------
+//
+// Nenhum destes testes fala com o SIGAA: a instituição aponta para uma porta
+// fechada do próprio computador, onde o login falha na hora.
+
+namespace {
+
+struct SemSigaaReal {
+    SemSigaaReal() {
+        config::selecionar(config::personalizada("127.0.0.1:9"));
+        mcp::zerarOrcamentoDeRede();
+    }
+    ~SemSigaaReal() {
+        config::selecionar(config::catalogo().front());
+        mcp::definirProvedorDeCredenciais({});
+        mcp::zerarOrcamentoDeRede();
+    }
+};
+
+} // namespace
+
+TEST_CASE("mcp rede: sem a permissao, nada sai do computador", "[mcp][rede]") {
+    SemSigaaReal guarda;
+    Ambiente amb;
+    amb.permitir("leitura");
+    mcp::Servidor s({amb.banco, amb.materiais});
+    const auto r = chamar(s, "atualizar_turma", {{"turma", "compiladores"}});
+    CHECK(r["isError"] == true);
+    CHECK(textoDe(r).find("permitir rede") != std::string::npos);
+}
+
+TEST_CASE("mcp rede: arquivo ja baixado volta sem rede e sem gastar orcamento", "[mcp][rede]") {
+    SemSigaaReal guarda;
+    Ambiente amb;
+    amb.permitir("leitura");
+    amb.permitir("arquivos");
+    amb.permitir("rede");
+    mcp::Servidor s({amb.banco, amb.materiais});
+    const auto r = chamar(s, "baixar_arquivo", {{"id", "9002"}});
+    REQUIRE(r["isError"] == false);
+    CHECK(r["structuredContent"]["baixado_agora"] == false);
+    CHECK(r["structuredContent"]["caminho"] == amb.pdf);
+    CHECK(r["structuredContent"]["orcamento_restante"] == mcp::kOrcamentoRede);
+}
+
+TEST_CASE("mcp rede: sem senha no cofre, recusa sem gastar", "[mcp][rede]") {
+    SemSigaaReal guarda;
+    Ambiente amb;
+    amb.permitir("leitura");
+    amb.permitir("rede");
+    {
+        // Um arquivo que NÃO está no disco.
+        store::Database db(amb.banco);
+        Snapshot s = db.carregarUltimo();
+        ArquivoTurma a = s.arquivos.front();
+        a.idArquivo = "7777";
+        a.titulo = "Outro.pdf";
+        s.arquivos.push_back(a);
+        REQUIRE(db.gravar(s, 2000));
+    }
+    mcp::Servidor s({amb.banco, amb.materiais});
+    auto r = chamar(s, "baixar_arquivo", {{"id", "7777"}});
+    CHECK(r["isError"] == true);
+    CHECK(textoDe(r).find("Guardar neste computador") != std::string::npos);
+    r = chamar(s, "atualizar_turma", {{"turma", "compiladores"}});
+    CHECK(textoDe(r).find("Guardar neste computador") != std::string::npos);
+}
+
+TEST_CASE("mcp rede: intervalo minimo entre buscas, e a senha nao aparece", "[mcp][rede]") {
+    SemSigaaReal guarda;
+    Ambiente amb;
+    amb.permitir("leitura");
+    amb.permitir("rede");
+    mcp::definirProvedorDeCredenciais([] {
+        return std::optional<mcp::Credenciais>(mcp::Credenciais{"12345678900", "senha-secreta-xyz"});
+    });
+    mcp::Servidor s({amb.banco, amb.materiais});
+
+    // A primeira tenta (e falha no login, porta fechada).
+    auto r = chamar(s, "atualizar_turma", {{"turma", "compiladores"}});
+    CHECK(r["isError"] == true);
+    CHECK(r.dump().find("senha-secreta-xyz") == std::string::npos);
+    // A segunda, logo em seguida, nem tenta.
+    r = chamar(s, "atualizar_turma", {{"turma", "compiladores"}});
+    CHECK(r["isError"] == true);
+    CHECK(textoDe(r).find("Espere") != std::string::npos);
+}
+
+TEST_CASE("mcp rede: ferramentas de rede anunciadas como openWorld", "[mcp][rede]") {
+    Ambiente amb;
+    mcp::Servidor s({amb.banco, amb.materiais});
+    const auto r = s.tratar(pedido(2, "tools/list"));
+    int rede = 0;
+    for (const auto& t : (*r)["result"]["tools"]) {
+        if (t["name"] == "baixar_arquivo" || t["name"] == "atualizar_turma") {
+            ++rede;
+            CHECK(t["annotations"]["openWorldHint"] == true);
+            CHECK(t["annotations"]["readOnlyHint"] == false);
+        }
+    }
+    CHECK(rede == 2);
 }

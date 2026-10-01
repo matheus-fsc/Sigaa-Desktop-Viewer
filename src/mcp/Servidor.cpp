@@ -279,7 +279,7 @@ json Servidor::chamarFerramenta(const json& p) {
     } else if (!db.migrar()) {
         r = Resultado::falha("O banco do SIGAA Viewer não abriu: " + db.erro());
     } else {
-        Contexto c(db, config_.materiais, cliente_);
+        Contexto c(db, config_.materiais, cliente_, config_.banco);
         // Leitura é a base de tudo: escrever ou buscar no SIGAA sem poder ler
         // não faz sentido, e o aluno liga as categorias de cima para baixo.
         if (!c.permite(Permissao::Leitura)) {
