@@ -111,6 +111,33 @@ TEST_CASE("planejamento: nunca passa das horas livres do dia", "[planejamento]")
     }
 }
 
+TEST_CASE("planejamento: aulas da grade saem do tempo de estudo", "[planejamento]") {
+    Turma a;
+    a.horario = "24M23";      // seg e qua, 2 aulas
+    Turma b;
+    b.horario = "2T3456";     // seg, 4 aulas
+    const auto aulas = minutosDeAulaPorDia({a, b});
+    CHECK(aulas[0] == 6 * kMinutosPorHoraAula);
+    CHECK(aulas[2] == 2 * kMinutosPorHoraAula);
+    CHECK(aulas[1] == 0);
+
+    Preferencias prefs;
+    prefs.minutosPorDia = {300, 300, 300, 300, 300, 300, 300};
+    CHECK(minutosParaEstudo(prefs, aulas, 0) == 0);   // 6 horários passam de 300: nunca negativo
+    CHECK(minutosParaEstudo(prefs, aulas, 2) == 300 - 2 * kMinutosPorHoraAula);
+    CHECK(minutosParaEstudo(prefs, aulas, 1) == 300);
+
+    // A segunda-feira, toda tomada por aula, não recebe sessão.
+    const auto p = prova("1", "P1", dia(2026, 10, 20), 12);
+    const auto pl = planejar({p}, {}, prefs, {}, kHoje, aulas);
+    for (const auto& s : pl.sessoes) {
+        INFO(s.dia.toIso());
+        CHECK(s.dia.toIso() != "2026-10-05");
+        CHECK(s.dia.toIso() != "2026-10-12");
+        CHECK(s.dia.toIso() != "2026-10-19");
+    }
+}
+
 TEST_CASE("planejamento: espalha a revisao em vez de empilhar num dia", "[planejamento]") {
     const auto p = prova("1", "P1", dia(2026, 10, 20), 12);
     const auto pl = planejar({p}, {}, Preferencias{}, {}, kHoje);

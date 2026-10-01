@@ -1,5 +1,7 @@
 #include "core/planejamento/Planejamento.h"
 
+#include "core/calendar/Calendario.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -113,9 +115,28 @@ std::string duracao(int minutos) {
     return b;
 }
 
+std::array<int, 7> minutosDeAulaPorDia(const std::vector<Turma>& turmas) {
+    std::array<int, 7> m{};
+    for (const auto& t : turmas) {
+        for (const auto& b : calendario::lerHorario(t.horario)) {
+            for (const int iso : b.dias) {
+                if (iso < 1 || iso > 7) continue;
+                m[static_cast<size_t>(iso - 1)] +=
+                    static_cast<int>(b.horarios.size()) * kMinutosPorHoraAula;
+            }
+        }
+    }
+    return m;
+}
+
+int minutosParaEstudo(const Preferencias& p, const std::array<int, 7>& aulas, int dia) {
+    const auto i = static_cast<size_t>(dia);
+    return std::max(0, p.minutosPorDia[i] - aulas[i]);
+}
+
 Plano planejar(const std::vector<ProvaAlvo>& provasIn, const std::vector<EntregaAlvo>& entregas,
                const Preferencias& prefs, const std::vector<Sessao>& guardadas,
-               const DateTime& hojeDt) {
+               const DateTime& hojeDt, const std::array<int, 7>& aulas) {
     Plano plano;
     const int hoje = paraDia(hojeDt);
 
@@ -137,7 +158,7 @@ Plano planejar(const std::vector<ProvaAlvo>& provasIn, const std::vector<Entrega
 
     // Tempo livre do dia, já com os descontos de prova e de entrega.
     auto capacidade = [&](int d) {
-        double c = prefs.minutosPorDia[static_cast<size_t>(diaDaSemana(d))];
+        double c = minutosParaEstudo(prefs, aulas, diaDaSemana(d));
         if (provasNoDia.count(d)) c *= 0.5;
         if (entregasNoDia.count(d)) c *= 0.75;
         return static_cast<int>(c);

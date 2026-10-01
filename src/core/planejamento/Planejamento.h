@@ -21,8 +21,8 @@
 //      cresce perto dela (véspera > semana da prova > duas semanas antes).
 //      Revisão espaçada: a partir da segunda hora da mesma prova no mesmo dia
 //      o peso cai, então o plano espalha sessões de 1h em vez de empilhar.
-//   3. Quanto cabe: as horas livres do dia, menos o que outras provas já
-//      pegaram. Dia com OUTRA prova vale metade; dia de entrega, 3/4.
+//   3. Quanto cabe: o tempo disponível do dia menos as aulas da grade, menos
+//      o que outras provas já pegaram. Dia com OUTRA prova vale metade; dia de entrega, 3/4.
 //
 //   Bloco a bloco (30 min), o próximo vai para o dia de maior peso que ainda
 //   tem espaço. O que não cabe vira déficit — e uma dica dizendo quanto falta.
@@ -43,8 +43,13 @@ namespace sigaa::planejamento {
 enum class Dificuldade : int { Facil = 1, Media = 2, Dificil = 3 };
 
 struct Preferencias {
-    // Minutos livres para estudar em cada dia da semana, [0] = segunda.
-    std::array<int, 7> minutosPorDia{120, 120, 120, 120, 120, 180, 60};
+    // Minutos que o aluno tem para a faculdade em cada dia da semana — aulas
+    // E estudo —, [0] = segunda. O plano desconta as aulas da grade
+    // (`minutosDeAula`) e estuda no que sobra: assim um dia com cinco horas
+    // de aula não recebe o mesmo estudo que um dia sem nenhuma.
+    // Padrão: 9h nos dias úteis (um dia de 6 horários, 5h30 de aula, deixa
+    // 3h30 de estudo), 5h no sábado e 3h no domingo.
+    std::array<int, 7> minutosPorDia{540, 540, 540, 540, 540, 300, 180};
     // Por idTurma. Turma ausente = Media.
     std::map<std::string, Dificuldade> dificuldade;
 
@@ -124,6 +129,21 @@ struct Plano {
     std::map<std::string, int> deficit;
 };
 
+// Duração de um horário da grade. O código diz QUANTOS horários há ("M23" =
+// dois), não quanto dura cada um; na UNIFEI cada horário tem 55 min
+// (M2 07:55–08:50, M3 08:50–09:45 — "M23" vai de 07:55 a 09:45). A tela
+// mostra a conta, para o aluno saber de onde veio o desconto.
+inline constexpr int kMinutosPorHoraAula = 55;
+
+// Minutos de aula em cada dia da semana ([0] = segunda), pela grade de todas
+// as turmas. Código ilegível conta zero — não dá para descontar o que não se
+// sabe.
+std::array<int, 7> minutosDeAulaPorDia(const std::vector<Turma>& turmas);
+
+// O tempo de estudo do dia da semana `dia` (0 = segunda): o disponível menos
+// as aulas, nunca negativo.
+int minutosParaEstudo(const Preferencias& p, const std::array<int, 7>& aulas, int dia);
+
 // Quanto estudar para uma prova, em minutos, antes de descontar o já feito.
 int minutosNecessarios(const ProvaAlvo& p, Dificuldade d);
 
@@ -131,9 +151,10 @@ int minutosNecessarios(const ProvaAlvo& p, Dificuldade d);
 // entram como estão (e contam para a prova delas); as pendentes do passado
 // viram a dica de atrasadas; as pendentes futuras são descartadas e
 // recalculadas.
+// `aulas` é `minutosDeAulaPorDia` da grade; zeros = nada a descontar.
 Plano planejar(const std::vector<ProvaAlvo>& provas, const std::vector<EntregaAlvo>& entregas,
                const Preferencias& prefs, const std::vector<Sessao>& guardadas,
-               const DateTime& hoje);
+               const DateTime& hoje, const std::array<int, 7>& aulas = {});
 
 // "1h30", "45 min", "2h".
 std::string duracao(int minutos);
