@@ -59,6 +59,29 @@ std::string dobrar(std::string_view s) {
     return out;
 }
 
+std::string sigla(std::string_view s) {
+    static const char* pulam[] = {"a", "o", "as", "os", "e", "de", "da", "do", "das", "dos",
+                                  "em", "na", "no", "nas", "nos", "para", "por", "com", "à"};
+    const std::string d = dobrar(s);
+    std::string out;
+    size_t i = 0;
+    while (i < d.size()) {
+        while (i < d.size() && !std::isalnum(static_cast<unsigned char>(d[i]))) ++i;
+        size_t j = i;
+        while (j < d.size() && std::isalnum(static_cast<unsigned char>(d[j]))) ++j;
+        if (j > i) {
+            const std::string palavra = d.substr(i, j - i);
+            bool pula = false;
+            for (const char* p : pulam) pula |= palavra == p;
+            // "IV" em "SOFTWARE IV" é número, não palavra: fica de fora.
+            const bool romano = palavra.find_first_not_of("ivxl") == std::string::npos && palavra.size() <= 4;
+            if (!pula && !romano) out += palavra[0];
+        }
+        i = j;
+    }
+    return out;
+}
+
 bool contemDobrado(std::string_view palheiro, std::string_view agulha) {
     return dobrar(palheiro).find(dobrar(agulha)) != std::string::npos;
 }

@@ -57,13 +57,13 @@ MateriaDaProva materiaDaProva(const Snapshot& s, const Efetiva& prova,
                      [](const TopicoAula* a, const TopicoAula* b) { return a->inicio < b->inicio; });
 
     // O que NÃO é matéria, mesmo registrado como tópico: o anúncio de prova
-    // ("Primeira avaliação", "Revisão para a P1"), aula de dúvidas ou de
+    // ("Primeira avaliação", "Revisão para a P1", "Quiz 1"), aula de dúvidas ou de
     // exercícios, "Não haverá aula", a apresentação da disciplina. Entram na
     // conta dos ARQUIVOS (a lista da aula de exercícios é material de estudo),
     // mas não na lista de tópicos, onde seriam só ruído. Sobre o título
     // dobrado (sem acento), para a regex ser ASCII.
     static const std::regex naoEhMateria(
-        R"(\b(prova|avalia|revis|duvida|exercicio|nao havera|sem aula|feriado|recesso|apresentacao da disciplina))");
+        R"(\b(prova|avalia|quiz|revis|duvida|exercicio|nao havera|sem aula|feriado|recesso|apresentacao da disciplina))");
 
     std::set<std::string> titulos;      // para casar arquivos: todos os da janela
     std::set<std::string> jaListados;   // para não repetir o mesmo título

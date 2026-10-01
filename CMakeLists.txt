@@ -187,8 +187,12 @@ endif()
 # ---------------------------------------------------------------------------
 add_library(sigaa_mcp STATIC
   src/mcp/Leitura.cpp
+  src/mcp/Escrita.cpp
   src/mcp/Ferramentas.cpp
   src/mcp/Servidor.cpp
+  src/mcp/Comando.cpp
+  src/mcp/Instalar.cpp
+  src/mcp/Kit.cpp
 )
 target_include_directories(sigaa_mcp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(sigaa_mcp PUBLIC sigaa_core)
@@ -199,7 +203,6 @@ target_link_libraries(sigaa_mcp PUBLIC sigaa_core)
 # ---------------------------------------------------------------------------
 add_executable(sigaa-cli
   src/app/main.cpp
-  src/app/Mcp.cpp
   src/app/Prompt.cpp
 )
 target_link_libraries(sigaa-cli PRIVATE sigaa_mcp sigaa_core sigaa_platform spdlog::spdlog)
@@ -287,7 +290,7 @@ elseif(SIGAA_UI)
     AUTOUIC_SEARCH_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/forms"
     AUTORCC ON)
   target_link_libraries(sigaa-ui PRIVATE
-    sigaa_core sigaa_platform Qt6::Widgets Qt6::Svg Qt6::Network)
+    sigaa_mcp sigaa_core sigaa_platform Qt6::Widgets Qt6::Svg Qt6::Network)
 
   if(WIN32)
     # WIN32_EXECUTABLE tira o console preto que apareceria atras da janela.
@@ -425,6 +428,7 @@ if(BUILD_TESTING)
     tests/materia_test.cpp
     tests/pastas_test.cpp
     tests/mcp_test.cpp
+    tests/instalar_test.cpp
   )
   target_link_libraries(sigaa_tests PRIVATE sigaa_mcp sigaa_core Catch2::Catch2WithMain)
   target_compile_definitions(sigaa_tests PRIVATE

@@ -126,9 +126,9 @@ bool mesmoNumero(const std::string& pedido, const std::string& descricao) {
 
 json propriedadeTurma() {
     return {{"type", "string"},
-            {"description", "Id da turma, código (ECO2207) ou parte do nome, sem precisar de "
-                            "acento ou maiúscula: \"compiladores\", \"edo\" não, "
-                            "\"equacoes\" sim."}};
+            {"description", "Id da turma, código (ECO2207), sigla (\"edo\", \"ia\") ou "
+                            "parte do nome, sem precisar de acento ou maiúscula "
+                            "(\"compiladores\", \"equacoes\")."}};
 }
 
 // --- domínio -----------------------------------------------------------------
@@ -550,7 +550,8 @@ EscolhaTurma acharTurma(const Snapshot& s, const std::string& consulta) {
     const std::string q = util::dobrar(consulta);
     std::vector<const Turma*> achadas;
     for (const auto& t : s.turmas) {
-        if (t.idTurma == consulta || util::dobrar(t.codigo) == q || util::dobrar(t.nome) == q) {
+        if (t.idTurma == consulta || util::dobrar(t.codigo) == q || util::dobrar(t.nome) == q ||
+            (q.size() >= 2 && util::sigla(t.nome) == q)) {
             e.turma = &t;
             return e;
         }
@@ -599,6 +600,10 @@ std::string caminhoDoArquivo(Contexto& c, const ArquivoTurma& a) {
     if (nome.empty()) return {};
     return sync::CacheLocal(sync::pastaDaTurma(c.materiais(), nome)).caminho(a.idArquivo);
 }
+
+DateTime hojeLocal() { return hoje(); }
+int diasAteHoje(const DateTime& d) { return diasAte(d); }
+DateTime lerDataIso(const std::string& s) { return lerData(s); }
 
 std::string tipoMime(const std::string& nomeArquivo) {
     const std::string n = util::dobrar(nomeArquivo);

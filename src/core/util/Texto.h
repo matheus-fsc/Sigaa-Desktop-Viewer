@@ -16,6 +16,11 @@ namespace sigaa::util {
 // UTF-8 passa intacto. Espaços em sequência viram um, e as pontas somem.
 std::string dobrar(std::string_view s);
 
+// As iniciais das palavras que contam, dobradas: "EQUAÇÕES DIFERENCIAIS
+// ORDINÁRIAS" → "edo", "PROJETO E ANÁLISE DE ALGORITMOS" → "paa". Artigos e
+// preposições ("de", "e", "da"...) não entram — é assim que o aluno abrevia.
+std::string sigla(std::string_view s);
+
 // `agulha` aparece em `palheiro`, os dois dobrados.
 bool contemDobrado(std::string_view palheiro, std::string_view agulha);
 

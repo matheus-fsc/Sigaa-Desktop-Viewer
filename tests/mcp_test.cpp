@@ -22,6 +22,7 @@
 
 #include "core/store/Database.h"
 #include "core/sync/Baixador.h"
+#include "mcp/Escrita.h"
 #include "mcp/Servidor.h"
 
 using namespace sigaa;
@@ -240,6 +241,9 @@ TEST_CASE("mcp: turma por nome sem acento, e ambiguidade pede escolha", "[mcp]")
     CHECK(r["isError"] == false);
     CHECK(r["structuredContent"]["turma"] == "INTELIGÊNCIA ARTIFICIAL");
 
+    r = chamar(s, "frequencia", {{"turma", "paa"}});
+    CHECK(r["structuredContent"]["turma"] == "PROJETO E ANÁLISE DE ALGORITMOS");
+
     r = chamar(s, "frequencia", {{"turma", "ECO2207"}});
     CHECK(r["structuredContent"]["turma"] == "COMPILADORES");
 
@@ -429,4 +433,179 @@ TEST_CASE("mcp: banco inexistente vira aviso na ferramenta, nao banco vazio", "[
     CHECK(r["isError"] == true);
     CHECK(textoDe(r).find("Não achei o banco") != std::string::npos);
     CHECK_FALSE(std::filesystem::exists(caminho));
+}
+
+// --- devolução (Fase 3) ------------------------------------------------------
+
+TEST_CASE("mcp escrita: sem a permissao de escrita nada e gravado", "[mcp][escrita]") {
+    mcp::zerarLimiteDeEscrita();
+    Ambiente amb;
+    amb.permitir("leitura");
+    mcp::Servidor s({amb.banco, amb.materiais});
+    const auto r = chamar(s, "registrar_estudo", {{"turma", "compiladores"}, {"minutos", 30}});
+    CHECK(r["isError"] == true);
+    CHECK(textoDe(r).find("permitir escrita") != std::string::npos);
+    store::Database db(amb.banco);
+    CHECK(db.carregarRegistrosEstudo().empty());
+}
+
+TEST_CASE("mcp escrita: registrar_estudo grava com a origem e soma a semana", "[mcp][escrita]") {
+    mcp::zerarLimiteDeEscrita();
+    Ambiente amb;
+    amb.permitir("leitura");
+    amb.permitir("escrita");
+    mcp::Servidor s({amb.banco, amb.materiais});
+    s.tratar(pedido(1, "initialize", {{"clientInfo", {{"name", "claude-code"}}}}));
+
+    auto r = chamar(s, "registrar_estudo",
+                    {{"turma", "compiladores"}, {"minutos", 70},
+                     {"topicos", {"Análise LL(1)", "FIRST e FOLLOW"}}, {"prova", "Prova 2"}});
+    REQUIRE(r["isError"] == false);
+    r = chamar(s, "registrar_estudo", {{"turma", "compiladores"}, {"minutos", 20}});
+    CHECK(r["structuredContent"]["minutos_na_semana"] == 90);
+
+    store::Database db(amb.banco);
+    const auto regs = db.carregarRegistrosEstudo("102");
+    REQUIRE(regs.size() == 2);
+    const auto& primeiro = regs.back();
+    CHECK(primeiro.origem == "claude-code");
+    CHECK(primeiro.prova == "Prova 2");
+    CHECK(primeiro.topicos.size() == 2);
+}
+
+TEST_CASE("mcp escrita: dado invalido e recusado e nao chega ao banco", "[mcp][escrita]") {
+    mcp::zerarLimiteDeEscrita();
+    Ambiente amb;
+    amb.permitir("leitura");
+    amb.permitir("escrita");
+    mcp::Servidor s({amb.banco, amb.materiais});
+
+    const json ruins[] = {
+        {{"turma", "compiladores"}, {"minutos", 0}},
+        {{"turma", "compiladores"}, {"minutos", 721}},
+        {{"turma", "compiladores"}, {"minutos", 30}, {"quando", "2999-01-01"}},
+        {{"turma", "compiladores"}, {"minutos", 30}, {"quando", "ontem"}},
+        {{"turma", "a"}, {"minutos", 30}},
+        {{"turma", "compiladores"}, {"minutos", 30}, {"topicos", "nao e lista"}},
+        {{"turma", "compiladores"}, {"minutos", 30}, {"observacao", std::string(2001, 'x')}},
+    };
+    for (const auto& a : ruins) {
+        INFO(a.dump());
+        const auto r = chamar(s, "registrar_estudo", a);
+        CHECK(r["isError"] == true);
+        CHECK(textoDe(r).rfind("Não registrei: ", 0) == 0);
+    }
+    auto r = chamar(s, "registrar_desempenho",
+                    {{"turma", "compiladores"}, {"topico", "LL(1)"}, {"acertos", 6}, {"total", 5}});
+    CHECK(r["isError"] == true);
+    r = chamar(s, "registrar_desempenho",
+               {{"turma", "compiladores"}, {"topico", "LL(1)"}, {"acertos", 3}, {"total", 5},
+                {"tipo", "prova"}});
+    CHECK(r["isError"] == true);
+
+    store::Database db(amb.banco);
+    CHECK(db.carregarRegistrosEstudo().empty());
+    CHECK(db.carregarDesempenho().empty());
+}
+
+TEST_CASE("mcp escrita: foco no mesmo topico atualiza, e resolver fecha", "[mcp][escrita]") {
+    mcp::zerarLimiteDeEscrita();
+    Ambiente amb;
+    amb.permitir("leitura");
+    amb.permitir("escrita");
+    mcp::Servidor s({amb.banco, amb.materiais});
+
+    auto r = chamar(s, "marcar_foco", {{"turma", "compiladores"}, {"topico", "Análise LL(1)"},
+                                        {"nivel", 2}, {"motivo", "errou 2 de 3"}});
+    REQUIRE(r["isError"] == false);
+    const auto id = r["structuredContent"]["id"].get<std::int64_t>();
+    CHECK(r["structuredContent"]["atualizado"] == false);
+
+    r = chamar(s, "marcar_foco", {{"turma", "compiladores"}, {"topico", "ANALISE ll(1)"},
+                                   {"nivel", 3}, {"motivo", "errou de novo"}});
+    CHECK(r["structuredContent"]["atualizado"] == true);
+    CHECK(r["structuredContent"]["id"] == id);
+
+    store::Database db(amb.banco);
+    auto focos = db.carregarFocos("102", true);
+    REQUIRE(focos.size() == 1);
+    CHECK(focos[0].nivel == 3);
+    CHECK(focos[0].motivo == "errou de novo");
+
+    r = chamar(s, "resolver_foco", {{"id", id}, {"motivo", "acertou 5 de 5"}});
+    CHECK(r["isError"] == false);
+    CHECK(db.carregarFocos("102", true).empty());
+    r = chamar(s, "resolver_foco", {{"id", id}});
+    CHECK(r["isError"] == true);
+
+    // Resolvido, o mesmo tópico pode voltar a ser foco: linha nova.
+    r = chamar(s, "marcar_foco", {{"turma", "compiladores"}, {"topico", "Análise LL(1)"},
+                                   {"nivel", 1}, {"motivo", "esqueceu"}});
+    CHECK(r["structuredContent"]["atualizado"] == false);
+    CHECK(db.carregarFocos("102").size() == 2);
+}
+
+TEST_CASE("mcp escrita: meu_progresso junta tempo, desempenho e focos", "[mcp][escrita]") {
+    mcp::zerarLimiteDeEscrita();
+    Ambiente amb;
+    amb.permitir("leitura");
+    amb.permitir("escrita");
+    mcp::Servidor s({amb.banco, amb.materiais});
+    chamar(s, "registrar_estudo", {{"turma", "compiladores"}, {"minutos", 45}});
+    chamar(s, "registrar_desempenho",
+           {{"turma", "compiladores"}, {"topico", "Análise LL(1)"}, {"acertos", 3}, {"total", 5}});
+    chamar(s, "registrar_desempenho",
+           {{"turma", "compiladores"}, {"topico", "analise ll(1)"}, {"acertos", 4}, {"total", 5}});
+    chamar(s, "marcar_foco", {{"turma", "compiladores"}, {"topico", "Tabelas LR"}, {"nivel", 2},
+                               {"motivo", "confunde SLR e LR(0)"}});
+
+    // Ler o progresso só precisa de leitura.
+    {
+        store::Database db(amb.banco);
+        db.gravarMeta("mcp.escrita", "0");
+    }
+    const auto r = chamar(s, "meu_progresso", {{"turma", "compiladores"}});
+    REQUIRE(r["isError"] == false);
+    const auto& d = r["structuredContent"];
+    CHECK(d["tempo"][0]["minutos_7_dias"] == 45);
+    REQUIRE(d["desempenho"].size() == 1);   // as duas linhas do mesmo tópico somadas
+    CHECK(d["desempenho"][0]["acertos"] == 7);
+    CHECK(d["desempenho"][0]["total"] == 10);
+    REQUIRE(d["focos_abertos"].size() == 1);
+    CHECK(d["focos_abertos"][0]["topico"] == "Tabelas LR");
+}
+
+TEST_CASE("mcp escrita: no maximo 60 gravacoes por minuto", "[mcp][escrita]") {
+    mcp::zerarLimiteDeEscrita();
+    Ambiente amb;
+    amb.permitir("leitura");
+    amb.permitir("escrita");
+    mcp::Servidor s({amb.banco, amb.materiais});
+    int ok = 0;
+    for (int i = 0; i < 61; ++i) {
+        ok += chamar(s, "registrar_estudo", {{"turma", "compiladores"}, {"minutos", 1}})["isError"] == false;
+    }
+    CHECK(ok == 60);
+    mcp::zerarLimiteDeEscrita();
+}
+
+TEST_CASE("mcp escrita: apagar do agente, por linha e por origem", "[mcp][escrita]") {
+    mcp::zerarLimiteDeEscrita();
+    Ambiente amb;
+    amb.permitir("leitura");
+    amb.permitir("escrita");
+    mcp::Servidor a({amb.banco, amb.materiais});
+    a.tratar(pedido(1, "initialize", {{"clientInfo", {{"name", "codex"}}}}));
+    mcp::Servidor b({amb.banco, amb.materiais});
+    b.tratar(pedido(1, "initialize", {{"clientInfo", {{"name", "claude-code"}}}}));
+    chamar(a, "registrar_estudo", {{"turma", "compiladores"}, {"minutos", 10}});
+    chamar(a, "marcar_foco", {{"turma", "compiladores"}, {"topico", "x"}, {"nivel", 1}, {"motivo", "y"}});
+    const auto id = chamar(b, "registrar_estudo", {{"turma", "compiladores"}, {"minutos", 20}})
+                        ["structuredContent"]["id"].get<std::int64_t>();
+
+    store::Database db(amb.banco);
+    CHECK(db.apagarTudoDoAgente("codex") == 2);
+    REQUIRE(db.carregarRegistrosEstudo().size() == 1);
+    CHECK(db.apagarDoAgente(store::Database::TabelaAgente::Estudo, id));
+    CHECK(db.carregarRegistrosEstudo().empty());
 }

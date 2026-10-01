@@ -27,7 +27,7 @@
 
 #include "core/config/DotEnv.h"
 #include "core/config/Instituicao.h"
-#include "app/Mcp.h"
+#include "mcp/Comando.h"
 #include "app/Prompt.h"
 #include "core/http/SigaaSession.h"
 #include "core/http/Trafego.h"
@@ -351,6 +351,8 @@ int usage() {
         "  sigaa-cli mcp estado                         o que esta liberado\n"
         "  sigaa-cli mcp instalar <cliente> [--imprimir] registra o servidor no agente\n"
         "  sigaa-cli mcp remover <cliente>              desfaz o registro\n"
+        "  sigaa-cli mcp clientes                       agentes detectados e conectados\n"
+        "  sigaa-cli mcp kit <turma> [<prova>]          pasta de estudo para chat na web\n"
         "\n"
         "opcoes do sync:\n"
         "  --turmas          entra em cada turma (mais lento, traz provas, topicos e\n"
@@ -699,7 +701,7 @@ int main(int argc, char** argv) {
 
     if (std::string(argv[1]) == "login") return cmdLogin();
     if (std::string(argv[1]) == "logout") return cmdLogout();
-    if (std::string(argv[1]) == "mcp") return sigaa::app::cmdMcp(argc, argv);
+    if (std::string(argv[1]) == "mcp") return sigaa::mcp::comando(argc, argv);
 
     if (std::string(argv[1]) == "arquivos") {
         if (argc < 3) return usage();

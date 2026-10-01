@@ -54,6 +54,14 @@ TEST_CASE("texto: dobrar tira acento, caixa e espaco repetido", "[texto]") {
     CHECK_FALSE(util::contemDobrado("COMPILADORES", "algoritmos"));
 }
 
+TEST_CASE("texto: sigla como o aluno abrevia a materia", "[texto]") {
+    CHECK(util::sigla("EQUAÇÕES DIFERENCIAIS ORDINÁRIAS") == "edo");
+    CHECK(util::sigla("INTELIGÊNCIA ARTIFICIAL") == "ia");
+    CHECK(util::sigla("PROJETO E ANÁLISE DE ALGORITMOS") == "paa");
+    CHECK(util::sigla("ANÁLISE E DESENVOLVIMENTO DE SOFTWARE IV") == "ads");
+    CHECK(util::sigla("COMPILADORES") == "c");
+}
+
 TEST_CASE("materia: so os topicos entre a prova anterior e esta", "[materia]") {
     Snapshot s;
     s.topicos = {topico("Introdução", dia(2026, 8, 10)),
@@ -94,7 +102,8 @@ TEST_CASE("materia: anuncio de prova, revisao e feriado nao sao materia", "[mate
                  topico("REVISÃO para a prova", dia(2026, 9, 6)),
                  topico("Não haverá aula", dia(2026, 9, 7)),
                  topico("Aula de Exercícios", dia(2026, 9, 8)),
-                 topico("Primeira Avaliação", dia(2026, 9, 9))};
+                 topico("Primeira Avaliação", dia(2026, 9, 9)),
+                 topico("Quiz 2", dia(2026, 9, 9))};
     const auto p = prova("P1", dia(2026, 9, 10));
     const auto m = avaliacao::materiaDaProva(s, p, {p});
     CHECK(m.topicos == std::vector<std::string>{"Gramáticas livres de contexto"});

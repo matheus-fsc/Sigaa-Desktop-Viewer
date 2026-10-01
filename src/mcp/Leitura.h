@@ -99,6 +99,13 @@ std::string resumoDaTurma(Contexto& c, const Turma& t);
 // Caminho absoluto do material no disco, ou "" se não foi baixado.
 std::string caminhoDoArquivo(Contexto& c, const ArquivoTurma& a);
 
+// Agora, no fuso do computador; e quantos dias faltam até `d` (negativo no
+// passado). Para as ferramentas de todas as fases contarem do mesmo jeito.
+DateTime hojeLocal();
+int diasAteHoje(const DateTime& d);
+// "aaaa-mm-dd" (ou ISO com hora); inválida se não der.
+DateTime lerDataIso(const std::string& s);
+
 // "application/pdf" pela extensão; "application/octet-stream" no resto.
 std::string tipoMime(const std::string& nomeArquivo);
 

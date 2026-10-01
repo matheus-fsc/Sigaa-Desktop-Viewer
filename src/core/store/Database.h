@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "core/avaliacao/Ajustes.h"
+#include "core/estudo/Registros.h"
 #include "core/frequencia/Presenca.h"
 #include "core/model/Models.h"
 
@@ -59,6 +60,30 @@ public:
     };
     // Os mais recentes primeiro.
     std::vector<AcessoMcp> ultimosAcessosMcp(int limite = 50);
+
+    // --- devolução do agente de IA (core/estudo/Registros.h) --------------
+    //
+    // Os `registrar*` devolvem o id novo, ou 0 em falha (com `erro()`).
+    std::int64_t registrarEstudo(const estudo::RegistroEstudo& r);
+    std::int64_t registrarDesempenho(const estudo::Desempenho& d);
+    // Atualiza o ponto ABERTO do mesmo tópico (sem acento e caixa) em vez de
+    // duplicar; `atualizou` diz qual dos dois aconteceu.
+    std::int64_t marcarFoco(const estudo::PontoFoco& f, bool* atualizou = nullptr);
+    // Falso se o id não existe ou já estava resolvido.
+    bool resolverFoco(std::int64_t id, const std::string& motivo, std::int64_t agora);
+
+    // Vazio = todas as turmas. Mais recentes primeiro.
+    std::vector<estudo::RegistroEstudo> carregarRegistrosEstudo(const std::string& idTurma = {});
+    std::vector<estudo::Desempenho> carregarDesempenho(const std::string& idTurma = {});
+    // Abertos primeiro, do nível mais alto para o mais baixo.
+    std::vector<estudo::PontoFoco> carregarFocos(const std::string& idTurma = {},
+                                                 bool soAbertos = false);
+
+    enum class TabelaAgente { Estudo, Desempenho, Foco };
+    bool apagarDoAgente(TabelaAgente t, std::int64_t id);
+    // Tudo que uma origem gravou; origem vazia = de todos os agentes.
+    // Devolve quantas linhas saíram.
+    int apagarTudoDoAgente(const std::string& origem);
 
     // Lê o último estado conhecido — a base de comparação do diff.
     Snapshot carregarUltimo();
