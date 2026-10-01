@@ -15,6 +15,11 @@
 
 #include "core/atualizacao/Atualizador.h"
 
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <string>
+
 using sigaa::atualizacao::levaToken;
 using sigaa::atualizacao::maisNova;
 
@@ -106,3 +111,39 @@ TEST_CASE("GITHUB_TOKEN so vai para a API do GitHub por HTTPS", "[atualizador]")
     CHECK_FALSE(levaToken("https://github.com/matheus-fsc/Sigaa-Desktop-Viewer/releases/download/v1.0.1/x.AppImage"));
     CHECK_FALSE(levaToken("https://objects.githubusercontent.com/x"));
 }
+
+#ifndef _WIN32   // AppImage e setenv: so existem fora do Windows
+TEST_CASE("instala AppImage baixado em outro sistema de arquivos", "[atualizador]") {
+    // O download cai em /tmp, e em Arch/Fedora/CachyOS /tmp e tmpfs, enquanto
+    // o AppImage mora em /home. `rename` entre os dois da EXDEV, e foi assim
+    // que a atualizacao do AppImage falhou em toda maquina com /tmp em RAM.
+    // O teste reproduz o par /tmp -> pasta de build (que fica no disco).
+    namespace fs = std::filesystem;
+    const fs::path pasta = fs::current_path() / "atualizador-teste-appimage";
+    fs::remove_all(pasta);
+    fs::create_directories(pasta);
+    const fs::path app = pasta / "App.AppImage";
+    { std::ofstream(app) << "velho"; }
+
+    const fs::path baixado = fs::temp_directory_path() / "sigaa-teste-novo.AppImage";
+    { std::ofstream(baixado) << "novo"; }
+
+    setenv("APPIMAGE", app.c_str(), 1);
+    std::string erro;
+    const bool ok = sigaa::atualizacao::instalarAppImage(baixado.string(), &erro);
+    unsetenv("APPIMAGE");
+
+    INFO(erro);
+    REQUIRE(ok);
+    std::string conteudo;
+    std::ifstream(app) >> conteudo;
+    CHECK(conteudo == "novo");
+    std::ifstream(pasta / "App.AppImage.anterior") >> conteudo;
+    CHECK(conteudo == "velho");
+    CHECK_FALSE(fs::exists(pasta / "App.AppImage.novo"));
+    CHECK_FALSE(fs::exists(baixado));
+    CHECK((fs::status(app).permissions() & fs::perms::owner_exec) != fs::perms::none);
+
+    fs::remove_all(pasta);
+}
+#endif

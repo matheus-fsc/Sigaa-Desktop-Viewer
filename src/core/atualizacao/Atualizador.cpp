@@ -548,18 +548,44 @@ bool instalarAppImage(const std::string& baixado, std::string* erro) {
     std::error_code ec;
     const auto destino = std::filesystem::path(atual);
     const auto anterior = std::filesystem::path(atual + ".anterior");
+    const auto novo = std::filesystem::path(atual + ".novo");
+
+    // O download chega na pasta temporária, e `rename` não atravessa sistema
+    // de arquivos: com /tmp em tmpfs (Arch, Fedora, CachyOS...) e o AppImage
+    // em /home, dá EXDEV e a atualização morria sempre no último passo.
+    // Copiar PRIMEIRO para o lado do AppImage, antes de tocar no atual — uma
+    // cópia que falha no meio (disco cheio) não pode deixar o app sem versão.
+    std::filesystem::remove(novo, ec);
+    std::filesystem::rename(baixado, novo, ec);
+    if (ec) {
+        ec.clear();
+        std::filesystem::copy_file(baixado, novo, ec);
+        if (ec) {
+            std::error_code ec2;
+            std::filesystem::remove(novo, ec2);
+            return falhar("nao consegui copiar a versao nova para " +
+                          destino.parent_path().string() + ": " + ec.message());
+        }
+        std::filesystem::remove(baixado, ec);
+        ec.clear();
+    }
 
     // O binário EM EXECUÇÃO pode ser renomeado no Linux — o processo segue de
     // pé com o inode antigo. É o que permite trocar a versão sem fechar o app.
     std::filesystem::remove(anterior, ec);
     std::filesystem::rename(destino, anterior, ec);
-    if (ec) return falhar("nao consegui guardar a versao atual: " + ec.message());
+    if (ec) {
+        std::error_code ec2;
+        std::filesystem::remove(novo, ec2);
+        return falhar("nao consegui guardar a versao atual: " + ec.message());
+    }
 
-    std::filesystem::rename(baixado, destino, ec);
+    std::filesystem::rename(novo, destino, ec);
     if (ec) {
         // Volta atrás: melhor a versão velha funcionando do que nenhuma.
         std::error_code ec2;
         std::filesystem::rename(anterior, destino, ec2);
+        std::filesystem::remove(novo, ec2);
         return falhar("nao consegui pôr a versao nova no lugar: " + ec.message());
     }
 
