@@ -139,8 +139,8 @@ Resultado baixarArquivo(Contexto& c, const json& a) {
     fs::create_directories(util::deUtf8(pasta), ec);
     const auto baixado = turma.baixar(id, pasta, &erro);
     if (!baixado) return Resultado::falha("O download falhou: " + erro);
-    const std::string final = sync::CacheLocal(pasta).registrar(id, *baixado);
-    return pronto(final, true);
+    const std::string definitivo = sync::CacheLocal(pasta).registrar(id, *baixado);
+    return pronto(definitivo, true);
 }
 
 // --- atualizar_turma ---------------------------------------------------------

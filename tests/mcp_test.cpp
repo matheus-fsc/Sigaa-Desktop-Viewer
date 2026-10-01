@@ -714,3 +714,21 @@ TEST_CASE("mcp rede: ferramentas de rede anunciadas como openWorld", "[mcp][rede
     }
     CHECK(rede == 2);
 }
+
+TEST_CASE("mcp: gravar marca o banco para a UI recarregar; ler nao", "[mcp][escrita]") {
+    mcp::zerarLimiteDeEscrita();
+    Ambiente amb;
+    amb.permitir("leitura");
+    amb.permitir("escrita");
+    mcp::Servidor s({amb.banco, amb.materiais});
+    chamar(s, "listar_turmas");
+    {
+        store::Database db(amb.banco);
+        CHECK_FALSE(db.lerMeta("mcp.alteracao").has_value());
+    }
+    chamar(s, "registrar_estudo", {{"turma", "compiladores"}, {"minutos", 15}});
+    store::Database db(amb.banco);
+    const auto marca = db.lerMeta("mcp.alteracao");
+    REQUIRE(marca.has_value());
+    CHECK(marca->find("registrar_estudo") != std::string::npos);
+}

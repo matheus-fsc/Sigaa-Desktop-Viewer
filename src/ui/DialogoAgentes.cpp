@@ -14,6 +14,7 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <map>
 #include <set>
 

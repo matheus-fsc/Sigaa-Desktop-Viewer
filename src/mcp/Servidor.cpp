@@ -288,6 +288,12 @@ json Servidor::chamarFerramenta(const json& p) {
             r = Resultado::falha(semPermissao(f->exige));
         } else {
             r = f->rodar(c, args);
+            // Mudou o banco (registro do agente, arquivo baixado, turma
+            // atualizada): a marca é o que a UI aberta confere ao voltar a ter
+            // foco, para mostrar o que o agente fez sem o aluno recarregar.
+            if (!r.erro && !f->somenteLeitura) {
+                db.gravarMeta("mcp.alteracao", std::to_string(std::time(nullptr)) + "-" + f->nome);
+            }
         }
         turma = c.turmaUsada;
     }

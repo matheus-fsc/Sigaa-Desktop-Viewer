@@ -287,6 +287,21 @@ JanelaPrincipal::~JanelaPrincipal() {
 
 void JanelaPrincipal::changeEvent(QEvent* ev) {
     QMainWindow::changeEvent(ev);
+    // Voltou para o app: um agente de IA pode ter gravado no banco enquanto
+    // isso (docs/MCP.md §9). Barato — uma leitura de `meta` — e só recarrega
+    // quando a marca mudou e não há coleta em andamento, que recarrega sozinha.
+    if (ev->type() == QEvent::ActivationChange && isActiveWindow() && navegacao_ &&
+        !(barra_ && barra_->isVisible())) {
+        store::Database db;
+        if (db.aberto()) {
+            const std::string marca = db.lerMeta("mcp.alteracao").value_or("");
+            if (marcaMcp_.has_value() && marca != *marcaMcp_) {
+                recarregarDoBanco();
+                status(QStringLiteral("Atualizado com o que o agente de IA gravou."));
+            }
+            marcaMcp_ = marca;
+        }
+    }
     if (ev->type() == QEvent::PaletteChange || ev->type() == QEvent::ThemeChange) {
         aplicarIcones();
         // O título e o resumo da agenda levam as cores dentro do HTML; sem

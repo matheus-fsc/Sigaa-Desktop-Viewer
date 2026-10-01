@@ -322,6 +322,9 @@ private:
     // mesmo motivo do filtro de provas: a semana é escolha do usuário, e o ciclo
     // automático de 20 minutos não pode arrastá-lo de volta para hoje enquanto
     // ele olha a semana que vem.
+    // A última marca `mcp.alteracao` vista no banco. Vazio até a primeira
+    // ativação: a carga inicial já leu tudo.
+    std::optional<std::string> marcaMcp_;
     QDate inicioAgenda_;
 
     // Acumulador da roda horizontal: um trackpad manda dezenas de eventos de
