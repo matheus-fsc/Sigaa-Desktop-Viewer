@@ -31,11 +31,17 @@ env:
 
 jobs:
   linux:
-    # Fixo, e não `ubuntu-latest`: um AppImage só roda em glibc igual ou mais
-    # nova que a da máquina onde foi montado. Subir de versão aqui, sem querer,
-    # quebraria o pacote nas distros mais conservadoras — e o erro aparece
-    # só na máquina do usuário.
-    runs-on: ubuntu-24.04
+    # Fixo, e no 22.04 de propósito: um AppImage só roda em glibc igual ou mais
+    # nova que a da máquina onde foi montado. Montado no 24.04 (glibc 2.39), o
+    # pacote da v1.0.1 exigia GLIBC_2.38 e nem abria no Pop!_OS 22.04 (glibc
+    # 2.35) — quem tentou acabou rodando o .exe pelo Wine. Subir esta versão
+    # quebra as distros conservadoras, e o erro só aparece na máquina do usuário.
+    runs-on: ubuntu-22.04
+    env:
+      # O gcc 11 padrão do 22.04 tem o C++20 incompleto. O 12 vem do próprio
+      # repositório, e a libstdc++ que ele exige já é a que o 22.04 instala.
+      CC: gcc-12
+      CXX: g++-12
     steps:
       - uses: actions/checkout@v4
 
@@ -43,14 +49,25 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config \
+            build-essential g++-12 ninja-build pkg-config \
             libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev libspdlog-dev \
-            catch2 \
             libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libxcb-cursor0 \
             libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
             libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1
 
-      # O Qt do Ubuntu 24.04 é o 6.4.2, abaixo do 6.5 que o projeto exige — sem
+      # O CMake do 22.04 é o 3.22, abaixo do 3.24 que os presets pedem.
+      - uses: lukka/get-cmake@latest
+
+      # O catch2 do 22.04 é o v2; os testes são escritos para o v3.
+      - name: Catch2 v3
+        run: |
+          git clone --depth 1 -b v3.7.1 https://github.com/catchorg/Catch2.git /tmp/catch2
+          cmake -S /tmp/catch2 -B /tmp/catch2/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCATCH_INSTALL_DOCS=OFF
+          cmake --build /tmp/catch2/build -j
+          sudo cmake --install /tmp/catch2/build
+
+      # O Qt do Ubuntu 22.04 é o 6.2, abaixo do 6.5 que o projeto exige — sem
       # isto o CMake pula a interface e o script aborta por não ter o que
       # empacotar. Baixar o Qt aqui também deixa o AppImage com a MESMA versão
       # do pacote do Windows, que é uma variável a menos entre as duas
@@ -61,7 +78,7 @@ jobs:
           arch: 'linux_gcc_64'
           cache: true
 
-      # lexbor não está nos repos do Ubuntu 24.04 (chega no 24.10 como
+      # lexbor não está nos repos do Ubuntu 22.04 (chega no 24.10 como
       # liblexbor-dev). Compilar leva ~1 min e evita depender de PPA.
       - name: lexbor
         run: |
