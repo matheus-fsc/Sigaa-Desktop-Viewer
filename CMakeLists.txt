@@ -134,6 +134,7 @@ add_library(sigaa_core STATIC
   src/core/config/Instituicao.cpp
   src/core/util/Caminho.cpp
   src/core/util/Texto.cpp
+  src/core/util/Pastas.cpp
 )
 
 target_include_directories(sigaa_core
@@ -409,6 +410,7 @@ if(BUILD_TESTING)
     tests/baixador_test.cpp
     tests/instituicao_test.cpp
     tests/materia_test.cpp
+    tests/pastas_test.cpp
   )
   target_link_libraries(sigaa_tests PRIVATE sigaa_core Catch2::Catch2WithMain)
   target_compile_definitions(sigaa_tests PRIVATE

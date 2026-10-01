@@ -366,14 +366,54 @@ struct Database::Impl {
     }
 };
 
-Database::Database(const std::string& caminho) : impl_(std::make_unique<Impl>()) {
-    if (sqlite3_open(caminho.c_str(), &impl_->db) != SQLITE_OK) {
+Database::Database(const std::string& caminho, Abertura modo)
+    : impl_(std::make_unique<Impl>()) {
+    int flags = SQLITE_OPEN_READWRITE;
+    if (modo == Abertura::CriarSeFaltar) flags |= SQLITE_OPEN_CREATE;
+    if (sqlite3_open_v2(caminho.c_str(), &impl_->db, flags, nullptr) != SQLITE_OK) {
         impl_->erro = impl_->db ? sqlite3_errmsg(impl_->db) : "falha ao abrir o banco";
         if (impl_->db) {
             sqlite3_close(impl_->db);
             impl_->db = nullptr;
         }
+        return;
     }
+    // A UI e o servidor MCP (um processo do agente de IA) abrem o MESMO banco
+    // ao mesmo tempo. Em WAL leitura não bloqueia escrita, mas duas escritas
+    // se esperam — e sem um prazo a segunda falharia na hora com SQLITE_BUSY,
+    // perdendo, por exemplo, o estudo que o agente registrou durante um sync.
+    sqlite3_busy_timeout(impl_->db, 3000);
+}
+
+std::optional<std::string> Database::lerMeta(const std::string& chave) {
+    if (!aberto()) return std::nullopt;
+    sqlite3_stmt* st = nullptr;
+    std::optional<std::string> out;
+    if (sqlite3_prepare_v2(impl_->db, "SELECT valor FROM meta WHERE chave=?", -1, &st,
+                           nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, chave.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(st) == SQLITE_ROW) out = txt(st, 0);
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+
+bool Database::gravarMeta(const std::string& chave, const std::string& valor) {
+    if (!aberto()) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO meta (chave, valor) VALUES (?, ?)"
+            " ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return false;
+    }
+    sqlite3_bind_text(st, 1, chave.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, valor.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if (!ok) impl_->erro = sqlite3_errmsg(impl_->db);
+    sqlite3_finalize(st);
+    return ok;
 }
 
 Database::~Database() {

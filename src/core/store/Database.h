@@ -22,7 +22,13 @@ namespace sigaa::store {
 
 class Database {
 public:
-    explicit Database(const std::string& caminho = "sigaa-viewer.db");
+    enum class Abertura {
+        CriarSeFaltar,   // a UI e o CLI: primeira execução cria o banco
+        SoExistente,     // o servidor MCP: caminho errado é erro, não banco vazio
+    };
+
+    explicit Database(const std::string& caminho = "sigaa-viewer.db",
+                      Abertura modo = Abertura::CriarSeFaltar);
     ~Database();
     Database(const Database&) = delete;
     Database& operator=(const Database&) = delete;
@@ -32,6 +38,11 @@ public:
 
     // Cria/atualiza o esquema. Idempotente.
     bool migrar();
+
+    // Chave/valor livre da tabela `meta` (contador de ciclos, consentimento
+    // do MCP...). nullopt = chave ausente, que é diferente de valor vazio.
+    std::optional<std::string> lerMeta(const std::string& chave);
+    bool gravarMeta(const std::string& chave, const std::string& valor);
 
     // Lê o último estado conhecido — a base de comparação do diff.
     Snapshot carregarUltimo();
