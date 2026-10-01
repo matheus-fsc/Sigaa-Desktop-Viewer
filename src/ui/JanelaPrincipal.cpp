@@ -11,6 +11,7 @@
 #include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QLocale>
@@ -93,6 +94,11 @@ constexpr int kDiasPorPagina = 7;
 // Um "clique" de roda são 120 oitavos de grau (QWheelEvent). Trackpad manda
 // frações; o acumulador só vira a página quando somam um clique.
 constexpr int kPassoRolagem = 120;
+
+// Larguras das colunas da agenda arrastadas pelo usuário (todas menos a
+// última, que estica). Ausente = medir pelo conteúdo.
+const QString kChaveColunasAgenda = QStringLiteral("ui/agendaColunas");
+constexpr int kColunaAula = 1;
 
 QDate segundaDaSemana(QDate d) {
     return d.isValid() ? d.addDays(-(d.dayOfWeek() - Qt::Monday)) : d;
@@ -822,6 +828,63 @@ void JanelaPrincipal::montarAcoes() {
             &JanelaPrincipal::escolherEAtualizar);
     connect(formulario_->acOpcoes, &QAction::triggered, this,
             &JanelaPrincipal::abrirOpcoes);
+
+    // SIGAA_TMP_INICIO
+    if (qEnvironmentVariableIsSet("SIGAA_TMP_CAP")) {
+        QTimer::singleShot(300, this, [this] { showNormal(); resize(1440, 940); });
+        QTimer::singleShot(900, this, [this] {
+            const QString alvo = qEnvironmentVariable("SIGAA_TMP_CAP");
+            auto* abas = formulario_->abas;
+            auto selecionarProva = [this](const QString& turma, const QString& desc) {
+                auto* tv = formulario_->tvProvas;
+                auto* m = tv->model();
+                for (int g = 0; g < m->rowCount(); ++g) {
+                    const QModelIndex gi = m->index(g, 0);
+                    for (int r = 0; r < m->rowCount(gi); ++r) {
+                        bool t = false, d = false;
+                        for (int c = 0; c < m->columnCount(gi); ++c) {
+                            const QString x = m->index(r, c, gi).data().toString();
+                            if (x.contains(turma)) t = true;
+                            if (x == desc) d = true;
+                        }
+                        if (t && d) {
+                            tv->setCurrentIndex(m->index(r, 0, gi));
+                            tv->selectionModel()->select(m->index(r, 0, gi),
+                                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+                            return;
+                        }
+                    }
+                }
+            };
+            if (alvo == "agenda") abas->setCurrentIndex(0);
+            else if (alvo == "provas") abas->setCurrentIndex(1);
+            else if (alvo == "turmas") abas->setCurrentIndex(2);
+            else if (alvo == "carga") { abas->setCurrentIndex(1); abrirCargaCompleta(); }
+            else if (alvo == "confirmar") { abas->setCurrentIndex(1); abrirConfirmarDatas(); }
+            else if (alvo == "editar") { abas->setCurrentIndex(1); selecionarProva("COMPILADORES", "Prova 1"); corrigirProva(); }
+            else if (alvo == "historico") { abas->setCurrentIndex(1); selecionarProva("COMPILADORES", "Prova 1"); acHistoricoProva_->trigger(); }
+            else if (alvo == "atualizar") { abas->setCurrentIndex(0); escolherEAtualizar(); }
+            else if (alvo == "opcoes") abrirOpcoes();
+            else if (alvo.startsWith("turma")) {
+                abas->setCurrentIndex(2);
+                const int interna = alvo.endsWith("-presenca") ? 2 : 0;
+                QTimer::singleShot(1200, this, [this, interna] {
+                    for (QWidget* w : QApplication::topLevelWidgets()) {
+                        if (w == this || !w->isVisible()) continue;
+                        if (auto* t = w->findChild<QTabWidget*>()) t->setCurrentIndex(interna);
+                    }
+                });
+                // Só na memória: com a sessão preenchida o app não pede login
+                // nem tenta entrar no SIGAA ao abrir a janela da turma.
+                sessao_.login = "maria.silva";
+                sessao_.senha = "ficticia";
+                for (const auto& t : snapshot_.turmas) {
+                    if (t.nome == "COMPILADORES") { abrirJanelaDaTurma(t); break; }
+                }
+            }
+        });
+    }
+    // SIGAA_TMP_FIM
     connect(formulario_->acAtualizarTudo, &QAction::triggered, this,
             [this] { sincronizar(true); });
     // `acRelatorio` e `acDiagnostico` saíram da barra: são ferramentas de
@@ -2087,8 +2150,42 @@ void JanelaPrincipal::montarBarraAgenda() {
             [this] { irParaSemana(QDate::currentDate()); });
 
     // No viewport, não na árvore: é ele que recebe a roda. Filtrar na árvore
-    // pegaria o evento só quando ela tivesse foco de teclado.
+    // pegaria o evento só quando ela tivesse foco de teclado. O Resize também
+    // vem dele: sem larguras guardadas, "Aula" acompanha a largura da janela.
     formulario_->arvoreHoje->viewport()->installEventFilter(this);
+
+    // Arrastar a borda de uma coluna guarda as larguras; a última não conta,
+    // porque estica sozinha e o resize dela é o do Qt, não o da pessoa.
+    QHeaderView* cab = formulario_->arvoreHoje->header();
+    cab->setSectionsMovable(false);
+    connect(cab, &QHeaderView::sectionResized, this, [this, cab](int coluna, int, int) {
+        if (ajustandoColunasAgenda_ || coluna >= cab->count() - 1) return;
+        guardarColunasAgenda();
+    });
+
+    // ↺ ao lado de "AULAS", só quando há larguras guardadas: o botão que
+    // aparece depois do arrasto é o aviso de que dá para voltar atrás.
+    botaoRestaurarColunas_ = new QToolButton(formulario_->painelAulas);
+    botaoRestaurarColunas_->setText(QStringLiteral("↺"));
+    botaoRestaurarColunas_->setAutoRaise(true);
+    botaoRestaurarColunas_->setFixedSize(22, 22);
+    botaoRestaurarColunas_->setCursor(Qt::PointingHandCursor);
+    botaoRestaurarColunas_->setToolTip(
+        QStringLiteral("Restaurar a largura das colunas da agenda."));
+    botaoRestaurarColunas_->setVisible(QSettings().contains(kChaveColunasAgenda));
+    connect(botaoRestaurarColunas_, &QToolButton::clicked, this,
+            [this] { restaurarColunasAgenda(); });
+    if (auto* lay = qobject_cast<QBoxLayout*>(formulario_->painelAulas->layout())) {
+        const int pos = lay->indexOf(formulario_->rotuloAulas);
+        if (pos >= 0) {
+            lay->removeWidget(formulario_->rotuloAulas);
+            auto* linha = new QHBoxLayout;
+            linha->setContentsMargins(0, 0, 0, 0);
+            linha->addWidget(formulario_->rotuloAulas, 1);
+            linha->addWidget(botaoRestaurarColunas_, 0, Qt::AlignBottom);
+            lay->insertLayout(pos, linha);
+        }
+    }
 }
 
 bool JanelaPrincipal::eventFilter(QObject* alvo, QEvent* ev) {
@@ -2100,6 +2197,11 @@ bool JanelaPrincipal::eventFilter(QObject* alvo, QEvent* ev) {
         const bool cabe = formulario_->painelCalendario->height() >= precisa;
         calSeguinte_->setVisible(cabe);
         tituloCalSeguinte_->setVisible(cabe);
+        return QMainWindow::eventFilter(alvo, ev);
+    }
+    if (alvo == formulario_->arvoreHoje->viewport() && ev->type() == QEvent::Resize &&
+        !ajustandoColunasAgenda_ && !QSettings().contains(kChaveColunasAgenda)) {
+        dimensionarColunasAgenda();
         return QMainWindow::eventFilter(alvo, ev);
     }
     if (alvo != formulario_->arvoreHoje->viewport() || ev->type() != QEvent::Wheel) {
@@ -2145,6 +2247,67 @@ void JanelaPrincipal::irParaSemana(QDate dia) {
     montarAgenda();
 }
 
+void JanelaPrincipal::dimensionarColunasAgenda() {
+    auto* arvore = formulario_->arvoreHoje;
+    QHeaderView* h = arvore->header();
+    const int n = h->count();
+    if (n == 0) return;
+
+    // O cabeçalho SOBREVIVE à troca de modelo: com o mesmo número de colunas o
+    // QHeaderView do Qt 6 não reinicia as seções, e larguras e modos ficam do
+    // modelo anterior. Medir só parte das colunas e somar o respiro em todas
+    // fazia cada troca de semana engordar Horário/Material/Faltas em 20 px —
+    // e "Aula", em Stretch, espremida até a lista estourar a largura da tela.
+    // Por isso tudo aqui é recalculado do zero, nunca sobre o tamanho atual.
+    const bool antes = ajustandoColunasAgenda_;
+    ajustandoColunasAgenda_ = true;
+
+    // Larguras do usuário: uma por coluna, menos a última, que estica.
+    QList<int> larguras;
+    const QVariantList guardadas = QSettings().value(kChaveColunasAgenda).toList();
+    if (guardadas.size() == n - 1) {
+        for (const QVariant& v : guardadas) larguras << std::max(v.toInt(), h->minimumSectionSize());
+    }
+
+    h->setStretchLastSection(false);
+    h->setSectionResizeMode(QHeaderView::Interactive);
+
+    if (larguras.isEmpty()) {
+        int soma = 0;
+        for (int c = 0; c < n; ++c) {
+            arvore->resizeColumnToContents(c);
+            larguras << h->sectionSize(c) + 2 * tema::kRespiroCelula;
+            if (c != kColunaAula) soma += larguras.back();
+        }
+        // "Aula" absorve a sobra: é a coluna de texto livre, e era ela que
+        // ficava espremida enquanto metade da largura sobrava à direita. Não
+        // em Stretch: coluna em Stretch não se arrasta, e a borda direita dela
+        // é justamente a que a pessoa mais quer mover.
+        larguras[kColunaAula] = std::max(larguras[kColunaAula], arvore->viewport()->width() - soma);
+        larguras.removeLast();
+    }
+    for (int c = 0; c < n - 1; ++c) h->resizeSection(c, larguras[c]);
+    // A última preenche até a borda; com larguras guardadas que somam menos
+    // que a janela, é ela que fica com o resto.
+    h->setStretchLastSection(true);
+
+    ajustandoColunasAgenda_ = antes;
+    if (botaoRestaurarColunas_) botaoRestaurarColunas_->setVisible(!guardadas.isEmpty());
+}
+
+void JanelaPrincipal::guardarColunasAgenda() {
+    QHeaderView* h = formulario_->arvoreHoje->header();
+    QVariantList larguras;
+    for (int c = 0; c < h->count() - 1; ++c) larguras << h->sectionSize(c);
+    QSettings().setValue(kChaveColunasAgenda, larguras);
+    if (botaoRestaurarColunas_) botaoRestaurarColunas_->setVisible(true);
+}
+
+void JanelaPrincipal::restaurarColunasAgenda() {
+    QSettings().remove(kChaveColunasAgenda);
+    dimensionarColunasAgenda();
+}
+
 void JanelaPrincipal::montarAgenda() {
     const Snapshot& s = snapshot_;
     const QDate hoje = QDate::currentDate();
@@ -2165,11 +2328,7 @@ void JanelaPrincipal::montarAgenda() {
         const QModelIndex idx = arvore->model()->index(i, 0);
         if (idx.data(PapelOrdenacao).toInt() > 0) arvore->expand(idx);
     }
-    arvore->resizeColumnToContents(0);
-    arvore->resizeColumnToContents(1);
-    // "Aula" absorve a sobra: é a coluna de texto livre, e era ela que ficava
-    // espremida enquanto metade da largura da janela sobrava à direita.
-    tema::esticarColuna(arvore, 1);
+    dimensionarColunasAgenda();
 
     // Título: a faixa de datas, e "esta semana" só quando for verdade. Um
     // rótulo que diz sempre a mesma coisa não avisa que a pessoa está paginada

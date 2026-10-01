@@ -183,6 +183,11 @@ private:
     // Ancora a agenda na semana que contém `dia` e redesenha.
     void irParaSemana(QDate dia);
     void deslocarAgenda(int semanas);
+    // Larguras das colunas da agenda: medidas pelo conteúdo, ou as que o
+    // usuário arrastou (guardadas em QSettings). Ver montarAgenda.
+    void dimensionarColunasAgenda();
+    void guardarColunasAgenda();
+    void restaurarColunasAgenda();
 
     // --- dashboard de provas ---------------------------------------------
     void montarProvas();
@@ -327,6 +332,11 @@ private:
     // Acumulador da roda horizontal: um trackpad manda dezenas de eventos de
     // poucos graus, e virar a semana em cada um daria um borrão de meses.
     int rolagemAgenda_{0};
+
+    // Verdadeiro enquanto o PRÓPRIO app mexe nas colunas da agenda: só o
+    // arrasto do usuário pode virar largura guardada.
+    bool ajustandoColunasAgenda_{false};
+    QToolButton* botaoRestaurarColunas_{nullptr};
 };
 
 } // namespace sigaa::ui
