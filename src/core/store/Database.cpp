@@ -1,8 +1,11 @@
 #include "core/store/Database.h"
 
 #include "core/parse/NoticiaParser.h"
+#include "core/util/Texto.h"
 
 #include <sqlite3.h>
+
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <map>
@@ -302,6 +305,69 @@ CREATE TABLE IF NOT EXISTS sessao_estudo (
 
 CREATE INDEX IF NOT EXISTS idx_sessao_dia ON sessao_estudo(dia);
 
+-- O que um agente de IA devolve pelo MCP (core/estudo/Registros.h). Dado do
+-- aluno: nenhum sync toca aqui. `origem` e o nome do agente; o aluno apaga
+-- qualquer linha na UI, ou tudo de uma origem.
+CREATE TABLE IF NOT EXISTS registro_estudo (
+  id          INTEGER PRIMARY KEY,
+  origem      TEXT NOT NULL,
+  criado_em   INTEGER NOT NULL,
+  id_turma    TEXT NOT NULL,
+  prova       TEXT,
+  quando      TEXT NOT NULL,
+  minutos     INTEGER NOT NULL CHECK (minutos BETWEEN 1 AND 720),
+  topicos     TEXT,          -- JSON array
+  observacao  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS desempenho (
+  id          INTEGER PRIMARY KEY,
+  origem      TEXT NOT NULL,
+  criado_em   INTEGER NOT NULL,
+  id_turma    TEXT NOT NULL,
+  topico      TEXT NOT NULL,
+  tipo        TEXT NOT NULL,
+  acertos     INTEGER NOT NULL,
+  total       INTEGER NOT NULL CHECK (total BETWEEN 1 AND 500),
+  quando      TEXT NOT NULL,
+  CHECK (acertos BETWEEN 0 AND total)
+);
+
+-- Sem UNIQUE: o mesmo topico pode ser resolvido e voltar a ser foco no mes
+-- seguinte, e as duas linhas resolvidas sao historico. Quem evita duplicar o
+-- ponto ABERTO e `marcarFoco`, que atualiza em vez de inserir.
+CREATE TABLE IF NOT EXISTS ponto_foco (
+  id            INTEGER PRIMARY KEY,
+  origem        TEXT NOT NULL,
+  criado_em     INTEGER NOT NULL,
+  atualizado_em INTEGER NOT NULL,
+  id_turma      TEXT NOT NULL,
+  topico        TEXT NOT NULL,
+  topico_chave  TEXT NOT NULL,   -- dobrado (sem acento e caixa), para achar o aberto
+  nivel         INTEGER NOT NULL CHECK (nivel BETWEEN 1 AND 3),
+  motivo        TEXT,
+  resolvido     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_registro_estudo_turma ON registro_estudo(id_turma, quando);
+CREATE INDEX IF NOT EXISTS idx_desempenho_turma ON desempenho(id_turma, topico);
+CREATE INDEX IF NOT EXISTS idx_ponto_foco_turma ON ponto_foco(id_turma, resolvido);
+
+-- Cada acesso de um agente de IA pelo servidor MCP (docs/MCP.md §7): quem
+-- (clientInfo.name do agente), o que (ferramenta ou recurso), de qual turma,
+-- e se deu certo. E o que a tela "Atividade recente" mostra ao aluno: dados
+-- dele saindo do computador nao podem ser invisiveis. Nunca guarda o
+-- conteudo devolvido, so o pedido.
+CREATE TABLE IF NOT EXISTS mcp_acesso (
+  quando     INTEGER NOT NULL,
+  origem     TEXT,
+  ferramenta TEXT NOT NULL,
+  turma      TEXT,
+  ok         INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_acesso_quando ON mcp_acesso(quando);
+
 CREATE INDEX IF NOT EXISTS idx_atividade_prazo ON atividade(prazo);
 CREATE INDEX IF NOT EXISTS idx_topico_inicio ON topico(inicio);
 CREATE INDEX IF NOT EXISTS idx_arquivo_turma ON arquivo(id_turma);
@@ -399,14 +465,99 @@ struct Database::Impl {
     }
 };
 
-Database::Database(const std::string& caminho) : impl_(std::make_unique<Impl>()) {
-    if (sqlite3_open(caminho.c_str(), &impl_->db) != SQLITE_OK) {
+Database::Database(const std::string& caminho, Abertura modo)
+    : impl_(std::make_unique<Impl>()) {
+    int flags = SQLITE_OPEN_READWRITE;
+    if (modo == Abertura::CriarSeFaltar) flags |= SQLITE_OPEN_CREATE;
+    if (sqlite3_open_v2(caminho.c_str(), &impl_->db, flags, nullptr) != SQLITE_OK) {
         impl_->erro = impl_->db ? sqlite3_errmsg(impl_->db) : "falha ao abrir o banco";
         if (impl_->db) {
             sqlite3_close(impl_->db);
             impl_->db = nullptr;
         }
+        return;
     }
+    // A UI e o servidor MCP (um processo do agente de IA) abrem o MESMO banco
+    // ao mesmo tempo. Em WAL leitura não bloqueia escrita, mas duas escritas
+    // se esperam — e sem um prazo a segunda falharia na hora com SQLITE_BUSY,
+    // perdendo, por exemplo, o estudo que o agente registrou durante um sync.
+    sqlite3_busy_timeout(impl_->db, 3000);
+}
+
+bool Database::registrarAcessoMcp(std::int64_t quando, const std::string& origem,
+                                  const std::string& ferramenta, const std::string& turma,
+                                  bool ok) {
+    if (!aberto()) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO mcp_acesso (quando, origem, ferramenta, turma, ok) VALUES (?,?,?,?,?)",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return false;
+    }
+    sqlite3_bind_int64(st, 1, quando);
+    sqlite3_bind_text(st, 2, origem.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 3, ferramenta.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 4, turma.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(st, 5, ok ? 1 : 0);
+    const bool r = sqlite3_step(st) == SQLITE_DONE;
+    if (!r) impl_->erro = sqlite3_errmsg(impl_->db);
+    sqlite3_finalize(st);
+    return r;
+}
+
+std::vector<Database::AcessoMcp> Database::ultimosAcessosMcp(int limite) {
+    std::vector<AcessoMcp> out;
+    if (!aberto()) return out;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT quando, origem, ferramenta, turma, ok FROM mcp_acesso"
+            " ORDER BY quando DESC, rowid DESC LIMIT ?",
+            -1, &st, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(st, 1, limite);
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            AcessoMcp a;
+            a.quando = sqlite3_column_int64(st, 0);
+            a.origem = txt(st, 1);
+            a.ferramenta = txt(st, 2);
+            a.turma = txt(st, 3);
+            a.ok = sqlite3_column_int(st, 4) != 0;
+            out.push_back(std::move(a));
+        }
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+
+std::optional<std::string> Database::lerMeta(const std::string& chave) {
+    if (!aberto()) return std::nullopt;
+    sqlite3_stmt* st = nullptr;
+    std::optional<std::string> out;
+    if (sqlite3_prepare_v2(impl_->db, "SELECT valor FROM meta WHERE chave=?", -1, &st,
+                           nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, chave.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(st) == SQLITE_ROW) out = txt(st, 0);
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+
+bool Database::gravarMeta(const std::string& chave, const std::string& valor) {
+    if (!aberto()) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO meta (chave, valor) VALUES (?, ?)"
+            " ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return false;
+    }
+    sqlite3_bind_text(st, 1, chave.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, valor.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if (!ok) impl_->erro = sqlite3_errmsg(impl_->db);
+    sqlite3_finalize(st);
+    return ok;
 }
 
 Database::~Database() {
@@ -1650,6 +1801,273 @@ bool Database::marcarSessaoEstudo(const std::string& chave, bool feita, std::int
     if (!ok) impl_->erro = sqlite3_errmsg(impl_->db);
     sqlite3_finalize(st);
     return ok;
+}
+
+// ---------------------------------------------------------------------------
+// Devolução do agente de IA (MCP)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::string topicosParaJson(const std::vector<std::string>& ts) {
+    return nlohmann::json(ts).dump();
+}
+
+std::vector<std::string> topicosDeJson(const std::string& s) {
+    const auto j = nlohmann::json::parse(s, nullptr, false);
+    std::vector<std::string> out;
+    if (j.is_array()) {
+        for (const auto& x : j) {
+            if (x.is_string()) out.push_back(x.get<std::string>());
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+std::int64_t Database::registrarEstudo(const estudo::RegistroEstudo& r) {
+    if (!aberto()) return 0;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO registro_estudo (origem, criado_em, id_turma, prova, quando, minutos,"
+            " topicos, observacao) VALUES (?,?,?,?,?,?,?,?)",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return 0;
+    }
+    const std::string quando = r.quando.toIso(), topicos = topicosParaJson(r.topicos);
+    sqlite3_bind_text(st, 1, r.origem.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 2, r.criadoEm);
+    sqlite3_bind_text(st, 3, r.idTurma.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 4, r.prova.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 5, quando.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(st, 6, r.minutos);
+    sqlite3_bind_text(st, 7, topicos.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 8, r.observacao.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if (!ok) impl_->erro = sqlite3_errmsg(impl_->db);
+    sqlite3_finalize(st);
+    return ok ? sqlite3_last_insert_rowid(impl_->db) : 0;
+}
+
+std::int64_t Database::registrarDesempenho(const estudo::Desempenho& d) {
+    if (!aberto()) return 0;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO desempenho (origem, criado_em, id_turma, topico, tipo, acertos, total,"
+            " quando) VALUES (?,?,?,?,?,?,?,?)",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return 0;
+    }
+    const std::string quando = d.quando.toIso();
+    sqlite3_bind_text(st, 1, d.origem.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 2, d.criadoEm);
+    sqlite3_bind_text(st, 3, d.idTurma.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 4, d.topico.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 5, d.tipo.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(st, 6, d.acertos);
+    sqlite3_bind_int(st, 7, d.total);
+    sqlite3_bind_text(st, 8, quando.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if (!ok) impl_->erro = sqlite3_errmsg(impl_->db);
+    sqlite3_finalize(st);
+    return ok ? sqlite3_last_insert_rowid(impl_->db) : 0;
+}
+
+std::int64_t Database::marcarFoco(const estudo::PontoFoco& f, bool* atualizou) {
+    if (atualizou) *atualizou = false;
+    if (!aberto()) return 0;
+    const std::string chave = util::dobrar(f.topico);
+
+    // Já aberto para o mesmo tópico: atualiza nível e motivo. Dez conversas
+    // sobre a mesma dificuldade não podem virar dez cartões iguais.
+    sqlite3_stmt* st = nullptr;
+    std::int64_t existente = 0;
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT id FROM ponto_foco WHERE id_turma=? AND topico_chave=? AND resolvido=0"
+            " ORDER BY id DESC LIMIT 1",
+            -1, &st, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, f.idTurma.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, chave.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(st) == SQLITE_ROW) existente = sqlite3_column_int64(st, 0);
+    }
+    sqlite3_finalize(st);
+    st = nullptr;
+
+    if (existente) {
+        if (sqlite3_prepare_v2(impl_->db,
+                "UPDATE ponto_foco SET nivel=?, motivo=?, origem=?, atualizado_em=? WHERE id=?",
+                -1, &st, nullptr) != SQLITE_OK) {
+            impl_->erro = sqlite3_errmsg(impl_->db);
+            return 0;
+        }
+        sqlite3_bind_int(st, 1, f.nivel);
+        sqlite3_bind_text(st, 2, f.motivo.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 3, f.origem.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 4, f.atualizadoEm ? f.atualizadoEm : f.criadoEm);
+        sqlite3_bind_int64(st, 5, existente);
+        const bool ok = sqlite3_step(st) == SQLITE_DONE;
+        if (!ok) impl_->erro = sqlite3_errmsg(impl_->db);
+        sqlite3_finalize(st);
+        if (ok && atualizou) *atualizou = true;
+        return ok ? existente : 0;
+    }
+
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO ponto_foco (origem, criado_em, atualizado_em, id_turma, topico,"
+            " topico_chave, nivel, motivo, resolvido) VALUES (?,?,?,?,?,?,?,?,0)",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return 0;
+    }
+    sqlite3_bind_text(st, 1, f.origem.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 2, f.criadoEm);
+    sqlite3_bind_int64(st, 3, f.atualizadoEm ? f.atualizadoEm : f.criadoEm);
+    sqlite3_bind_text(st, 4, f.idTurma.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 5, f.topico.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 6, chave.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(st, 7, f.nivel);
+    sqlite3_bind_text(st, 8, f.motivo.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if (!ok) impl_->erro = sqlite3_errmsg(impl_->db);
+    sqlite3_finalize(st);
+    return ok ? sqlite3_last_insert_rowid(impl_->db) : 0;
+}
+
+bool Database::resolverFoco(std::int64_t id, const std::string& motivo, std::int64_t agora) {
+    if (!aberto()) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "UPDATE ponto_foco SET resolvido=1, atualizado_em=?,"
+            " motivo=CASE WHEN ?='' THEN motivo ELSE ? END WHERE id=? AND resolvido=0",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return false;
+    }
+    sqlite3_bind_int64(st, 1, agora);
+    sqlite3_bind_text(st, 2, motivo.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 3, motivo.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 4, id);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE && sqlite3_changes(impl_->db) == 1;
+    sqlite3_finalize(st);
+    return ok;
+}
+
+std::vector<estudo::RegistroEstudo> Database::carregarRegistrosEstudo(const std::string& idTurma) {
+    std::vector<estudo::RegistroEstudo> out;
+    if (!aberto()) return out;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT id, origem, criado_em, id_turma, prova, quando, minutos, topicos, observacao"
+            " FROM registro_estudo WHERE ?='' OR id_turma=? ORDER BY quando DESC, id DESC",
+            -1, &st, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, idTurma.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, idTurma.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            estudo::RegistroEstudo r;
+            r.id = sqlite3_column_int64(st, 0);
+            r.origem = txt(st, 1);
+            r.criadoEm = sqlite3_column_int64(st, 2);
+            r.idTurma = txt(st, 3);
+            r.prova = txt(st, 4);
+            r.quando = deIso(txt(st, 5));
+            r.minutos = sqlite3_column_int(st, 6);
+            r.topicos = topicosDeJson(txt(st, 7));
+            r.observacao = txt(st, 8);
+            out.push_back(std::move(r));
+        }
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+
+std::vector<estudo::Desempenho> Database::carregarDesempenho(const std::string& idTurma) {
+    std::vector<estudo::Desempenho> out;
+    if (!aberto()) return out;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT id, origem, criado_em, id_turma, topico, tipo, acertos, total, quando"
+            " FROM desempenho WHERE ?='' OR id_turma=? ORDER BY quando DESC, id DESC",
+            -1, &st, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, idTurma.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, idTurma.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            estudo::Desempenho d;
+            d.id = sqlite3_column_int64(st, 0);
+            d.origem = txt(st, 1);
+            d.criadoEm = sqlite3_column_int64(st, 2);
+            d.idTurma = txt(st, 3);
+            d.topico = txt(st, 4);
+            d.tipo = txt(st, 5);
+            d.acertos = sqlite3_column_int(st, 6);
+            d.total = sqlite3_column_int(st, 7);
+            d.quando = deIso(txt(st, 8));
+            out.push_back(std::move(d));
+        }
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+
+std::vector<estudo::PontoFoco> Database::carregarFocos(const std::string& idTurma, bool soAbertos) {
+    std::vector<estudo::PontoFoco> out;
+    if (!aberto()) return out;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT id, origem, criado_em, atualizado_em, id_turma, topico, nivel, motivo,"
+            " resolvido FROM ponto_foco WHERE (?='' OR id_turma=?) AND (?=0 OR resolvido=0)"
+            " ORDER BY resolvido, nivel DESC, atualizado_em DESC",
+            -1, &st, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, idTurma.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, idTurma.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(st, 3, soAbertos ? 1 : 0);
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            estudo::PontoFoco f;
+            f.id = sqlite3_column_int64(st, 0);
+            f.origem = txt(st, 1);
+            f.criadoEm = sqlite3_column_int64(st, 2);
+            f.atualizadoEm = sqlite3_column_int64(st, 3);
+            f.idTurma = txt(st, 4);
+            f.topico = txt(st, 5);
+            f.nivel = sqlite3_column_int(st, 6);
+            f.motivo = txt(st, 7);
+            f.resolvido = sqlite3_column_int(st, 8) != 0;
+            out.push_back(std::move(f));
+        }
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+
+bool Database::apagarDoAgente(TabelaAgente t, std::int64_t id) {
+    if (!aberto()) return false;
+    const char* sql = t == TabelaAgente::Estudo       ? "DELETE FROM registro_estudo WHERE id=?"
+                      : t == TabelaAgente::Desempenho ? "DELETE FROM desempenho WHERE id=?"
+                                                      : "DELETE FROM ponto_foco WHERE id=?";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db, sql, -1, &st, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int64(st, 1, id);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE && sqlite3_changes(impl_->db) == 1;
+    sqlite3_finalize(st);
+    return ok;
+}
+
+int Database::apagarTudoDoAgente(const std::string& origem) {
+    if (!aberto()) return 0;
+    int n = 0;
+    for (const char* sql : {"DELETE FROM registro_estudo WHERE ?='' OR origem=?",
+                            "DELETE FROM desempenho WHERE ?='' OR origem=?",
+                            "DELETE FROM ponto_foco WHERE ?='' OR origem=?"}) {
+        sqlite3_stmt* st = nullptr;
+        if (sqlite3_prepare_v2(impl_->db, sql, -1, &st, nullptr) != SQLITE_OK) continue;
+        sqlite3_bind_text(st, 1, origem.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, origem.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(st) == SQLITE_DONE) n += sqlite3_changes(impl_->db);
+        sqlite3_finalize(st);
+    }
+    return n;
 }
 
 } // namespace sigaa::store

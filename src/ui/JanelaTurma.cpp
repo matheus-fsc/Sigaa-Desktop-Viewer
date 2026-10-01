@@ -1,8 +1,11 @@
 #include "ui/JanelaTurma.h"
 
+#include "mcp/Kit.h"
+
 #include <QDateTime>
 #include <set>
 #include <QDesktopServices>
+#include <QInputDialog>
 #include <QDir>
 #include <QFileInfo>
 #include <QHeaderView>
@@ -156,6 +159,18 @@ JanelaTurma::JanelaTurma(Turma turma, std::vector<TopicoAula> topicos,
     connect(botaoResumo_, &QPushButton::clicked, this, &JanelaTurma::gerarResumoMd);
     if (auto* rodape = formulario_->layoutRodape) {
         rodape->insertWidget(rodape->indexOf(formulario_->botaoPasta), botaoResumo_);
+    }
+
+    // O caminho sem MCP (docs/MCP.md §6): para quem estuda num chat na web,
+    // que não conecta ao app. Uma pasta com tudo de uma prova, para arrastar.
+    auto* botaoKit = new QPushButton(QStringLiteral("Kit para IA"), this);
+    botaoKit->setToolTip(QStringLiteral(
+        "Junta numa pasta o turma.md, a matéria de uma prova, os PDFs dela e as "
+        "instruções para o assistente. Para chats na web, que não conectam ao app: "
+        "arraste a pasta inteira."));
+    connect(botaoKit, &QPushButton::clicked, this, &JanelaTurma::exportarKit);
+    if (auto* rodape = formulario_->layoutRodape) {
+        rodape->insertWidget(rodape->indexOf(formulario_->botaoPasta), botaoKit);
     }
 
     montarPresenca();
@@ -490,6 +505,50 @@ void JanelaTurma::gerarResumoMd() {
                .arg(d.provas.size()));
 }
 
+
+void JanelaTurma::exportarKit() {
+    store::Database db;
+    if (!db.aberto() || !db.migrar()) {
+        status(QStringLiteral("Banco indisponível."));
+        return;
+    }
+    // Para qual prova: as da turma, a próxima primeiro, ou a turma inteira.
+    const Snapshot s = db.carregarUltimo();
+    const auto provas = avaliacao::efetivas(s.avaliacoes, db.carregarAjustes());
+    QStringList opcoes;
+    const QDate hoje = QDate::currentDate();
+    int proxima = -1;
+    for (const auto& p : provas) {
+        if (p.av.idTurma != turma_.idTurma) continue;
+        const QDate d(p.av.quando.year, p.av.quando.month, p.av.quando.day);
+        if (proxima < 0 && d >= hoje) proxima = static_cast<int>(opcoes.size());
+        opcoes << QStringLiteral("%1 (%2)").arg(QString::fromStdString(p.av.descricao),
+                                                d.toString(QStringLiteral("dd/MM")));
+    }
+    const QString inteira = QStringLiteral("A turma inteira");
+    opcoes << inteira;
+    bool ok = false;
+    const QString escolha = QInputDialog::getItem(
+        this, QStringLiteral("Kit para IA"), QStringLiteral("Montar o kit para:"), opcoes,
+        proxima >= 0 ? proxima : static_cast<int>(opcoes.size()) - 1, false, &ok);
+    if (!ok) return;
+    std::string prova;
+    if (escolha != inteira) prova = escolha.left(escolha.lastIndexOf(QStringLiteral(" ("))).toStdString();
+
+    const auto kit = mcp::exportarKit(db, pastaBaseMateriais().toStdString(), turma_.idTurma, prova);
+    if (!kit.ok) {
+        status(QString::fromStdString(kit.erro));
+        return;
+    }
+    status(kit.faltando
+               ? QStringLiteral("Kit pronto, com %1 arquivo(s); %2 ainda não baixado(s) ficaram de "
+                                "fora — use \"Baixar tudo\" e monte de novo.")
+                     .arg(kit.copiados)
+                     .arg(kit.faltando)
+               : QStringLiteral("Kit pronto, com %1 arquivo(s). Arraste a pasta para o chat.")
+                     .arg(kit.copiados));
+    QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdString(kit.pasta)));
+}
 
 // ---------------------------------------------------------------------------
 // Aba Presença

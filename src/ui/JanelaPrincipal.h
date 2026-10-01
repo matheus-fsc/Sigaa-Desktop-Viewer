@@ -338,6 +338,9 @@ private:
     // mesmo motivo do filtro de provas: a semana é escolha do usuário, e o ciclo
     // automático de 20 minutos não pode arrastá-lo de volta para hoje enquanto
     // ele olha a semana que vem.
+    // A última marca `mcp.alteracao` vista no banco. Vazio até a primeira
+    // ativação: a carga inicial já leu tudo.
+    std::optional<std::string> marcaMcp_;
     QDate inicioAgenda_;
     // As sessões do plano de estudo, para a Agenda. Vazio = sem planejamento.
     std::vector<planejamento::Sessao> estudo_;

@@ -51,6 +51,7 @@
 #include "ui/CargaSemanal.h"
 #include "core/sync/Baixador.h"
 #include "ui/CalendarioProvas.h"
+#include "ui/DialogoAgentes.h"
 #include "ui/DialogoAtualizar.h"
 #include "ui/DialogoLogin.h"
 #include "core/atualizacao/Atualizador.h"
@@ -289,6 +290,21 @@ JanelaPrincipal::~JanelaPrincipal() {
 
 void JanelaPrincipal::changeEvent(QEvent* ev) {
     QMainWindow::changeEvent(ev);
+    // Voltou para o app: um agente de IA pode ter gravado no banco enquanto
+    // isso (docs/MCP.md §9). Barato — uma leitura de `meta` — e só recarrega
+    // quando a marca mudou e não há coleta em andamento, que recarrega sozinha.
+    if (ev->type() == QEvent::ActivationChange && isActiveWindow() && navegacao_ &&
+        !(barra_ && barra_->isVisible())) {
+        store::Database db;
+        if (db.aberto()) {
+            const std::string marca = db.lerMeta("mcp.alteracao").value_or("");
+            if (marcaMcp_.has_value() && marca != *marcaMcp_) {
+                recarregarDoBanco();
+                status(QStringLiteral("Atualizado com o que o agente de IA gravou."));
+            }
+            marcaMcp_ = marca;
+        }
+    }
     if (ev->type() == QEvent::PaletteChange || ev->type() == QEvent::ThemeChange) {
         aplicarIcones();
         // O título e o resumo da agenda levam as cores dentro do HTML; sem
@@ -2771,6 +2787,13 @@ void JanelaPrincipal::abrirOpcoes() {
 
     // O diagnóstico e o relatório abrem SOBRE o diálogo, sem fechá-lo: quem
     // foi ali investigar um problema quase sempre volta para mexer na rotina.
+    connect(&dlg, &DialogoOpcoes::pediuAgentes, this, [&dlg] {
+        // Os caminhos que vão no registro do servidor em cada agente: os que
+        // ESTE app usa agora (docs/MCP.md, D3).
+        DialogoAgentes(QDir::current().absoluteFilePath(QStringLiteral("sigaa-viewer.db")),
+                       pastaBaseMateriais(), &dlg)
+            .exec();
+    });
     connect(&dlg, &DialogoOpcoes::pediuDiagnostico, this, [this, &dlg] {
         JanelaDiagnostico(&dlg).exec();
     });

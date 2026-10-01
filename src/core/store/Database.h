@@ -8,6 +8,7 @@
 // O arquivo do banco NÃO guarda credenciais. Só dados acadêmicos já públicos
 // para o próprio aluno.
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <set>
@@ -16,6 +17,7 @@
 
 #include "core/avaliacao/Ajustes.h"
 #include "core/planejamento/Planejamento.h"
+#include "core/estudo/Registros.h"
 #include "core/frequencia/Presenca.h"
 #include "core/model/Models.h"
 
@@ -23,7 +25,13 @@ namespace sigaa::store {
 
 class Database {
 public:
-    explicit Database(const std::string& caminho = "sigaa-viewer.db");
+    enum class Abertura {
+        CriarSeFaltar,   // a UI e o CLI: primeira execução cria o banco
+        SoExistente,     // o servidor MCP: caminho errado é erro, não banco vazio
+    };
+
+    explicit Database(const std::string& caminho = "sigaa-viewer.db",
+                      Abertura modo = Abertura::CriarSeFaltar);
     ~Database();
     Database(const Database&) = delete;
     Database& operator=(const Database&) = delete;
@@ -33,6 +41,50 @@ public:
 
     // Cria/atualiza o esquema. Idempotente.
     bool migrar();
+
+    // Chave/valor livre da tabela `meta` (contador de ciclos, consentimento
+    // do MCP...). nullopt = chave ausente, que é diferente de valor vazio.
+    std::optional<std::string> lerMeta(const std::string& chave);
+    bool gravarMeta(const std::string& chave, const std::string& valor);
+
+    // Auditoria do servidor MCP: um registro por chamada de ferramenta ou
+    // leitura de recurso. Só o pedido, nunca o conteúdo devolvido.
+    bool registrarAcessoMcp(std::int64_t quando, const std::string& origem,
+                            const std::string& ferramenta, const std::string& turma, bool ok);
+
+    struct AcessoMcp {
+        std::int64_t quando{0};
+        std::string origem;
+        std::string ferramenta;
+        std::string turma;
+        bool ok{false};
+    };
+    // Os mais recentes primeiro.
+    std::vector<AcessoMcp> ultimosAcessosMcp(int limite = 50);
+
+    // --- devolução do agente de IA (core/estudo/Registros.h) --------------
+    //
+    // Os `registrar*` devolvem o id novo, ou 0 em falha (com `erro()`).
+    std::int64_t registrarEstudo(const estudo::RegistroEstudo& r);
+    std::int64_t registrarDesempenho(const estudo::Desempenho& d);
+    // Atualiza o ponto ABERTO do mesmo tópico (sem acento e caixa) em vez de
+    // duplicar; `atualizou` diz qual dos dois aconteceu.
+    std::int64_t marcarFoco(const estudo::PontoFoco& f, bool* atualizou = nullptr);
+    // Falso se o id não existe ou já estava resolvido.
+    bool resolverFoco(std::int64_t id, const std::string& motivo, std::int64_t agora);
+
+    // Vazio = todas as turmas. Mais recentes primeiro.
+    std::vector<estudo::RegistroEstudo> carregarRegistrosEstudo(const std::string& idTurma = {});
+    std::vector<estudo::Desempenho> carregarDesempenho(const std::string& idTurma = {});
+    // Abertos primeiro, do nível mais alto para o mais baixo.
+    std::vector<estudo::PontoFoco> carregarFocos(const std::string& idTurma = {},
+                                                 bool soAbertos = false);
+
+    enum class TabelaAgente { Estudo, Desempenho, Foco };
+    bool apagarDoAgente(TabelaAgente t, std::int64_t id);
+    // Tudo que uma origem gravou; origem vazia = de todos os agentes.
+    // Devolve quantas linhas saíram.
+    int apagarTudoDoAgente(const std::string& origem);
 
     // Lê o último estado conhecido — a base de comparação do diff.
     Snapshot carregarUltimo();

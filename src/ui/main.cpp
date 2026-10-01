@@ -10,7 +10,12 @@
 #include <QSettings>
 #include <QStandardPaths>
 
+#include <string_view>
+
 #include "core/config/Instituicao.h"
+#include "mcp/Comando.h"
+#include "mcp/Rede.h"
+#include "platform/Credenciais.h"
 #include "ui/Icones.h"
 #include "ui/InstanciaUnica.h"
 #include "ui/JanelaPrincipal.h"
@@ -65,6 +70,19 @@ void escolherPastaDeTrabalho() {
 } // namespace
 
 int main(int argc, char** argv) {
+    // `SIGAA-Viewer.AppImage mcp ...`: o agente de IA iniciando o servidor
+    // MCP. O AppImage só expõe este executável, então é ele que atende — e
+    // ANTES de criar a QApplication: nada de janela, de instância única nem
+    // de tema, e o stdout é só do protocolo (docs/MCP.md).
+    if (argc > 1 && std::string_view(argv[1]) == "mcp") {
+        sigaa::mcp::definirProvedorDeCredenciais([]() -> std::optional<sigaa::mcp::Credenciais> {
+            auto r = sigaa::plat::resolverCredenciais();
+            if (!r.ok()) return std::nullopt;
+            return sigaa::mcp::Credenciais{std::move(r.cred.login), std::move(r.cred.senha)};
+        });
+        return sigaa::mcp::comando(argc, argv);
+    }
+
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("SIGAA Viewer"));
     QApplication::setOrganizationName(QStringLiteral("sigaa-viewer"));

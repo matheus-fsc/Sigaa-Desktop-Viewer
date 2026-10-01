@@ -123,6 +123,7 @@ add_library(sigaa_core STATIC
   src/core/atualizacao/Sha256.cpp
   src/core/avaliacao/Ajustes.cpp
   src/core/planejamento/Planejamento.cpp
+  src/core/avaliacao/Materia.cpp
   src/core/frequencia/Presenca.cpp
   src/core/calendar/Calendario.cpp
   src/core/sync/Crawler.cpp
@@ -133,6 +134,8 @@ add_library(sigaa_core STATIC
   src/core/config/DotEnv.cpp
   src/core/config/Instituicao.cpp
   src/core/util/Caminho.cpp
+  src/core/util/Texto.cpp
+  src/core/util/Pastas.cpp
 )
 
 target_include_directories(sigaa_core
@@ -180,6 +183,23 @@ if(WIN32)
 endif()
 
 # ---------------------------------------------------------------------------
+# mcp/ — o servidor MCP para agentes de IA (docs/MCP.md). Sem Qt, como o core:
+# roda dentro do sigaa-cli (`sigaa-cli mcp`) e é testado sem processo.
+# ---------------------------------------------------------------------------
+add_library(sigaa_mcp STATIC
+  src/mcp/Leitura.cpp
+  src/mcp/Escrita.cpp
+  src/mcp/Rede.cpp
+  src/mcp/Ferramentas.cpp
+  src/mcp/Servidor.cpp
+  src/mcp/Comando.cpp
+  src/mcp/Instalar.cpp
+  src/mcp/Kit.cpp
+)
+target_include_directories(sigaa_mcp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(sigaa_mcp PUBLIC sigaa_core)
+
+# ---------------------------------------------------------------------------
 # sigaa-cli — entregável da Fase 1. Prova que o scraping funciona,
 # sem escrever uma linha de UI.
 # ---------------------------------------------------------------------------
@@ -187,7 +207,7 @@ add_executable(sigaa-cli
   src/app/main.cpp
   src/app/Prompt.cpp
 )
-target_link_libraries(sigaa-cli PRIVATE sigaa_core sigaa_platform spdlog::spdlog)
+target_link_libraries(sigaa-cli PRIVATE sigaa_mcp sigaa_core sigaa_platform spdlog::spdlog)
 
 if(MSVC)
   # F5 na IDE precisa de argumentos, senão o CLI só imprime o "uso:" e sai.
@@ -238,6 +258,7 @@ elseif(SIGAA_UI)
     src/ui/JanelaDiagnostico.cpp
     src/ui/DialogoAtualizar.cpp
     src/ui/DialogoOpcoes.cpp
+    src/ui/DialogoAgentes.cpp
     src/ui/DialogosAvaliacao.cpp
     src/ui/EntrarNoSigaa.cpp
     src/ui/Copiar.cpp
@@ -273,7 +294,7 @@ elseif(SIGAA_UI)
     AUTOUIC_SEARCH_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/forms"
     AUTORCC ON)
   target_link_libraries(sigaa-ui PRIVATE
-    sigaa_core sigaa_platform Qt6::Widgets Qt6::Svg Qt6::Network)
+    sigaa_mcp sigaa_core sigaa_platform Qt6::Widgets Qt6::Svg Qt6::Network)
 
   if(WIN32)
     # WIN32_EXECUTABLE tira o console preto que apareceria atras da janela.
@@ -409,8 +430,12 @@ if(BUILD_TESTING)
     tests/baixador_test.cpp
     tests/instituicao_test.cpp
     tests/planejamento_test.cpp
+    tests/materia_test.cpp
+    tests/pastas_test.cpp
+    tests/mcp_test.cpp
+    tests/instalar_test.cpp
   )
-  target_link_libraries(sigaa_tests PRIVATE sigaa_core Catch2::Catch2WithMain)
+  target_link_libraries(sigaa_tests PRIVATE sigaa_mcp sigaa_core Catch2::Catch2WithMain)
   target_compile_definitions(sigaa_tests PRIVATE
     FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
   include(Catch)

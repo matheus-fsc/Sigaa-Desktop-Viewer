@@ -731,3 +731,29 @@ TEST_CASE("chaves de noticias com texto so trazem as que ja tem texto", "[databa
     CHECK(chaves.size() == 1);
     CHECK(chaves.count(parse::chaveNoticia("T1", "ATIVIDADES DE LABORATORIO", comTexto.data)) == 1);
 }
+
+TEST_CASE("meta: le e grava chave livre", "[database]") {
+    BancoTemp tmp;
+    store::Database db(tmp.str());
+    REQUIRE(db.migrar());
+    CHECK_FALSE(db.lerMeta("mcp.leitura").has_value());
+    REQUIRE(db.gravarMeta("mcp.leitura", "1"));
+    CHECK(db.lerMeta("mcp.leitura") == "1");
+    REQUIRE(db.gravarMeta("mcp.leitura", "0"));
+    CHECK(db.lerMeta("mcp.leitura") == "0");
+}
+
+TEST_CASE("abertura: SoExistente nao cria banco em caminho errado", "[database]") {
+    BancoTemp tmp;
+    {
+        store::Database db(tmp.str(), store::Database::Abertura::SoExistente);
+        CHECK_FALSE(db.aberto());
+    }
+    CHECK_FALSE(std::filesystem::exists(tmp.caminho));
+    {
+        store::Database criar(tmp.str());
+        REQUIRE(criar.migrar());
+    }
+    store::Database db(tmp.str(), store::Database::Abertura::SoExistente);
+    CHECK(db.aberto());
+}
