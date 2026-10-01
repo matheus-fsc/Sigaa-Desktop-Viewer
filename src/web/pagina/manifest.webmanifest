@@ -1,0 +1,14 @@
+{
+  "name": "SIGAA Viewer",
+  "short_name": "SIGAA",
+  "description": "Prazos, provas e turmas do SIGAA, servidos pelo seu computador.",
+  "lang": "pt-BR",
+  "start_url": "./#/agenda",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#1b1f27",
+  "theme_color": "#222733",
+  "icons": [
+    { "src": "icone.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -55,6 +55,7 @@ namespace sigaa::ui {
 
 class Trabalhador;
 class NavegacaoAbas;
+class PainelMobile;
 class CargaSemanal;
 class CalendarioProvas;
 class DialogoConfirmarDatas;
@@ -346,6 +347,10 @@ private:
     std::vector<planejamento::Sessao> estudo_;
     PainelEstudo* painelEstudo_{nullptr};
     int abaEstudo_{-1};
+    // --- aba Acesso mobile ----------------------------------------------------
+    void montarMobile();
+    PainelMobile* painelMobile_{nullptr};
+    int abaMobile_{-1};
 
     // Acumulador da roda horizontal: um trackpad manda dezenas de eventos de
     // poucos graus, e virar a semana em cada um daria um borrão de meses.

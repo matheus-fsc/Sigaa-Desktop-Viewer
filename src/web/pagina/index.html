@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#222733">
+<title>SIGAA Viewer</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icone.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icone.svg">
+<link rel="stylesheet" href="app.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<div class="app">
+  <header class="topo">
+    <span class="marca" aria-hidden="true">S</span>
+    <strong id="titulo">SIGAA Viewer</strong>
+    <button class="icone" id="recarregar" type="button" aria-label="Recarregar do computador" title="Recarregar">↻</button>
+    <button class="icone" id="mais" type="button" aria-label="Opções" aria-haspopup="dialog">⋯</button>
+  </header>
+  <main id="conteudo" tabindex="-1"><div class="carregando">Carregando…</div></main>
+  <div class="estado" role="status"><span id="estado">Conectando ao computador…</span></div>
+  <nav class="nav" id="nav" aria-label="Seções">
+    <a href="#/agenda" data-secao="agenda"><span class="contagem" data-contagem="agenda">–</span>Agenda</a>
+    <a href="#/provas" data-secao="provas"><span class="contagem" data-contagem="provas">–</span>Provas</a>
+    <a href="#/turmas" data-secao="turmas"><span class="contagem" data-contagem="turmas">–</span>Turmas</a>
+    <a href="#/novidades" data-secao="novidades"><span class="contagem" data-contagem="novidades">–</span>Novidades</a>
+  </nav>
+</div>
+<noscript>Esta página precisa de JavaScript para mostrar seus dados.</noscript>
+</body>
+</html>

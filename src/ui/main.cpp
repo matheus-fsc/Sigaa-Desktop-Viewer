@@ -15,6 +15,7 @@
 #include "core/config/Instituicao.h"
 #include "mcp/Comando.h"
 #include "mcp/Rede.h"
+#include "web/Comando.h"
 #include "platform/Credenciais.h"
 #include "ui/Icones.h"
 #include "ui/InstanciaUnica.h"
@@ -82,6 +83,9 @@ int main(int argc, char** argv) {
         });
         return sigaa::mcp::comando(argc, argv);
     }
+
+    // `SIGAA-Viewer.AppImage web`: o acesso mobile sem janela (docs/WEB.md).
+    if (argc > 1 && std::string_view(argv[1]) == "web") return sigaa::web::comando(argc, argv);
 
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("SIGAA Viewer"));

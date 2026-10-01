@@ -63,6 +63,7 @@
 #include "ui/Icones.h"
 #include "ui/JanelaDiagnostico.h"
 #include "ui/JanelaTurma.h"
+#include "ui/Mobile.h"
 #include "ui/Modelos.h"
 #include "ui/Planejamento.h"
 #include "ui/Tema.h"
@@ -238,6 +239,7 @@ JanelaPrincipal::JanelaPrincipal(QWidget* pai)
 
     montarListas();
     montarEstudo();         // antes da aba lembrada e da navegação: é uma aba
+    montarMobile();         // idem, e depois da Estudo: as abas são lembradas por índice
     montarAbaLembrada();
     montarAcoes();
     montarStatus();
@@ -1503,6 +1505,21 @@ void JanelaPrincipal::montarEstudo() {
         montarAgenda();
         atualizarTituloEstudo();
     };
+}
+
+void JanelaPrincipal::montarMobile() {
+    painelMobile_ = new PainelMobile(QDir::current().absoluteFilePath(QStringLiteral("sigaa-viewer.db")),
+                                     pastaBaseMateriais(), formulario_->abas);
+    abaMobile_ = formulario_->abas->addTab(painelMobile_, QStringLiteral("Acesso mobile"));
+    // O ponto no nome é o aviso de que há uma porta aberta, visível de
+    // qualquer aba — quem esqueceu o servidor ligado precisa poder notar.
+    painelMobile_->aoMudar = [this](bool noAr) {
+        formulario_->abas->setTabText(abaMobile_, noAr ? QStringLiteral("Acesso mobile ●")
+                                                       : QStringLiteral("Acesso mobile"));
+    };
+    // Depois do ciclo de eventos: a janela aparece primeiro, e uma VPN que
+    // demora a responder não atrasa a abertura.
+    QTimer::singleShot(0, painelMobile_, [p = painelMobile_] { p->ligarSeAutomatico(); });
 }
 
 void JanelaPrincipal::irParaPlanejamento() {

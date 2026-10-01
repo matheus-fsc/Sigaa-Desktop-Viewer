@@ -261,6 +261,24 @@ turma (ou `sigaa-cli mcp kit <turma> [prova]`), junta numa pasta o
 > O que o agente lê vai para a empresa que o fornece, como qualquer mensagem
 > que você manda a ele. Libere só o que você mandaria numa conversa.
 
+## Acesso mobile
+
+Agenda, provas, turmas e materiais no celular, pelo navegador. O próprio app
+serve as telas pela sua VPN (Tailscale, WireGuard, OpenVPN, ZeroTier…): nada
+vai para a internet aberta, a senha do SIGAA não sai do computador e o celular
+só lê. Os detalhes e as decisões estão em [`docs/WEB.md`](docs/WEB.md).
+
+1. Na aba **Acesso mobile**, escolha a interface da VPN em *Endereço* e clique
+   em **Ligar servidor**. Marque *Ligar sozinho sempre que o app abrir* para
+   não precisar repetir.
+2. Com o celular na mesma VPN, leia o QR code. O link carrega um código de
+   acesso, que fica depois do `#` e nunca vai para servidor nenhum.
+3. No navegador do celular, use *Adicionar à tela inicial*.
+
+O servidor nunca escuta em todas as interfaces (`0.0.0.0`). Perdeu o celular?
+Use **Gerar novo código**, e o antigo para de valer no pedido seguinte. Sem
+janela, rode `sigaa-cli web --escutar <ip-da-vpn>`.
+
 ## Build
 
 Requisitos: **CMake ≥ 3.24** e um compilador C++20 (MSVC 2022+, GCC 12+, Clang 15+).
@@ -288,13 +306,15 @@ continua existindo para quem quiser o vcpkg também no Linux.
 
 ```sh
 # Arch / CachyOS / Manjaro
-sudo pacman -S --needed base-devel cmake ninja curl sqlite nlohmann-json spdlog catch2 qt6-base qt6-svg
+sudo pacman -S --needed base-devel cmake ninja curl sqlite nlohmann-json spdlog catch2 qt6-base qt6-svg \
+                        cpp-httplib qrcodegencpp-cmake   # o QR code do acesso mobile é opcional
 # lexbor não está nos repos oficiais, vem do AUR:
 yay -S lexbor          # ou paru -S lexbor
 
 # Debian / Ubuntu
 sudo apt install build-essential cmake ninja-build libcurl4-openssl-dev libsqlite3-dev \
-                 nlohmann-json3-dev libspdlog-dev catch2 qt6-base-dev libqt6svg6-dev
+                 nlohmann-json3-dev libspdlog-dev catch2 qt6-base-dev libqt6svg6-dev \
+                 libcpp-httplib-dev
 # lexbor: pacote `liblexbor-dev` no Debian 13+/Ubuntu 24.10+; nas versões
 # anteriores, compile de github.com/lexbor/lexbor (cmake, dois minutos).
 
@@ -312,7 +332,7 @@ novidade aparece só na janela.
 ### macOS (Homebrew)
 
 ```sh
-brew install cmake ninja qt lexbor nlohmann-json spdlog catch2
+brew install cmake ninja qt lexbor nlohmann-json spdlog catch2 cpp-httplib
 
 cmake -S . -B build/macos -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/macos --parallel
