@@ -577,19 +577,38 @@ std::vector<CargaSemana> cargaPorSemana(const std::vector<avaliacao::Efetiva>& p
         return i < semanas ? &v[static_cast<size_t>(i)] : nullptr;
     };
 
+    auto diaDe = [](CargaSemana& w, QDate d) -> CargaDia& {
+        return w.dias[static_cast<size_t>(w.inicio.daysTo(d))];
+    };
+
     for (const auto& p : provas) {
-        if (auto* w = semanaDe(paraQDate(p.av.quando))) {
+        const QDate d = paraQDate(p.av.quando);
+        if (auto* w = semanaDe(d)) {
+            CargaDia& dia = diaDe(*w, d);
             ++w->provas;
+            ++dia.provas;
+            const bool inferida = p.estado == avaliacao::Estado::Inferida;
             if (jaPassou(p.av.quando, agora)) ++w->provasPassadas;
-            else if (p.estado == avaliacao::Estado::Inferida) ++w->inferidas;
+            else if (inferida) ++w->inferidas;
+            if (inferida) ++dia.inferidas;
+            dia.itens << QStringLiteral("%1 · %2%3")
+                             .arg(QString::fromStdString(p.av.descricao),
+                                  QString::fromStdString(p.av.turmaNome),
+                                  inferida ? QStringLiteral(" (data deduzida)") : QString());
         }
     }
     for (const auto& a : atividades) {
         // Concluída não pesa: a pergunta é "quanto trabalho tenho pela frente".
         if (a.status == StatusAtividade::Concluida) continue;
-        if (auto* w = semanaDe(paraQDate(a.prazo))) {
+        const QDate d = paraQDate(a.prazo);
+        if (auto* w = semanaDe(d)) {
+            CargaDia& dia = diaDe(*w, d);
             ++w->entregas;
+            ++dia.entregas;
             if (jaPassou(a.prazo, agora)) ++w->entregasPassadas;
+            dia.itens << QStringLiteral("Entrega: %1 · %2")
+                             .arg(QString::fromStdString(a.titulo),
+                                  QString::fromStdString(a.turmaNome));
         }
     }
     return v;

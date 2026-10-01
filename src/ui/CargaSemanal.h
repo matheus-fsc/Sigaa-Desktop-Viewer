@@ -30,6 +30,11 @@ public:
     // ela já é a primeira coluna e dispensa a marca.
     void marcarSemanaAtual(bool sim);
 
+    // Uma fileira de 7 quadradinhos sob cada coluna, um por dia (seg → dom):
+    // laranja com prova, cinza com entrega, vazado quando livre. Diz EM QUE
+    // DIA a semana aperta, que a pilha da coluna não diz.
+    void mostrarDias(bool sim);
+
     // A cor dos blocos do que já passou. Pública para a legenda usar a mesma.
     static QColor corPassado();
 
@@ -48,11 +53,18 @@ protected:
 private:
     int colunaEm(QPoint p) const;
     QRect areaDaColuna(int i) const;
+    // Onde começam os rótulos (a base dos blocos) e quanto eles ocupam.
+    int alturaRotulos() const;
+    // O quadradinho do dia `d` (0 = segunda) da coluna `i`.
+    QRect quadradoDoDia(int i, int d) const;
+    QString dicaDoDia(int i, int d) const;
 
     std::vector<CargaSemana> semanas_;
     QDate destaque_;
     int sobMouse_{-1};
+    int diaSobMouse_{-1};
     bool marcarHoje_{false};
+    bool mostrarDias_{false};
 };
 
 } // namespace sigaa::ui

@@ -15,8 +15,10 @@
 #include <QHash>
 #include <QMap>
 #include <QString>
+#include <QStringList>
 #include <Qt>
 
+#include <array>
 #include <utility>
 #include <vector>
 
@@ -178,11 +180,22 @@ struct MateriaDaProva {
 MateriaDaProva materiaDaProva(const Snapshot& s, const avaliacao::Efetiva& prova,
                               const std::vector<avaliacao::Efetiva>& todas);
 
+// O que cai num dia da semana: alimenta os quadradinhos sob cada coluna, que
+// dizem EM QUE DIA a semana aperta — duas provas na mesma quarta pesam mais
+// que uma na segunda e outra na sexta, e a coluna sozinha não distingue.
+struct CargaDia {
+    int provas{0};
+    int inferidas{0};      // contidas em `provas`
+    int entregas{0};
+    QStringList itens;     // "Prova · Compiladores", para a dica do quadradinho
+};
+
 // Quanto pesa cada semana: provas (e quantas delas são deduzidas) e entregas
 // de atividade ainda não concluídas. Semanas de segunda a domingo, como a
 // Agenda.
 struct CargaSemana {
     QDate inicio;       // segunda-feira
+    std::array<CargaDia, 7> dias{};   // [0] = segunda
     int provas{0};
     int inferidas{0};   // contidas em `provas`
     int entregas{0};

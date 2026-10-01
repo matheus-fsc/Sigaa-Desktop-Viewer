@@ -1328,6 +1328,8 @@ void JanelaPrincipal::atualizarCarga() {
 }
 
 void JanelaPrincipal::abrirCargaCompleta() {
+    // Largura de cada semana: cabe "29 set – 5 out" e a fileira dos 7 dias.
+    static constexpr int kColunaPeriodo = 112;
     const auto [ini, fim] = periodoDaCarga(provas_, snapshot_.atividades);
     if (!ini.isValid()) {
         status(QStringLiteral("Nenhuma prova ou entrega coletada ainda."));
@@ -1347,8 +1349,10 @@ void JanelaPrincipal::abrirCargaCompleta() {
     titulo->setFont(ft);
     raiz->addWidget(titulo);
     auto* explica = new QLabel(
-        QStringLiteral("%1 semanas, de %2 a %3: todas as provas e entregas conhecidas. "
-                       "Clique numa semana para ver as provas dela na lista.")
+        QStringLiteral("%1 semanas, de %2 a %3. Cada coluna é uma semana, de segunda a "
+                       "domingo, com as provas e entregas dela; os quadradinhos embaixo são "
+                       "os dias. Passe o mouse num dia para ver o que cai nele, e clique "
+                       "numa semana para ver as provas dela na lista.")
             .arg(semanas)
             .arg(ini.toString(QStringLiteral("dd/MM")), fim.addDays(6).toString(QStringLiteral("dd/MM"))),
         &dlg);
@@ -1363,8 +1367,9 @@ void JanelaPrincipal::abrirCargaCompleta() {
                                     ini, semanas));
     grafico->destacar(semanaFiltrada_);
     grafico->marcarSemanaAtual(true);
-    grafico->setMinimumWidth(semanas * 72);
-    grafico->setMinimumHeight(260);
+    grafico->mostrarDias(true);
+    grafico->setMinimumWidth(semanas * kColunaPeriodo);
+    grafico->setMinimumHeight(300);
     auto* rolagem = new QScrollArea(&dlg);
     rolagem->setWidget(grafico);
     rolagem->setWidgetResizable(true);
@@ -1377,6 +1382,23 @@ void JanelaPrincipal::abrirCargaCompleta() {
         legenda->setTextFormat(Qt::RichText);
         legenda->setFont(legendaPainel->font());
         raiz->addWidget(legenda);
+    }
+    {
+        // A legenda dos quadradinhos, que só existem aqui.
+        const QString laranja = tema::cor::urgente().name();
+        const QString contorno = tema::token("line-strong").name();
+        const QString accent = tema::token("accent").name();
+        auto* dias = new QLabel(
+            QStringLiteral("Dias (S T Q Q S S D): "
+                           "<span style='color:%1'>■</span> prova · "
+                           "<span style='color:%1'>■</span> com ponto = 2 ou mais provas no dia · "
+                           "<span style='color:%2'>□</span> livre · "
+                           "<span style='color:%3'>○</span> hoje")
+                .arg(laranja, contorno, accent),
+            &dlg);
+        dias->setTextFormat(Qt::RichText);
+        if (auto* l = findChild<QLabel*>(QStringLiteral("legendaCarga"))) dias->setFont(l->font());
+        raiz->addWidget(dias);
     }
 
     auto* botoes = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
@@ -1394,12 +1416,12 @@ void JanelaPrincipal::abrirCargaCompleta() {
     });
 
     const QRect tela = screen() ? screen()->availableGeometry() : QRect(0, 0, 1280, 800);
-    dlg.resize(std::min(semanas * 72 + tema::esp(10), tela.width() - 80), 480);
+    dlg.resize(std::min(semanas * kColunaPeriodo + tema::esp(10), tela.width() - 80), 540);
     // Abre com a semana de hoje à vista, não no começo do semestre.
     const QDate hoje = segundaDe(QDate::currentDate());
     const int colunaHoje = static_cast<int>(ini.daysTo(hoje) / 7);
     QTimer::singleShot(0, &dlg, [rolagem, colunaHoje] {
-        rolagem->horizontalScrollBar()->setValue(std::max(0, colunaHoje - 2) * 72);
+        rolagem->horizontalScrollBar()->setValue(std::max(0, colunaHoje - 2) * kColunaPeriodo);
     });
     dlg.exec();
 }
