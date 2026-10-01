@@ -9,6 +9,10 @@
 #include <QLabel>
 #include <QLayout>
 #include <QPushButton>
+#include <QScreen>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include "core/atualizacao/Atualizador.h"
@@ -126,9 +130,25 @@ DialogoOpcoes::DialogoOpcoes(const Config& atual, QWidget* pai) : QDialog(pai) {
     setWindowTitle(QStringLiteral("Opções"));
     setModal(true);
 
-    auto* raiz = new QVBoxLayout(this);
+    // Os grupos vão dentro de uma área de rolagem, e os botões ficam fora dela,
+    // sempre à vista. Numa tela baixa (notebook de 768 px com a barra de
+    // tarefas) o diálogo inteiro passava da tela e "Desenvolvedor", junto com
+    // Salvar, ficava abaixo da borda, sem jeito de chegar lá.
+    auto* externo = new QVBoxLayout(this);
+    externo->setSpacing(tema::esp(3));
+    externo->setContentsMargins(0, 0, 0, tema::esp(4));
+
+    auto* conteudo = new QWidget;
+    auto* raiz = new QVBoxLayout(conteudo);
     raiz->setSpacing(tema::esp(3));
-    raiz->setContentsMargins(tema::esp(5), tema::esp(5), tema::esp(5), tema::esp(4));
+    raiz->setContentsMargins(tema::esp(5), tema::esp(5), tema::esp(5), 0);
+
+    rolagem_ = new QScrollArea(this);
+    rolagem_->setWidget(conteudo);
+    rolagem_->setWidgetResizable(true);
+    rolagem_->setFrameShape(QFrame::NoFrame);
+    rolagem_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    externo->addWidget(rolagem_, 1);
 
     // --- rotina automática --------------------------------------------------
     auto* caixa = new QGroupBox(QStringLiteral("Atualização automática"), this);
@@ -258,7 +278,10 @@ DialogoOpcoes::DialogoOpcoes(const Config& atual, QWidget* pai) : QDialog(pai) {
     botoes->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Cancelar"));
     connect(botoes, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(botoes, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    raiz->addWidget(botoes);
+    auto* linhaBotoes = new QHBoxLayout;
+    linhaBotoes->setContentsMargins(tema::esp(5), 0, tema::esp(5), 0);
+    linhaBotoes->addWidget(botoes);
+    externo->addLayout(linhaBotoes);
 
     // --- ligações -----------------------------------------------------------
     auto ligar = [this](bool sim) {
@@ -293,16 +316,44 @@ DialogoOpcoes::DialogoOpcoes(const Config& atual, QWidget* pai) : QDialog(pai) {
     // mínimo — os dois combos. `SetMinimumSize` impede que ele encolha abaixo
     // do que cabe, inclusive quando a fonte do sistema for maior que a minha.
     raiz->setSizeConstraint(QLayout::SetMinimumSize);
-    adjustSize();
+    ajustarAoConteudo();
 
-    // DEPOIS do adjustSize: a reserva mede na largura real do rótulo, e antes
+    // DEPOIS do primeiro ajuste: a reserva mede na largura real do rótulo, e antes
     // disso ele ainda não tem nenhuma. `activate()` resolve as geometrias sem
-    // esperar o próximo ciclo de eventos, e o segundo `adjustSize` deixa a
+    // esperar o próximo ciclo de eventos, e o segundo ajuste deixa a
     // janela já nascer com a altura que o maior recado vai pedir — sem isso
     // ela abriria curta e daria um pulo no primeiro clique.
     raiz->activate();
     reservarAlturaDoResumo();
-    adjustSize();
+    ajustarAoConteudo();
+    automatico_->setFocus();
+}
+
+void DialogoOpcoes::showEvent(QShowEvent* e) {
+    QDialog::showEvent(e);
+    // Abre no topo. A área rola sozinha até o widget que ganha o foco ao
+    // mostrar a janela, e o diálogo nascia exibindo "Desenvolvedor" em vez do
+    // começo. Depois do ciclo de eventos, quando esse rolar já aconteceu.
+    QTimer::singleShot(0, this, [this] { rolagem_->verticalScrollBar()->setValue(0); });
+}
+
+void DialogoOpcoes::ajustarAoConteudo() {
+    // O tamanho do CONTEÚDO, como antes, mas com teto na área livre da tela:
+    // o que passar dela vira rolagem em vez de sair pela borda de baixo.
+    QWidget* c = rolagem_->widget();
+    c->adjustSize();
+    const QSize dentro = c->sizeHint();
+    const int resto = sizeHint().height() - rolagem_->sizeHint().height();
+    int largura = dentro.width() + rolagem_->verticalScrollBar()->sizeHint().width();
+    int altura = dentro.height() + resto;
+    if (const QScreen* tela = screen()) {
+        const QRect livre = tela->availableGeometry();
+        // Folga para a moldura e a barra de título, que o sistema desenha fora.
+        altura = qMin(altura, livre.height() - 80);
+        largura = qMin(largura, livre.width() - 40);
+    }
+    rolagem_->setMinimumWidth(dentro.width());
+    resize(largura, altura);
 }
 
 void DialogoOpcoes::atualizarResumo() {
@@ -348,7 +399,7 @@ void DialogoOpcoes::mostrarResultadoAtualizacao(const QString& texto, bool haNov
     // O botão de instalar só APARECE quando há o que instalar. Deixá-lo
     // sempre visível e apagado convida ao clique e não explica nada.
     botaoInstalar_->setVisible(haNova);
-    adjustSize();
+    ajustarAoConteudo();
 }
 
 DialogoOpcoes::Config DialogoOpcoes::config() const {

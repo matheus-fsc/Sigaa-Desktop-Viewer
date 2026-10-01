@@ -25,6 +25,7 @@
 
 class QCheckBox;
 class QComboBox;
+class QScrollArea;
 class QLabel;
 class QPushButton;
 
@@ -73,12 +74,20 @@ Q_SIGNALS:
     void pediuProcurarAtualizacao();
     void pediuInstalarAtualizacao();
 
+protected:
+    void showEvent(QShowEvent* e) override;
+
 private:
     void atualizarResumo();
 
     // Fixa no recado a altura do MAIOR texto que ele pode exibir, para que
     // mudar de texto não tire altura do formulário acima. Ver tema::reservarAltura.
     void reservarAlturaDoResumo();
+
+    // Tamanho do conteúdo, limitado à área livre da tela; o excesso rola.
+    void ajustarAoConteudo();
+
+    QScrollArea* rolagem_{nullptr};
 
     QCheckBox* automatico_{nullptr};
     QComboBox* intervaloPortal_{nullptr};
