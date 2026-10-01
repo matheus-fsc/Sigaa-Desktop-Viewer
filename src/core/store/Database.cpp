@@ -4,6 +4,7 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <map>
 
 namespace sigaa::store {
@@ -268,6 +269,38 @@ CREATE TABLE IF NOT EXISTS meta (
   chave TEXT PRIMARY KEY,
   valor TEXT
 );
+
+-- Planejamento de estudo (core/planejamento/Planejamento.h). Dado do ALUNO,
+-- como os ajustes: nenhum sync toca nestas tabelas.
+--
+-- `preferencia_estudo`: minutos livres por dia da semana (0 = segunda).
+-- `dificuldade_turma`: 1 facil, 2 media, 3 dificil; turma ausente = media.
+-- `sessao_estudo`: o plano. As feitas sao o historico e ficam; as pendentes
+-- sao reescritas a cada replanejamento. Chave "idTurma|prova|aaaa-mm-dd": uma
+-- sessao por prova por dia, que e o que deixa o check sobreviver ao replano.
+CREATE TABLE IF NOT EXISTS preferencia_estudo (
+  dia_semana INTEGER PRIMARY KEY,
+  minutos    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dificuldade_turma (
+  id_turma    TEXT PRIMARY KEY,
+  dificuldade INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessao_estudo (
+  chave       TEXT PRIMARY KEY,
+  id_turma    TEXT NOT NULL,
+  turma_nome  TEXT,
+  prova       TEXT NOT NULL,
+  data_prova  TEXT,
+  dia         TEXT NOT NULL,
+  minutos     INTEGER NOT NULL,
+  feita       INTEGER NOT NULL DEFAULT 0,
+  feita_em    INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessao_dia ON sessao_estudo(dia);
 
 CREATE INDEX IF NOT EXISTS idx_atividade_prazo ON atividade(prazo);
 CREATE INDEX IF NOT EXISTS idx_topico_inicio ON topico(inicio);
@@ -1454,5 +1487,169 @@ std::vector<frequencia::Mudanca> Database::historicoPresenca(const std::string& 
     return out;
 }
 
+
+// ---------------------------------------------------------------------------
+// Planejamento de estudo
+// ---------------------------------------------------------------------------
+
+planejamento::Preferencias Database::carregarPreferenciasEstudo() {
+    planejamento::Preferencias p;
+    if (!aberto()) return p;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db, "SELECT dia_semana, minutos FROM preferencia_estudo", -1,
+                           &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const int dia = sqlite3_column_int(st, 0);
+            if (dia >= 0 && dia < 7) {
+                p.minutosPorDia[static_cast<size_t>(dia)] = std::max(0, sqlite3_column_int(st, 1));
+            }
+        }
+    }
+    sqlite3_finalize(st);
+    st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db, "SELECT id_turma, dificuldade FROM dificuldade_turma", -1,
+                           &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const int d = std::clamp(sqlite3_column_int(st, 1), 1, 3);
+            p.dificuldade[txt(st, 0)] = static_cast<planejamento::Dificuldade>(d);
+        }
+    }
+    sqlite3_finalize(st);
+    return p;
+}
+
+bool Database::gravarPreferenciasEstudo(const planejamento::Preferencias& p) {
+    if (!aberto()) return false;
+    if (!impl_->exec("BEGIN IMMEDIATE")) return false;
+    auto rollback = [&] {
+        impl_->exec("ROLLBACK");
+        return false;
+    };
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO preferencia_estudo (dia_semana, minutos) VALUES (?,?)"
+            " ON CONFLICT(dia_semana) DO UPDATE SET minutos=excluded.minutos",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return rollback();
+    }
+    for (int d = 0; d < 7; ++d) {
+        sqlite3_reset(st);
+        sqlite3_bind_int(st, 1, d);
+        sqlite3_bind_int(st, 2, p.minutosPorDia[static_cast<size_t>(d)]);
+        if (sqlite3_step(st) != SQLITE_DONE) {
+            impl_->erro = sqlite3_errmsg(impl_->db);
+            sqlite3_finalize(st);
+            return rollback();
+        }
+    }
+    sqlite3_finalize(st);
+    st = nullptr;
+    if (!impl_->exec("DELETE FROM dificuldade_turma")) return rollback();
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO dificuldade_turma (id_turma, dificuldade) VALUES (?,?)", -1, &st,
+            nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return rollback();
+    }
+    for (const auto& [id, dif] : p.dificuldade) {
+        sqlite3_reset(st);
+        sqlite3_bind_text(st, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(st, 2, static_cast<int>(dif));
+        if (sqlite3_step(st) != SQLITE_DONE) {
+            impl_->erro = sqlite3_errmsg(impl_->db);
+            sqlite3_finalize(st);
+            return rollback();
+        }
+    }
+    sqlite3_finalize(st);
+    return impl_->exec("COMMIT") || rollback();
+}
+
+std::vector<planejamento::Sessao> Database::carregarSessoesEstudo() {
+    std::vector<planejamento::Sessao> out;
+    if (!aberto()) return out;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT id_turma, turma_nome, prova, data_prova, dia, minutos, feita"
+            " FROM sessao_estudo ORDER BY dia",
+            -1, &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            planejamento::Sessao s;
+            s.idTurma = txt(st, 0);
+            s.turmaNome = txt(st, 1);
+            s.prova = txt(st, 2);
+            s.dataProva = deIso(txt(st, 3));
+            s.dia = deIso(txt(st, 4));
+            s.minutos = sqlite3_column_int(st, 5);
+            s.feita = sqlite3_column_int(st, 6) != 0;
+            out.push_back(std::move(s));
+        }
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+
+bool Database::substituirSessoesEstudo(const std::vector<planejamento::Sessao>& ss) {
+    if (!aberto()) return false;
+    if (!impl_->exec("BEGIN IMMEDIATE")) return false;
+    auto rollback = [&] {
+        impl_->exec("ROLLBACK");
+        return false;
+    };
+    // As feitas não são apagadas: o upsert abaixo as regrava como vieram, e
+    // uma feita que não esteja em `ss` (não deveria acontecer) continua lá.
+    if (!impl_->exec("DELETE FROM sessao_estudo WHERE feita = 0")) return rollback();
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO sessao_estudo (chave, id_turma, turma_nome, prova, data_prova, dia,"
+            " minutos, feita) VALUES (?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(chave) DO UPDATE SET turma_nome=excluded.turma_nome,"
+            "   data_prova=excluded.data_prova, minutos=excluded.minutos,"
+            "   feita=MAX(feita, excluded.feita)",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return rollback();
+    }
+    for (const auto& s : ss) {
+        const std::string chave = s.chave(), dataProva = s.dataProva.toIso(),
+                          dia = s.dia.toIso();
+        sqlite3_reset(st);
+        sqlite3_bind_text(st, 1, chave.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, s.idTurma.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 3, s.turmaNome.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 4, s.prova.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 5, dataProva.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 6, dia.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(st, 7, s.minutos);
+        sqlite3_bind_int(st, 8, s.feita ? 1 : 0);
+        if (sqlite3_step(st) != SQLITE_DONE) {
+            impl_->erro = sqlite3_errmsg(impl_->db);
+            sqlite3_finalize(st);
+            return rollback();
+        }
+    }
+    sqlite3_finalize(st);
+    return impl_->exec("COMMIT") || rollback();
+}
+
+bool Database::marcarSessaoEstudo(const std::string& chave, bool feita, std::int64_t agora) {
+    if (!aberto()) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "UPDATE sessao_estudo SET feita=?, feita_em=? WHERE chave=?", -1, &st,
+            nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return false;
+    }
+    sqlite3_bind_int(st, 1, feita ? 1 : 0);
+    if (feita) sqlite3_bind_int64(st, 2, agora);
+    else sqlite3_bind_null(st, 2);
+    sqlite3_bind_text(st, 3, chave.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE && sqlite3_changes(impl_->db) == 1;
+    if (!ok) impl_->erro = sqlite3_errmsg(impl_->db);
+    sqlite3_finalize(st);
+    return ok;
+}
 
 } // namespace sigaa::store

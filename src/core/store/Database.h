@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "core/avaliacao/Ajustes.h"
+#include "core/planejamento/Planejamento.h"
 #include "core/frequencia/Presenca.h"
 #include "core/model/Models.h"
 
@@ -105,6 +106,22 @@ public:
     std::vector<avaliacao::Mudanca> historico(const std::string& idTurma = {},
                                               const std::string& descricao = {},
                                               int limite = 200);
+
+    // --- planejamento de estudo -------------------------------------------
+    //
+    // Dado do aluno, à parte do snapshot como os ajustes. Ver
+    // core/planejamento/Planejamento.h para o que o plano é.
+
+    // Sem nada gravado, os padrões de `Preferencias`.
+    planejamento::Preferencias carregarPreferenciasEstudo();
+    bool gravarPreferenciasEstudo(const planejamento::Preferencias& p);
+
+    std::vector<planejamento::Sessao> carregarSessoesEstudo();
+    // Grava o plano recalculado: apaga as pendentes e insere `ss`. As feitas
+    // nunca são apagadas, nem desmarcadas por um replano.
+    bool substituirSessoesEstudo(const std::vector<planejamento::Sessao>& ss);
+    // O check do aluno. Falso se a chave não existe.
+    bool marcarSessaoEstudo(const std::string& chave, bool feita, std::int64_t agora);
 
 private:
     struct Impl;

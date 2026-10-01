@@ -122,6 +122,7 @@ add_library(sigaa_core STATIC
   src/core/atualizacao/Atualizador.cpp
   src/core/atualizacao/Sha256.cpp
   src/core/avaliacao/Ajustes.cpp
+  src/core/planejamento/Planejamento.cpp
   src/core/frequencia/Presenca.cpp
   src/core/calendar/Calendario.cpp
   src/core/sync/Crawler.cpp
@@ -406,6 +407,7 @@ if(BUILD_TESTING)
     tests/topico_parser_test.cpp
     tests/baixador_test.cpp
     tests/instituicao_test.cpp
+    tests/planejamento_test.cpp
   )
   target_link_libraries(sigaa_tests PRIVATE sigaa_core Catch2::Catch2WithMain)
   target_compile_definitions(sigaa_tests PRIVATE
