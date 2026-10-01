@@ -182,14 +182,27 @@ if(WIN32)
 endif()
 
 # ---------------------------------------------------------------------------
+# mcp/ — o servidor MCP para agentes de IA (docs/MCP.md). Sem Qt, como o core:
+# roda dentro do sigaa-cli (`sigaa-cli mcp`) e é testado sem processo.
+# ---------------------------------------------------------------------------
+add_library(sigaa_mcp STATIC
+  src/mcp/Leitura.cpp
+  src/mcp/Ferramentas.cpp
+  src/mcp/Servidor.cpp
+)
+target_include_directories(sigaa_mcp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(sigaa_mcp PUBLIC sigaa_core)
+
+# ---------------------------------------------------------------------------
 # sigaa-cli — entregável da Fase 1. Prova que o scraping funciona,
 # sem escrever uma linha de UI.
 # ---------------------------------------------------------------------------
 add_executable(sigaa-cli
   src/app/main.cpp
+  src/app/Mcp.cpp
   src/app/Prompt.cpp
 )
-target_link_libraries(sigaa-cli PRIVATE sigaa_core sigaa_platform spdlog::spdlog)
+target_link_libraries(sigaa-cli PRIVATE sigaa_mcp sigaa_core sigaa_platform spdlog::spdlog)
 
 if(MSVC)
   # F5 na IDE precisa de argumentos, senão o CLI só imprime o "uso:" e sai.
@@ -411,8 +424,9 @@ if(BUILD_TESTING)
     tests/instituicao_test.cpp
     tests/materia_test.cpp
     tests/pastas_test.cpp
+    tests/mcp_test.cpp
   )
-  target_link_libraries(sigaa_tests PRIVATE sigaa_core Catch2::Catch2WithMain)
+  target_link_libraries(sigaa_tests PRIVATE sigaa_mcp sigaa_core Catch2::Catch2WithMain)
   target_compile_definitions(sigaa_tests PRIVATE
     FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
   include(Catch)

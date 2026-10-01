@@ -8,6 +8,7 @@
 // O arquivo do banco NÃO guarda credenciais. Só dados acadêmicos já públicos
 // para o próprio aluno.
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <set>
@@ -43,6 +44,21 @@ public:
     // do MCP...). nullopt = chave ausente, que é diferente de valor vazio.
     std::optional<std::string> lerMeta(const std::string& chave);
     bool gravarMeta(const std::string& chave, const std::string& valor);
+
+    // Auditoria do servidor MCP: um registro por chamada de ferramenta ou
+    // leitura de recurso. Só o pedido, nunca o conteúdo devolvido.
+    bool registrarAcessoMcp(std::int64_t quando, const std::string& origem,
+                            const std::string& ferramenta, const std::string& turma, bool ok);
+
+    struct AcessoMcp {
+        std::int64_t quando{0};
+        std::string origem;
+        std::string ferramenta;
+        std::string turma;
+        bool ok{false};
+    };
+    // Os mais recentes primeiro.
+    std::vector<AcessoMcp> ultimosAcessosMcp(int limite = 50);
 
     // Lê o último estado conhecido — a base de comparação do diff.
     Snapshot carregarUltimo();

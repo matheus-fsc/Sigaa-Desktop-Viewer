@@ -269,6 +269,21 @@ CREATE TABLE IF NOT EXISTS meta (
   valor TEXT
 );
 
+-- Cada acesso de um agente de IA pelo servidor MCP (docs/MCP.md §7): quem
+-- (clientInfo.name do agente), o que (ferramenta ou recurso), de qual turma,
+-- e se deu certo. E o que a tela "Atividade recente" mostra ao aluno: dados
+-- dele saindo do computador nao podem ser invisiveis. Nunca guarda o
+-- conteudo devolvido, so o pedido.
+CREATE TABLE IF NOT EXISTS mcp_acesso (
+  quando     INTEGER NOT NULL,
+  origem     TEXT,
+  ferramenta TEXT NOT NULL,
+  turma      TEXT,
+  ok         INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_acesso_quando ON mcp_acesso(quando);
+
 CREATE INDEX IF NOT EXISTS idx_atividade_prazo ON atividade(prazo);
 CREATE INDEX IF NOT EXISTS idx_topico_inicio ON topico(inicio);
 CREATE INDEX IF NOT EXISTS idx_arquivo_turma ON arquivo(id_turma);
@@ -383,6 +398,51 @@ Database::Database(const std::string& caminho, Abertura modo)
     // se esperam — e sem um prazo a segunda falharia na hora com SQLITE_BUSY,
     // perdendo, por exemplo, o estudo que o agente registrou durante um sync.
     sqlite3_busy_timeout(impl_->db, 3000);
+}
+
+bool Database::registrarAcessoMcp(std::int64_t quando, const std::string& origem,
+                                  const std::string& ferramenta, const std::string& turma,
+                                  bool ok) {
+    if (!aberto()) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO mcp_acesso (quando, origem, ferramenta, turma, ok) VALUES (?,?,?,?,?)",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return false;
+    }
+    sqlite3_bind_int64(st, 1, quando);
+    sqlite3_bind_text(st, 2, origem.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 3, ferramenta.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 4, turma.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(st, 5, ok ? 1 : 0);
+    const bool r = sqlite3_step(st) == SQLITE_DONE;
+    if (!r) impl_->erro = sqlite3_errmsg(impl_->db);
+    sqlite3_finalize(st);
+    return r;
+}
+
+std::vector<Database::AcessoMcp> Database::ultimosAcessosMcp(int limite) {
+    std::vector<AcessoMcp> out;
+    if (!aberto()) return out;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT quando, origem, ferramenta, turma, ok FROM mcp_acesso"
+            " ORDER BY quando DESC, rowid DESC LIMIT ?",
+            -1, &st, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(st, 1, limite);
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            AcessoMcp a;
+            a.quando = sqlite3_column_int64(st, 0);
+            a.origem = txt(st, 1);
+            a.ferramenta = txt(st, 2);
+            a.turma = txt(st, 3);
+            a.ok = sqlite3_column_int(st, 4) != 0;
+            out.push_back(std::move(a));
+        }
+    }
+    sqlite3_finalize(st);
+    return out;
 }
 
 std::optional<std::string> Database::lerMeta(const std::string& chave) {

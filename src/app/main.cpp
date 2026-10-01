@@ -27,6 +27,7 @@
 
 #include "core/config/DotEnv.h"
 #include "core/config/Instituicao.h"
+#include "app/Mcp.h"
 #include "app/Prompt.h"
 #include "core/http/SigaaSession.h"
 #include "core/http/Trafego.h"
@@ -344,6 +345,12 @@ int usage() {
         "  sigaa-cli baixar <turma> <id> [<dir>]        baixa um arquivo (dir: materiais)\n"
         "  sigaa-cli explorar <turma> [<aba>] [<dir>]   recon: entra na turma e grava o\n"
         "                                               HTML cru da aba (padrao dir=recon)\n"
+        "  sigaa-cli mcp [--banco <db>] [--materiais <dir>]\n"
+        "                                               servidor MCP para agentes de IA\n"
+        "  sigaa-cli mcp permitir|bloquear <categoria>  leitura, arquivos, escrita, rede, todas\n"
+        "  sigaa-cli mcp estado                         o que esta liberado\n"
+        "  sigaa-cli mcp instalar <cliente> [--imprimir] registra o servidor no agente\n"
+        "  sigaa-cli mcp remover <cliente>              desfaz o registro\n"
         "\n"
         "opcoes do sync:\n"
         "  --turmas          entra em cada turma (mais lento, traz provas, topicos e\n"
@@ -692,6 +699,7 @@ int main(int argc, char** argv) {
 
     if (std::string(argv[1]) == "login") return cmdLogin();
     if (std::string(argv[1]) == "logout") return cmdLogout();
+    if (std::string(argv[1]) == "mcp") return sigaa::app::cmdMcp(argc, argv);
 
     if (std::string(argv[1]) == "arquivos") {
         if (argc < 3) return usage();
