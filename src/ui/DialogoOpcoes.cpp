@@ -242,6 +242,25 @@ DialogoOpcoes::DialogoOpcoes(const Config& atual, QWidget* pai) : QDialog(pai) {
     la->addLayout(linhaAtu);
     raiz->addWidget(atu);
 
+    // --- agentes de IA -----------------------------------------------------
+    auto* agentes = new QGroupBox(QStringLiteral("Agentes de IA"), this);
+    auto* lg = new QVBoxLayout(agentes);
+    lg->setSpacing(tema::esp(2));
+    auto* notaAgentes = new QLabel(
+        QStringLiteral("Estude com o Claude, o Codex ou o Gemini usando seus tópicos, provas e "
+                       "PDFs, sem arrastar arquivo. Você escolhe o que o agente pode ler."),
+        agentes);
+    notaAgentes->setWordWrap(true);
+    notaAgentes->setFont(tema::fonte(tema::Papel::Legenda));
+    lg->addWidget(notaAgentes);
+    auto* linhaAgentes = new QHBoxLayout;
+    auto* bAgentes = new QPushButton(QStringLiteral("Configurar agentes…"), agentes);
+    connect(bAgentes, &QPushButton::clicked, this, &DialogoOpcoes::pediuAgentes);
+    linhaAgentes->addWidget(bAgentes);
+    linhaAgentes->addStretch();
+    lg->addLayout(linhaAgentes);
+    raiz->addWidget(agentes);
+
     // --- desenvolvedor ------------------------------------------------------
     // Separado e no fim, porque não é para o aluno. O diagnóstico de tráfego e
     // o relatório HTML existem para depurar o app, não para usá-lo — e ocupar

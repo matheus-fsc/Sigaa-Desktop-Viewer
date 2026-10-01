@@ -50,6 +50,7 @@
 #include "ui/CargaSemanal.h"
 #include "core/sync/Baixador.h"
 #include "ui/CalendarioProvas.h"
+#include "ui/DialogoAgentes.h"
 #include "ui/DialogoAtualizar.h"
 #include "ui/DialogoLogin.h"
 #include "core/atualizacao/Atualizador.h"
@@ -2641,6 +2642,13 @@ void JanelaPrincipal::abrirOpcoes() {
 
     // O diagnóstico e o relatório abrem SOBRE o diálogo, sem fechá-lo: quem
     // foi ali investigar um problema quase sempre volta para mexer na rotina.
+    connect(&dlg, &DialogoOpcoes::pediuAgentes, this, [&dlg] {
+        // Os caminhos que vão no registro do servidor em cada agente: os que
+        // ESTE app usa agora (docs/MCP.md, D3).
+        DialogoAgentes(QDir::current().absoluteFilePath(QStringLiteral("sigaa-viewer.db")),
+                       pastaBaseMateriais(), &dlg)
+            .exec();
+    });
     connect(&dlg, &DialogoOpcoes::pediuDiagnostico, this, [this, &dlg] {
         JanelaDiagnostico(&dlg).exec();
     });

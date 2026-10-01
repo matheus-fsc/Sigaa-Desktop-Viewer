@@ -69,6 +69,7 @@ Q_SIGNALS:
     // O canto do desenvolvedor. A janela principal é quem sabe abrir essas
     // telas; o diálogo só avisa que o botão foi clicado.
     void pediuDiagnostico();
+    void pediuAgentes();
     void pediuRelatorio();
 
     void pediuProcurarAtualizacao();

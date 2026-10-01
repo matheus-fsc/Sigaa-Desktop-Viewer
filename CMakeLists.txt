@@ -256,6 +256,7 @@ elseif(SIGAA_UI)
     src/ui/JanelaDiagnostico.cpp
     src/ui/DialogoAtualizar.cpp
     src/ui/DialogoOpcoes.cpp
+    src/ui/DialogoAgentes.cpp
     src/ui/DialogosAvaliacao.cpp
     src/ui/EntrarNoSigaa.cpp
     src/ui/Copiar.cpp

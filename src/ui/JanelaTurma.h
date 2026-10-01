@@ -125,6 +125,8 @@ private:
 
     // Grava turma.md na pasta da turma. Ver core/report/TurmaMd.h.
     void gerarResumoMd();
+    // A pasta para chat na web (mcp::exportarKit), aberta no gerenciador.
+    void exportarKit();
 
     void rebaixarSelecionados();  // o botão para quem quer se certificar
     void baixarTudo();
