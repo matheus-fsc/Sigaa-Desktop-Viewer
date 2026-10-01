@@ -828,63 +828,6 @@ void JanelaPrincipal::montarAcoes() {
             &JanelaPrincipal::escolherEAtualizar);
     connect(formulario_->acOpcoes, &QAction::triggered, this,
             &JanelaPrincipal::abrirOpcoes);
-
-    // SIGAA_TMP_INICIO
-    if (qEnvironmentVariableIsSet("SIGAA_TMP_CAP")) {
-        QTimer::singleShot(300, this, [this] { showNormal(); resize(1440, 940); });
-        QTimer::singleShot(900, this, [this] {
-            const QString alvo = qEnvironmentVariable("SIGAA_TMP_CAP");
-            auto* abas = formulario_->abas;
-            auto selecionarProva = [this](const QString& turma, const QString& desc) {
-                auto* tv = formulario_->tvProvas;
-                auto* m = tv->model();
-                for (int g = 0; g < m->rowCount(); ++g) {
-                    const QModelIndex gi = m->index(g, 0);
-                    for (int r = 0; r < m->rowCount(gi); ++r) {
-                        bool t = false, d = false;
-                        for (int c = 0; c < m->columnCount(gi); ++c) {
-                            const QString x = m->index(r, c, gi).data().toString();
-                            if (x.contains(turma)) t = true;
-                            if (x == desc) d = true;
-                        }
-                        if (t && d) {
-                            tv->setCurrentIndex(m->index(r, 0, gi));
-                            tv->selectionModel()->select(m->index(r, 0, gi),
-                                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
-                            return;
-                        }
-                    }
-                }
-            };
-            if (alvo == "agenda") abas->setCurrentIndex(0);
-            else if (alvo == "provas") abas->setCurrentIndex(1);
-            else if (alvo == "turmas") abas->setCurrentIndex(2);
-            else if (alvo == "carga") { abas->setCurrentIndex(1); abrirCargaCompleta(); }
-            else if (alvo == "confirmar") { abas->setCurrentIndex(1); abrirConfirmarDatas(); }
-            else if (alvo == "editar") { abas->setCurrentIndex(1); selecionarProva("COMPILADORES", "Prova 1"); corrigirProva(); }
-            else if (alvo == "historico") { abas->setCurrentIndex(1); selecionarProva("COMPILADORES", "Prova 1"); acHistoricoProva_->trigger(); }
-            else if (alvo == "atualizar") { abas->setCurrentIndex(0); escolherEAtualizar(); }
-            else if (alvo == "opcoes") abrirOpcoes();
-            else if (alvo.startsWith("turma")) {
-                abas->setCurrentIndex(2);
-                const int interna = alvo.endsWith("-presenca") ? 2 : 0;
-                QTimer::singleShot(1200, this, [this, interna] {
-                    for (QWidget* w : QApplication::topLevelWidgets()) {
-                        if (w == this || !w->isVisible()) continue;
-                        if (auto* t = w->findChild<QTabWidget*>()) t->setCurrentIndex(interna);
-                    }
-                });
-                // Só na memória: com a sessão preenchida o app não pede login
-                // nem tenta entrar no SIGAA ao abrir a janela da turma.
-                sessao_.login = "maria.silva";
-                sessao_.senha = "ficticia";
-                for (const auto& t : snapshot_.turmas) {
-                    if (t.nome == "COMPILADORES") { abrirJanelaDaTurma(t); break; }
-                }
-            }
-        });
-    }
-    // SIGAA_TMP_FIM
     connect(formulario_->acAtualizarTudo, &QAction::triggered, this,
             [this] { sincronizar(true); });
     // `acRelatorio` e `acDiagnostico` saíram da barra: são ferramentas de
