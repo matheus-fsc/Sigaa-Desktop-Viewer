@@ -865,3 +865,284 @@ QListWidget#menuEstudo::item:selected {
     background: @accent-soft;
     color: @accent;
 }
+
+/* --- Controles da aba Estudo (ui/Controles.h) ---------------------------- */
+
+/* O primario fora da barra de acoes: "Aceitar", "Conectar um agente". */
+QPushButton[papel="primario"] {
+    background: @accent-fill;
+    border-color: @accent-fill;
+    color: @on-accent;
+    font-weight: bold;
+}
+
+QPushButton[papel="primario"]:hover {
+    background: @accent-fill-hover;
+    border-color: @accent-fill-hover;
+}
+
+QPushButton[papel="primario"]:disabled {
+    background: @surface-2;
+    border-color: @line;
+    color: @text-off;
+}
+
+/* Link: "Desfazer", "Ver proposta", "Alterar o que ele pode mudar". */
+QPushButton[papel="link"] {
+    background: transparent;
+    border: none;
+    padding: 2px 4px;
+    color: @accent;
+}
+
+QPushButton[papel="link"]:hover {
+    color: @text;
+}
+
+/* Seletor segmentado: uma moldura so, e um filete entre as opcoes. */
+QWidget#segmentado {
+    background: @surface;
+    border: 1px solid @line-strong;
+    border-radius: 8px;
+}
+
+QWidget#segmentado QPushButton {
+    background: transparent;
+    border: none;
+    border-left: 1px solid @line-strong;
+    border-radius: 0;
+    padding: 6px 12px;
+    color: @text;
+}
+
+QWidget#segmentado QPushButton[pos="primeiro"] {
+    border-left: none;
+    border-top-left-radius: 7px;
+    border-bottom-left-radius: 7px;
+}
+
+QWidget#segmentado QPushButton[pos="ultimo"] {
+    border-top-right-radius: 7px;
+    border-bottom-right-radius: 7px;
+}
+
+QWidget#segmentado QPushButton:hover {
+    background: @surface-2;
+}
+
+QWidget#segmentado QPushButton:checked {
+    background: @accent-soft;
+    color: @accent;
+}
+
+QWidget#segmentado QPushButton:disabled {
+    color: @text-off;
+}
+
+/* Passo  - valor +: o valor no meio, sobre o fundo da janela. */
+QWidget#passo {
+    background: @bg;
+    border: 1px solid @line-strong;
+    border-radius: 8px;
+}
+
+QWidget#passo QPushButton {
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    padding: 0;
+    color: @text;
+}
+
+QWidget#passo QPushButton:hover {
+    background: @surface-2;
+}
+
+QWidget#passo QPushButton:disabled {
+    color: @text-off;
+}
+
+/* Pilulas de texto: "- pelo agente", "2 esperando voce". */
+QLabel[classe="pilula"] {
+    border: 1px solid transparent;
+    /* Ate metade da altura: um raio maior o Qt ignora, e a pilula sai reta. */
+    border-radius: 8px;
+    padding: 1px 9px;
+}
+
+QLabel[classe="pilula"][tom="acento"] {
+    background: @accent-soft;
+    color: @accent;
+}
+
+QLabel[classe="pilula"][tom="aviso"] {
+    background: @warn-soft;
+    color: @warn;
+}
+
+QLabel[classe="pilula"][tom="ok"] {
+    background: @ok-soft;
+    color: @ok;
+}
+
+QLabel[classe="pilula"][tom="perigo"] {
+    background: @danger-soft;
+    color: @danger;
+}
+
+/* Topico de prova: cinza, sem alarme. */
+QLabel[classe="pilula"][tom="neutro"] {
+    background: @surface-2;
+    color: @text-2;
+    border-radius: 6px;
+}
+
+/* --- Planejamento -------------------------------------------------------- */
+
+/* Icone quadrado de 24 px num item do checklist: entrega, confirmar, estudo. */
+QLabel[classe="icone"] {
+    border-radius: 6px;
+}
+
+QLabel[classe="icone"][tom="aviso"] {
+    background: @warn-soft;
+    color: @warn;
+}
+
+QLabel[classe="icone"][tom="perigo"] {
+    background: @danger-soft;
+    color: @danger;
+}
+
+QLabel[classe="icone"][tom="acento"] {
+    background: @accent-soft;
+    color: @accent;
+}
+
+/* A caixa de marcar uma sessao: o visto em verde sobre o verde suave. */
+QPushButton[papel="caixa"] {
+    background: transparent;
+    border: 2px solid @line-strong;
+    border-radius: 6px;
+    padding: 0;
+    color: @ok;
+}
+
+QPushButton[papel="caixa"]:checked {
+    background: @ok-soft;
+    border-color: @ok;
+}
+
+/* Uma sessao de outro dia: chip que se marca com um clique. */
+QPushButton[papel="chip"] {
+    background: @surface;
+    border: 1px solid @line-strong;
+    border-radius: 8px;
+    padding: 5px 10px;
+    color: @text;
+}
+
+QPushButton[papel="chip"]:checked {
+    background: @ok-soft;
+    color: @text-3;
+}
+
+/* Materia na legenda do grafico: clique isola. */
+QPushButton[papel="pilulaMateria"] {
+    background: transparent;
+    border: 1px solid @line-strong;
+    border-radius: 8px;
+    padding: 3px 10px;
+}
+
+QPushButton[papel="pilulaMateria"]:checked {
+    background: @surface-2;
+    border: 2px solid @text;
+}
+
+/* Cabecalho de grupo do "O que fazer": abre e fecha. */
+QPushButton[papel="grupo"] {
+    background: @surface-2;
+    border: none;
+    border-top: 1px solid @line;
+    border-radius: 0;
+    padding: 0;
+    text-align: left;
+}
+
+QPushButton[papel="grupo"][tom="perigo"] {
+    background: @danger-soft;
+}
+
+QPushButton[papel="grupo"]:hover {
+    background: @surface-3;
+}
+
+/* Linha de lista com o filete EM CIMA: a primeira encosta no cabecalho. */
+QFrame[classe="linhaTopo"] {
+    background: transparent;
+    border: none;
+    border-top: 1px solid @line;
+}
+
+/* A semana escolhida no grafico, no topo do checklist. */
+QFrame[classe="faixaAcento"] {
+    background: @accent-soft;
+    border: none;
+    border-top: 1px solid @line;
+}
+
+/* Cartoes da aba Estudo: o forte pede resposta (proposta pendente); o
+ * apagado ja foi respondido. */
+QFrame[classe="cartaoForte"] {
+    background: @surface;
+    border: 1px solid @line-strong;
+    border-radius: 10px;
+}
+
+QFrame[classe="cartaoApagado"] {
+    background: @surface-2;
+    border: 1px solid @line;
+    border-radius: 10px;
+}
+
+/* Faixa dentro de um cartao: o ajuste de uma proposta. */
+QFrame[classe="faixa"] {
+    background: @surface-2;
+    border: none;
+    border-radius: 8px;
+}
+
+/* Linhas de uma lista dentro de um cartao, separadas por filete. */
+QFrame[classe="linha"] {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid @line;
+}
+
+QFrame[classe="rodape"] {
+    background: @surface-2;
+    border: none;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+
+/* "Apagar tudo de um agente": a acao que nao volta, em vermelho suave. */
+QFrame[classe="perigo"] {
+    background: @danger-soft;
+    border: none;
+    border-radius: 10px;
+}
+
+QPushButton[papel="chipPerigo"] {
+    background: @surface;
+    border: 1px solid @danger;
+    color: @danger;
+    font-weight: bold;
+}
+
+QFrame[classe="alertaFaixa"] {
+    background: @warn-soft;
+    border: none;
+    border-radius: 10px;
+}

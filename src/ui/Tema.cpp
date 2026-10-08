@@ -84,6 +84,18 @@ const std::vector<Token>& tokens() {
         {"focus", QColor(0x9a, 0xb8, 0xff), QColor(0x2f, 0x63, 0xcc)},
         {"tooltip", QColor(0x34, 0x3b, 0x4a), QColor(0x1a, 0x1f, 0x29)},
         {"on-tooltip", QColor(0xe7, 0xea, 0xf0), QColor(0xff, 0xff, 0xff)},
+        // Uma cor por matéria (o gráfico de carga e o plano). As quatro
+        // primeiras são as do protótipo; as outras, no mesmo tom, para quem
+        // tem mais de quatro turmas. Nenhuma repete laranja, vermelho ou
+        // verde: essas já dizem crítico, atrasado e feito.
+        {"m1", QColor(0xb4, 0x9c, 0xf2), QColor(0x6d, 0x4b, 0xc4)},
+        {"m2", QColor(0x4f, 0xc3, 0xc9), QColor(0x12, 0x7f, 0x86)},
+        {"m3", QColor(0xe8, 0x8b, 0xc4), QColor(0xb2, 0x3f, 0x86)},
+        {"m4", QColor(0xd4, 0xc4, 0x6a), QColor(0x85, 0x74, 0x14)},
+        {"m5", QColor(0x8f, 0xa8, 0xf7), QColor(0x3d, 0x5c, 0xc0)},
+        {"m6", QColor(0xc9, 0xa2, 0x7e), QColor(0x8a, 0x5a, 0x33)},
+        {"m7", QColor(0x9b, 0xc8, 0xe8), QColor(0x2a, 0x6a, 0x93)},
+        {"m8", QColor(0xd9, 0x9b, 0xe0), QColor(0x8c, 0x3c, 0x99)},
     };
     return t;
 }
@@ -337,6 +349,10 @@ QColor inferido() { return token("warn"); }
 QColor apagado() { return token("text-3"); }
 QColor sucesso() { return token("ok"); }
 QColor acento() { return token("accent"); }
+QColor materia(int i) {
+    static const char* const kNomes[] = {"m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8"};
+    return token(kNomes[((i % 8) + 8) % 8]);
+}
 } // namespace cor
 
 namespace {

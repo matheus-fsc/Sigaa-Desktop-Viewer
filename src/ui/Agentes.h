@@ -1,30 +1,36 @@
 #pragma once
-// Os agentes de IA na aba Estudo (docs/MCP.md §5 e §6). Duas páginas do menu
-// lateral:
+// A página Agentes de IA da aba Estudo (docs/MCP.md §5 e §6), em três abas:
 //
-//   - Progresso: o que os agentes devolveram — pontos de foco abertos (que o
-//     aluno resolve ou apaga), desempenho por tópico e o histórico de tudo,
-//     com quem gravou;
-//   - Agentes de IA: o que eles podem fazer (permissões), a conexão com cada
-//     agente instalado e a atividade (o que leram e gravaram).
+//   - Permissões: o que o agente pode ler e gravar (interruptores) e o que ele
+//     pode mudar no plano — por tipo, não pode / propõe / aplica e avisa — com
+//     um teto de horas por dia (mcp/Propostas.h);
+//   - Conectar: a conexão com cada agente instalado;
+//   - Atividade: o que eles leram e gravaram, e o que foi recusado e por quê.
 //
 // Tudo grava no banco na hora, sem botão Salvar: um interruptor de
 // privacidade que só vale depois de um clique a mais é um interruptor que o
 // aluno acha que desligou e não desligou. E tudo que veio do agente é
 // mostrado como texto puro, nunca como HTML (§7).
+//
+// O que os agentes devolvem (estudo, desempenho, focos, propostas) fica na
+// página Progresso (ui/Progresso.h).
 
 #include <QString>
 #include <QWidget>
 
 #include <functional>
+#include <vector>
 
-class QCheckBox;
+class QFrame;
 class QLabel;
 class QTabWidget;
 class QTableWidget;
 class QVBoxLayout;
 
 namespace sigaa::ui {
+
+class Interruptor;
+class Segmentado;
 
 class PainelAgentes : public QWidget {
 public:
@@ -35,6 +41,12 @@ public:
     // Mostra a aba Conectar (o caminho de quem chega pelo "Conectar um agente"
     // do Progresso, ou por Opções).
     void mostrarConexao();
+    // Mostra a aba Permissões ("Alterar o que ele pode mudar", no Progresso).
+    void mostrarPermissoes();
+
+    // Um modo mudou e aplicou ou escondeu propostas: o plano e o contador do
+    // menu mudam.
+    std::function<void()> aoMudar;
 
 protected:
     void showEvent(QShowEvent* e) override;
@@ -44,7 +56,7 @@ private:
     QWidget* montarConexoes();
     QWidget* montarAtividade();
     void carregarPermissoes();
-    void gravarPermissao(const char* nome, bool sim);
+    void gravarPermissao(const char* nome, bool sim, const QString& rotulo);
     void atualizarConexoes();
     void atualizarAtividade();
 
@@ -52,43 +64,23 @@ private:
     QString materiais_;
     QTabWidget* abas_{nullptr};
 
-    QCheckBox* leitura_{nullptr};
-    QCheckBox* arquivos_{nullptr};
-    QCheckBox* escrita_{nullptr};
-    QCheckBox* rede_{nullptr};
+    struct LinhaPermissao {
+        Interruptor* chave{nullptr};
+        QWidget* linha{nullptr};
+        QLabel* precisa{nullptr};
+    };
+    LinhaPermissao leitura_, arquivos_, escrita_, rede_;
+    QLabel* estadoPermissoes_{nullptr};
+    std::vector<Segmentado*> modos_;   // horas, dificuldade, sessão, foco
+    Segmentado* teto_{nullptr};
+    QWidget* caixaModos_{nullptr};
+    QLabel* precisaEscrita_{nullptr};
 
+    QFrame* semLeitura_{nullptr};
     QVBoxLayout* linhasConexao_{nullptr};
     QWidget* conteudoConexao_{nullptr};
     QLabel* resultado_{nullptr};
     QTableWidget* atividade_{nullptr};
-};
-
-class PainelProgresso : public QWidget {
-public:
-    explicit PainelProgresso(QString banco, QWidget* pai = nullptr);
-
-    // Relê o banco. Chamado ao aparecer e quando um agente gravou algo.
-    void atualizar();
-
-    // "Conectar um agente", no estado vazio.
-    std::function<void()> aoPedirConexao;
-    // Um ponto de foco foi resolvido ou apagado aqui: o plano muda.
-    std::function<void()> aoMudar;
-
-protected:
-    void showEvent(QShowEvent* e) override;
-
-private:
-    void mostrarFocos();
-
-    QString banco_;
-    QLabel* resumo_{nullptr};
-    QWidget* vazio_{nullptr};
-    QWidget* conteudo_{nullptr};
-    QVBoxLayout* areaFocos_{nullptr};
-    QWidget* caixaFocos_{nullptr};
-    QTableWidget* desempenho_{nullptr};
-    QTableWidget* historico_{nullptr};
 };
 
 } // namespace sigaa::ui

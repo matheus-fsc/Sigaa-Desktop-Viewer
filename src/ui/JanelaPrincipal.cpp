@@ -1479,10 +1479,24 @@ EntradasEstudo JanelaPrincipal::entradasDoPlanejamento() const {
         // mesmos que a "Próxima prova" lista.
         const MateriaDaProva m = materiaDaProva(snapshot_, p, provas_);
         a.topicos = m.coletada ? static_cast<int>(m.topicos.size()) : -1;
+        auto& info = e.infoProvas[a.idTurma + "|" + a.descricao];
+        info.topicosColetados = m.coletada;
+        for (const auto& t : m.topicos) info.topicos.push_back(t.toStdString());
+        info.corrigida = p.estado == avaliacao::Estado::Editada;
+        info.quandoSigaa = p.quandoSigaa;
         e.provas.push_back(std::move(a));
     }
     for (const auto& at : snapshot_.atividades) {
-        if (at.status == StatusAtividade::Concluida || jaPassou(at.prazo, agora)) continue;
+        if (at.status == StatusAtividade::Concluida) continue;
+        if (jaPassou(at.prazo, agora)) {
+            // Atrasada há mais de duas semanas já não é "o que fazer": ou foi
+            // entregue fora do app, ou não vai ser.
+            const QDate p(at.prazo.year, at.prazo.month, at.prazo.day);
+            if (at.prazo.valid() && p.daysTo(agora.date()) <= 14) {
+                e.atrasadas.push_back({at.idTurma, at.turmaNome, at.titulo, at.prazo});
+            }
+            continue;
+        }
         e.entregas.push_back({at.idTurma, at.turmaNome, at.titulo, at.prazo});
     }
     for (const auto& t : snapshot_.turmas) e.turmas.emplace_back(t.idTurma, t.nome);
@@ -1499,9 +1513,31 @@ void JanelaPrincipal::montarEstudo() {
     abaEstudo_ = formulario_->abas->addTab(painelEstudo_, QStringLiteral("Estudo"));
     // O painel replanejou ou recebeu um check: a Agenda lê o banco de novo.
     // Sem replanejar aqui — o painel acabou de fazer isso.
+    // "Confirmar" e "Corrigir" de uma data deduzida, no "O que fazer": as
+    // mesmas ações da aba Provas.
+    painelEstudo_->aoTratarProva = [this](const std::string& idTurma, const std::string& descricao,
+                                          bool corrigirData) {
+        for (const auto& p : provas_) {
+            if (p.av.idTurma != idTurma || p.av.descricao != descricao) continue;
+            const avaliacao::Efetiva copia = p;
+            if (corrigirData) corrigir(copia);
+            else confirmar(copia);
+            return;
+        }
+    };
     painelEstudo_->aoMudarPlano = [this] {
         store::Database db;
-        if (db.aberto() && db.migrar()) estudo_ = db.carregarSessoesEstudo();
+        if (db.aberto() && db.migrar()) {
+            // As pendentes que ficaram para trás são só a medida do Progresso;
+            // a Agenda mostra o plano de hoje em diante e o que foi feito.
+            const QDate hoje = QDate::currentDate();
+            estudo_.clear();
+            for (auto& s : db.carregarSessoesEstudo()) {
+                if (s.feita || !s.dia.valid() || QDate(s.dia.year, s.dia.month, s.dia.day) >= hoje) {
+                    estudo_.push_back(std::move(s));
+                }
+            }
+        }
         montarAgenda();
         atualizarTituloEstudo();
     };
@@ -1561,9 +1597,10 @@ void JanelaPrincipal::atualizarEstudo() {
     planejamento::DoAgente agente;
     agente.estudos = db.carregarRegistrosEstudo();
     agente.focos = db.carregarFocos({}, /*soAbertos=*/true);
+    agente.propostas = db.carregarPropostas();
     auto plano = planejamento::planejar(e.provas, e.entregas, db.carregarPreferenciasEstudo(),
                                         guardadas, hoje, e.aulas, agente);
-    db.substituirSessoesEstudo(plano.sessoes);
+    db.substituirSessoesEstudo(plano.sessoes, hoje.toIso());
     estudo_ = std::move(plano.sessoes);
     atualizarTituloEstudo();
 }

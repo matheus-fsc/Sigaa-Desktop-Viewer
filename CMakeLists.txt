@@ -301,6 +301,9 @@ elseif(SIGAA_UI)
     src/ui/DialogoAtualizar.cpp
     src/ui/DialogoOpcoes.cpp
     src/ui/Agentes.cpp
+    src/ui/Controles.cpp
+    src/ui/GraficoCarga.cpp
+    src/ui/Progresso.cpp
     src/ui/Mobile.cpp
     src/ui/DialogosAvaliacao.cpp
     src/ui/EntrarNoSigaa.cpp
