@@ -15,6 +15,7 @@
 #include <QString>
 #include <QWidget>
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 
@@ -48,8 +49,17 @@ public:
     // O estado mudou (ligou, desligou, caiu): a janela atualiza o nome da aba.
     std::function<void(bool noAr)> aoMudar;
 
+protected:
+    void showEvent(QShowEvent* e) override;
+    void hideEvent(QHideEvent* e) override;
+
 private:
     void ligar(bool silencioso = false);
+    void salvarPin();
+    void mostrarPin(const QString& recado = {}, bool erro = false);
+    void listarAparelhos();
+    // Um aparelho, ou todos com 0.
+    void desconectar(std::int64_t id);
     void desligar();
     void listarEnderecos();
     void atualizarEstado(const QString& recado = {});
@@ -75,6 +85,17 @@ private:
     QLineEdit* link_{nullptr};
     QPushButton* botaoCopiar_{nullptr};
     QPushButton* botaoNovo_{nullptr};
+
+    QLabel* enderecoCurto_{nullptr};
+    QLineEdit* pin_{nullptr};
+    QPushButton* botaoPin_{nullptr};
+    QPushButton* botaoRemoverPin_{nullptr};
+    QLabel* estadoPin_{nullptr};
+
+    QLabel* resumoAparelhos_{nullptr};
+    QTableWidget* aparelhos_{nullptr};
+    QPushButton* botaoTodos_{nullptr};
+    QTimer* relogioAparelhos_{nullptr};
 
     QTableWidget* acessos_{nullptr};
 

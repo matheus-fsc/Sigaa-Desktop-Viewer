@@ -158,15 +158,65 @@ TEST_CASE("web: token tem 43 caracteres base64url e nao se repete", "[web]") {
           std::string::npos);
 }
 
-TEST_CASE("web: autorizacao exige Bearer e o token exato", "[web]") {
-    CHECK(web::autorizado("Bearer abc", "abc"));
-    CHECK_FALSE(web::autorizado("Bearer abd", "abc"));
-    CHECK_FALSE(web::autorizado("Bearer abcd", "abc"));
-    CHECK_FALSE(web::autorizado("abc", "abc"));
-    CHECK_FALSE(web::autorizado("Basic abc", "abc"));
-    // Ninguém pareado: nem o cabeçalho vazio passa.
-    CHECK_FALSE(web::autorizado("Bearer ", ""));
-    CHECK_FALSE(web::autorizado("", ""));
+TEST_CASE("web: PIN so de digitos, de 6 a 12", "[web]") {
+    CHECK(web::pinValido("123456"));
+    CHECK(web::pinValido("123456789012"));
+    CHECK_FALSE(web::pinValido("12345"));
+    CHECK_FALSE(web::pinValido("1234567890123"));
+    CHECK_FALSE(web::pinValido("12345a"));
+    CHECK_FALSE(web::pinValido(""));
+}
+
+TEST_CASE("web: PIN guardado com hash e conferido", "[web]") {
+    Ambiente amb;
+    store::Database db(amb.fonte.banco);
+    CHECK_FALSE(web::temPin(db));
+    CHECK_FALSE(web::pinConfere(db, "123456"));
+    CHECK_FALSE(web::definirPin(db, "123"));
+    REQUIRE(web::definirPin(db, "246810"));
+    CHECK(web::temPin(db));
+    CHECK(web::pinConfere(db, "246810"));
+    CHECK_FALSE(web::pinConfere(db, "246811"));
+    // O PIN não fica legível no banco.
+    CHECK(db.lerMeta("web.pin").value_or("").find("246810") == std::string::npos);
+    REQUIRE(web::removerPin(db));
+    CHECK_FALSE(web::pinConfere(db, "246810"));
+}
+
+TEST_CASE("web: parear cria um aparelho com token proprio", "[web]") {
+    Ambiente amb;
+    store::Database db(amb.fonte.banco);
+    const std::string codigo = web::tokenOuNovo(db);
+    REQUIRE(web::definirPin(db, "135790"));
+
+    CHECK(web::parear(db, {"errado", "", "x", "1.2.3.4"}, 10).empty());
+    CHECK(web::parear(db, {"", "000000", "x", "1.2.3.4"}, 10).empty());
+    CHECK(db.dispositivosWeb().empty());
+
+    const std::string t1 = web::parear(db, {codigo, "", "Android · Chrome", "100.1.1.1"}, 10);
+    const std::string t2 = web::parear(db, {"", "135790", std::string(200, 'x'), "100.1.1.2"}, 20);
+    REQUIRE(t1.size() == 43);
+    REQUIRE(t2.size() == 43);
+    CHECK(t1 != t2);
+    CHECK(t1 != codigo);
+
+    const auto lista = db.dispositivosWeb();
+    REQUIRE(lista.size() == 2);
+    CHECK(lista[0].via == "pin");
+    CHECK(lista[0].nome.size() <= 60);
+    CHECK(lista[1].nome == "Android · Chrome");
+    CHECK(lista[1].via == "qr");
+
+    // O token não é guardado, só o hash; e é ele (não o código) que autoriza.
+    CHECK(web::aparelhoDoCabecalho(db, "Bearer " + t1)->id == lista[1].id);
+    CHECK_FALSE(web::aparelhoDoCabecalho(db, "Bearer " + codigo));
+    CHECK_FALSE(web::aparelhoDoCabecalho(db, t1));
+    CHECK_FALSE(web::aparelhoDoCabecalho(db, "Bearer "));
+
+    // Desconectar um não mexe no outro.
+    CHECK(db.removerDispositivosWeb(lista[1].id) == 1);
+    CHECK_FALSE(web::aparelhoDoCabecalho(db, "Bearer " + t1));
+    CHECK(web::aparelhoDoCabecalho(db, "Bearer " + t2));
 }
 
 TEST_CASE("web: todas as interfaces sao recusadas", "[web]") {
@@ -182,7 +232,7 @@ TEST_CASE("web: o token vai no fragmento da URL", "[web]") {
     CHECK(web::urlDePareamento("fd7a::1", 8765, "XYZ") == "http://[fd7a::1]:8765/#t=XYZ");
 }
 
-TEST_CASE("web: o token novo substitui o anterior", "[web]") {
+TEST_CASE("web: o codigo novo do QR substitui o anterior", "[web]") {
     Ambiente amb;
     store::Database db(amb.fonte.banco);
     CHECK(web::tokenAtual(db).empty());
@@ -268,12 +318,24 @@ TEST_CASE("web: servidor recusa 0.0.0.0", "[web]") {
     CHECK_FALSE(erro.empty());
 }
 
-TEST_CASE("web: servidor exige o token em toda rota de dados", "[web]") {
+namespace {
+
+// Pareia pelo servidor de verdade e devolve o cabeçalho do aparelho.
+httplib::Headers parearPorHttp(httplib::Client& cli, const json& corpo) {
+    auto r = cli.Post("/api/parear", corpo.dump(), "application/json");
+    REQUIRE(r);
+    REQUIRE(r->status == 200);
+    return {{"Authorization", "Bearer " + json::parse(r->body)["token"].get<std::string>()}};
+}
+
+} // namespace
+
+TEST_CASE("web: servidor exige um aparelho pareado em toda rota de dados", "[web]") {
     Ambiente amb;
-    std::string token;
+    std::string codigo;
     {
         store::Database db(amb.fonte.banco);
-        token = web::tokenOuNovo(db);
+        codigo = web::tokenOuNovo(db);
     }
     web::Config c;
     c.host = "127.0.0.1";
@@ -299,33 +361,88 @@ TEST_CASE("web: servidor exige o token em toda rota de dados", "[web]") {
         REQUIRE(r);
         CHECK(r->status == 401);
     }
+    // O código do QR não serve como acesso: só para parear.
+    auto cru = cli.Get("/api/resumo", httplib::Headers{{"Authorization", "Bearer " + codigo}});
+    REQUIRE(cru);
+    CHECK(cru->status == 401);
 
-    const httplib::Headers comToken = {{"Authorization", "Bearer " + token}};
-    auto ok = cli.Get("/api/resumo", comToken);
+    const httplib::Headers aparelho = parearPorHttp(cli, {{"codigo", codigo}, {"nome", "Teste"}});
+    auto ok = cli.Get("/api/resumo", aparelho);
     REQUIRE(ok);
     CHECK(ok->status == 200);
     CHECK(ok->get_header_value("Cache-Control") == "no-store");
     CHECK(json::parse(ok->body)["contagens"]["turmas"] == 1);
 
-    auto pdf = cli.Get("/api/arquivos/102/9002", comToken);
+    auto pdf = cli.Get("/api/arquivos/102/9002", aparelho);
     REQUIRE(pdf);
     CHECK(pdf->status == 200);
     CHECK(pdf->body == "%PDF-1.4 conteudo");
 
-    // Somente leitura: nenhum outro método passa, nem com o token.
-    auto post = cli.Post("/api/resumo", comToken, "{}", "application/json");
+    // Somente leitura: nenhum outro método passa, nem pareado.
+    auto post = cli.Post("/api/resumo", aparelho, "{}", "application/json");
     REQUIRE(post);
     CHECK(post->status == 405);
 
-    // Código novo derruba o antigo no pedido seguinte, sem reiniciar.
+    // Trocar o QR não derruba quem já está pareado...
     {
         store::Database db(amb.fonte.banco);
         web::novoToken(db);
     }
-    auto velho = cli.Get("/api/resumo", comToken);
+    auto ainda = cli.Get("/api/resumo", aparelho);
+    REQUIRE(ainda);
+    CHECK(ainda->status == 200);
+    // ...mas o código velho não pareia mais.
+    auto velho = cli.Post("/api/parear", json{{"codigo", codigo}}.dump(), "application/json");
     REQUIRE(velho);
     CHECK(velho->status == 401);
 
+    // Desconectar na janela derruba no pedido seguinte, sem reiniciar.
+    {
+        store::Database db(amb.fonte.banco);
+        db.removerDispositivosWeb(0);
+    }
+    auto fora = cli.Get("/api/resumo", aparelho);
+    REQUIRE(fora);
+    CHECK(fora->status == 401);
+
     s.parar();
     CHECK_FALSE(s.rodando());
+}
+
+TEST_CASE("web: PIN pareia, e erros demais o bloqueiam para todos", "[web]") {
+    Ambiente amb;
+    {
+        store::Database db(amb.fonte.banco);
+        REQUIRE(web::definirPin(db, "975310"));
+    }
+    web::Config c;
+    c.host = "127.0.0.1";
+    c.porta = portaLivre();
+    c.fonte = amb.fonte;
+    web::Servidor s(c);
+    REQUIRE(s.iniciar());
+    httplib::Client cli(c.host, c.porta);
+
+    const httplib::Headers aparelho = parearPorHttp(cli, {{"pin", "975310"}, {"nome", "iPhone"}});
+    auto ok = cli.Get("/api/turmas", aparelho);
+    REQUIRE(ok);
+    CHECK(ok->status == 200);
+
+    auto lixo = cli.Post("/api/parear", "não é json", "application/json");
+    REQUIRE(lixo);
+    CHECK(lixo->status == 400);
+
+    for (int i = 0; i < 5; ++i) {
+        auto r = cli.Post("/api/parear", json{{"pin", "000000"}}.dump(), "application/json");
+        REQUIRE(r);
+        CHECK(r->status == 401);
+    }
+    // Bloqueado: nem o PIN certo passa até a janela acabar.
+    auto certo = cli.Post("/api/parear", json{{"pin", "975310"}}.dump(), "application/json");
+    REQUIRE(certo);
+    CHECK(certo->status == 429);
+    // Quem já estava pareado segue usando.
+    auto segue = cli.Get("/api/turmas", aparelho);
+    REQUIRE(segue);
+    CHECK(segue->status == 200);
 }

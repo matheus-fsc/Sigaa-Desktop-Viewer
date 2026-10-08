@@ -224,42 +224,108 @@
   }
 
   // --- pareamento ---------------------------------------------------------------
+  // O nome que aparece na lista "Aparelhos" do computador. Só o sistema e o
+  // navegador: o bastante para o aluno reconhecer o celular, sem mandar o
+  // user agent inteiro para o banco.
+  function nomeDoAparelho() {
+    const ua = navigator.userAgent;
+    const so = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android'
+      : /Windows/.test(ua) ? 'Windows' : /Mac OS X/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Aparelho';
+    const nav = /EdgA?\//.test(ua) ? 'Edge' : /SamsungBrowser/.test(ua) ? 'Samsung Internet'
+      : /Firefox|FxiOS/.test(ua) ? 'Firefox' : /CriOS|Chrome/.test(ua) ? 'Chrome'
+      : /Safari/.test(ua) ? 'Safari' : 'navegador';
+    return `${so} · ${nav}`;
+  }
+
+  // Troca o código do QR ou o PIN pelo token DESTE aparelho. É o token que vai
+  // nos pedidos; o código e o PIN só servem para este passo.
+  async function parear(credencial) {
+    let r;
+    try {
+      r = await fetch('/api/parear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...credencial, nome: nomeDoAparelho() }),
+        cache: 'no-store',
+      });
+    } catch {
+      throw new Error('O computador não respondeu. Ele está ligado, com o servidor no ar e a VPN conectada?');
+    }
+    const corpo = await r.json().catch(() => ({}));
+    if (!r.ok || !corpo.token) throw new Error(corpo.erro || `Erro ${r.status}`);
+    guardarToken(corpo.token);
+  }
+
   function pedirPareamento(msg) {
     moldura(false);
     estado('Não pareado');
-    const campo = h('input', {
-      class: 'campo', type: 'text', inputmode: 'url', autocomplete: 'off', autocapitalize: 'off',
-      spellcheck: 'false', placeholder: 'Cole o link ou o código', 'aria-label': 'Link ou código de pareamento',
+    const erro = h('p', { class: 'txt-perigo', role: 'alert', hidden: !msg }, msg || '');
+    const pin = h('input', {
+      class: 'campo pin', type: 'password', inputmode: 'numeric', pattern: '[0-9]*',
+      autocomplete: 'one-time-code', maxlength: '12', placeholder: 'PIN', 'aria-label': 'PIN',
     });
-    const entrar = () => {
-      const v = campo.value.trim();
-      const m = /#t=([A-Za-z0-9_-]+)/.exec(v);
-      const t = m ? m[1] : (/^[A-Za-z0-9_-]{20,}$/.test(v) ? v : null);
-      if (!t) { campo.focus(); return; }
-      guardarToken(t);
-      iniciar();
+    const link = h('input', {
+      class: 'campo', type: 'text', inputmode: 'url', autocomplete: 'off', autocapitalize: 'off',
+      spellcheck: 'false', placeholder: 'Cole o link copiado', 'aria-label': 'Link de pareamento',
+    });
+    const botao = h('button', { class: 'botao primario', type: 'button' }, 'Parear');
+
+    const entrar = async () => {
+      const vPin = pin.value.trim();
+      const m = /#t=([A-Za-z0-9_-]+)/.exec(link.value.trim());
+      let credencial = null;
+      if (m) credencial = { codigo: m[1] };
+      else if (/^[0-9]{6,12}$/.test(vPin)) credencial = { pin: vPin };
+      if (!credencial) {
+        erro.textContent = vPin ? 'O PIN tem de 6 a 12 números.' : 'Digite o PIN ou cole o link.';
+        erro.hidden = false;
+        pin.focus();
+        return;
+      }
+      botao.disabled = true;
+      botao.textContent = 'Pareando…';
+      try {
+        await parear(credencial);
+        iniciar();
+      } catch (e) {
+        erro.textContent = e.message;
+        erro.hidden = false;
+        pin.value = '';
+        botao.disabled = false;
+        botao.textContent = 'Parear';
+      }
     };
-    campo.addEventListener('keydown', (e) => { if (e.key === 'Enter') entrar(); });
+    botao.addEventListener('click', entrar);
+    for (const c of [pin, link]) c.addEventListener('keydown', (e) => { if (e.key === 'Enter') entrar(); });
+
     mostrar(h('div', { class: 'centro' }, h('div', { class: 'pareamento' },
       h('h1', null, 'Parear com o computador'),
-      msg ? h('p', { class: 'txt-perigo' }, msg) : null,
-      h('p', null, 'Este celular ainda não tem o código que libera seus dados.'),
-      h('ol', null,
-        h('li', null, 'No computador, abra o SIGAA Viewer na aba Acesso mobile.'),
-        h('li', null, 'Ligue o servidor e aponte a câmera deste celular para o QR code.'),
-        h('li', null, 'Sem câmera? Copie o link lá e cole aqui.')),
-      campo,
-      h('button', { class: 'botao primario', type: 'button', onclick: entrar }, 'Parear'))));
+      h('p', null, 'No computador, abra o SIGAA Viewer na aba Acesso mobile e ligue o servidor.'),
+      erro,
+      h('span', { class: 'rotulo' }, 'Com o PIN'),
+      h('p', { class: 'pequeno' }, 'O PIN que você criou na aba Acesso mobile.'),
+      pin,
+      botao,
+      h('details', { class: 'alternativa' },
+        h('summary', null, 'Sem PIN? Use o QR code ou o link'),
+        h('p', { class: 'pequeno' }, 'Aponte a câmera para o QR code da aba, ou copie o link lá e cole aqui.'),
+        link))));
+    pin.focus();
   }
 
   // O link do QR traz o código depois do # (que o navegador nunca envia). Ele
-  // é guardado e some da barra de endereço, para não ficar no histórico nem ir
-  // parar num print de tela.
-  function lerTokenDoLink() {
+  // sai da barra de endereço na hora, para não ficar no histórico nem num
+  // print de tela, e é trocado pelo token deste aparelho.
+  async function lerCodigoDoLink() {
     const m = /^#t=([A-Za-z0-9_-]+)/.exec(location.hash);
     if (!m) return;
-    guardarToken(m[1]);
     history.replaceState(null, '', `${location.pathname}#/agenda`);
+    try {
+      await parear({ codigo: m[1] });
+    } catch (e) {
+      pedirPareamento(e.message);
+      throw e;
+    }
   }
 
   // --- telas --------------------------------------------------------------------
@@ -682,7 +748,7 @@
         const tinha = !!token();
         tokenEmMemoria = null;
         guardado.apagar(CHAVE_TOKEN);
-        pedirPareamento(tinha ? 'O código deste celular não vale mais (foi gerado um novo no computador).' : null);
+        pedirPareamento(tinha ? 'Este celular foi desconectado no computador. Pareie de novo.' : null);
         return;
       }
       moldura(true);
@@ -702,17 +768,16 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     aplicarTema(guardado.ler(CHAVE_TEMA) || 'sistema');
-    lerTokenDoLink();
     $('mais').addEventListener('click', abrirMenu);
     $('recarregar').addEventListener('click', () => { resumo = null; render(); });
     window.addEventListener('hashchange', () => {
-      if (/^#t=/.test(location.hash)) { lerTokenDoLink(); iniciar(); return; }
+      if (/^#t=/.test(location.hash)) { lerCodigoDoLink().then(iniciar, () => {}); return; }
       render();
     });
     // Voltar ao app depois de um tempo: o computador pode ter sincronizado.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && token()) { resumo = null; render(); }
     });
-    iniciar();
+    lerCodigoDoLink().then(iniciar, () => {});
   });
 })();

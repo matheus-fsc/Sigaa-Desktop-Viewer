@@ -1,7 +1,8 @@
 #pragma once
 // O servidor HTTP do acesso mobile (docs/WEB.md).
 //
-// Leve de propósito: cpp-httplib, um cabeçalho só, quatro threads, só GET.
+// Leve de propósito: cpp-httplib, um cabeçalho só, quatro threads, só GET
+// (mais o POST do pareamento).
 // Serve as páginas embutidas (Paginas.h) e as rotas de Api.h. TLS fica de
 // fora: quem cifra é a VPN, e quem quiser HTTPS põe `tailscale serve`, Caddy
 // ou parecido na frente, escutando em 127.0.0.1.
@@ -31,6 +32,7 @@ struct Acesso {
     std::string metodo;
     std::string caminho;
     int status{0};
+    std::string aparelho;   // nome do aparelho pareado; vazio se recusado
 };
 
 class Servidor {

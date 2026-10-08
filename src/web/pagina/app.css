@@ -250,4 +250,9 @@ details.topico[open] summary::before { content: "▾"; }
   height: 48px; width: 100%; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-strong);
   background: var(--surface); color: var(--text); font-size: 15px;
 }
+.campo.pin { font-size: 22px; letter-spacing: .3em; text-align: center; font-variant-numeric: tabular-nums; }
+.alternativa { border-top: 1px solid var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.alternativa summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 15px; }
+.alternativa[open] { gap: 10px; }
+.alternativa > * + * { margin-top: 10px; }
 .carregando { padding: 40px 16px; text-align: center; color: var(--text-3); }

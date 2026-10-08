@@ -368,6 +368,21 @@ CREATE TABLE IF NOT EXISTS mcp_acesso (
 
 CREATE INDEX IF NOT EXISTS idx_mcp_acesso_quando ON mcp_acesso(quando);
 
+-- Celulares pareados com o acesso mobile (docs/WEB.md §3). Cada um tem o seu
+-- token, e e o que deixa a aba listar e desconectar um aparelho so. Do token
+-- fica so o SHA-256: a tabela diz QUEM esta pareado, nao serve para entrar.
+-- `nome` vem do navegador do celular e e texto de terceiro: a UI mostra como
+-- texto puro.
+CREATE TABLE IF NOT EXISTS web_dispositivo (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash    TEXT NOT NULL UNIQUE,
+  nome          TEXT NOT NULL,
+  via           TEXT NOT NULL,      -- 'qr' ou 'pin'
+  criado_em     INTEGER NOT NULL,
+  ultimo_acesso INTEGER NOT NULL,
+  ultimo_ip     TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_atividade_prazo ON atividade(prazo);
 CREATE INDEX IF NOT EXISTS idx_topico_inicio ON topico(inicio);
 CREATE INDEX IF NOT EXISTS idx_arquivo_turma ON arquivo(id_turma);
@@ -527,6 +542,105 @@ std::vector<Database::AcessoMcp> Database::ultimosAcessosMcp(int limite) {
     }
     sqlite3_finalize(st);
     return out;
+}
+
+// --- acesso mobile ---------------------------------------------------------
+
+namespace {
+
+Database::DispositivoWeb lerDispositivo(sqlite3_stmt* st) {
+    Database::DispositivoWeb d;
+    d.id = sqlite3_column_int64(st, 0);
+    d.nome = txt(st, 1);
+    d.via = txt(st, 2);
+    d.criadoEm = sqlite3_column_int64(st, 3);
+    d.ultimoAcesso = sqlite3_column_int64(st, 4);
+    d.ultimoIp = txt(st, 5);
+    return d;
+}
+
+constexpr const char* kColunasDispositivo =
+    "SELECT id, nome, via, criado_em, ultimo_acesso, ultimo_ip FROM web_dispositivo";
+
+} // namespace
+
+std::int64_t Database::criarDispositivoWeb(const std::string& tokenHash, const std::string& nome,
+                                           const std::string& via, const std::string& ip,
+                                           std::int64_t agora) {
+    if (!aberto()) return 0;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO web_dispositivo (token_hash, nome, via, criado_em, ultimo_acesso,"
+            " ultimo_ip) VALUES (?,?,?,?,?,?)",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return 0;
+    }
+    sqlite3_bind_text(st, 1, tokenHash.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, nome.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 3, via.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 4, agora);
+    sqlite3_bind_int64(st, 5, agora);
+    sqlite3_bind_text(st, 6, ip.c_str(), -1, SQLITE_TRANSIENT);
+    std::int64_t id = 0;
+    if (sqlite3_step(st) == SQLITE_DONE) id = sqlite3_last_insert_rowid(impl_->db);
+    else impl_->erro = sqlite3_errmsg(impl_->db);
+    sqlite3_finalize(st);
+    return id;
+}
+
+std::optional<Database::DispositivoWeb> Database::dispositivoWebPorToken(const std::string& tokenHash) {
+    if (!aberto()) return std::nullopt;
+    sqlite3_stmt* st = nullptr;
+    std::optional<DispositivoWeb> out;
+    const std::string sql = std::string(kColunasDispositivo) + " WHERE token_hash = ?";
+    if (sqlite3_prepare_v2(impl_->db, sql.c_str(), -1, &st, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, tokenHash.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(st) == SQLITE_ROW) out = lerDispositivo(st);
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+
+bool Database::tocarDispositivoWeb(std::int64_t id, const std::string& ip, std::int64_t agora) {
+    if (!aberto()) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "UPDATE web_dispositivo SET ultimo_acesso = ?, ultimo_ip = ? WHERE id = ?", -1, &st,
+            nullptr) != SQLITE_OK) {
+        return false;
+    }
+    sqlite3_bind_int64(st, 1, agora);
+    sqlite3_bind_text(st, 2, ip.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 3, id);
+    const bool r = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_finalize(st);
+    return r;
+}
+
+std::vector<Database::DispositivoWeb> Database::dispositivosWeb() {
+    std::vector<DispositivoWeb> out;
+    if (!aberto()) return out;
+    sqlite3_stmt* st = nullptr;
+    const std::string sql = std::string(kColunasDispositivo) + " ORDER BY ultimo_acesso DESC, id DESC";
+    if (sqlite3_prepare_v2(impl_->db, sql.c_str(), -1, &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) out.push_back(lerDispositivo(st));
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+
+int Database::removerDispositivosWeb(std::int64_t id) {
+    if (!aberto()) return 0;
+    sqlite3_stmt* st = nullptr;
+    const char* sql = id > 0 ? "DELETE FROM web_dispositivo WHERE id = ?"
+                             : "DELETE FROM web_dispositivo";
+    if (sqlite3_prepare_v2(impl_->db, sql, -1, &st, nullptr) != SQLITE_OK) return 0;
+    if (id > 0) sqlite3_bind_int64(st, 1, id);
+    int n = 0;
+    if (sqlite3_step(st) == SQLITE_DONE) n = sqlite3_changes(impl_->db);
+    sqlite3_finalize(st);
+    return n;
 }
 
 std::optional<std::string> Database::lerMeta(const std::string& chave) {

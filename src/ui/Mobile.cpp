@@ -19,12 +19,15 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QRegularExpressionValidator>
 #include <QScrollArea>
 #include <QSettings>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTimer>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 #ifdef SIGAA_QRCODE
 #include <qrcodegen.hpp>
@@ -54,6 +57,16 @@ QLabel* nota(const QString& texto, QWidget* pai) {
 }
 
 QString q(const std::string& s) { return QString::fromStdString(s); }
+
+QString haQuanto(std::int64_t segundos) {
+    if (segundos < 60) return QStringLiteral("agora");
+    const auto min = segundos / 60;
+    if (min < 60) return QStringLiteral("há %1 min").arg(min);
+    const auto h = min / 60;
+    if (h < 24) return QStringLiteral("há %1 h").arg(h);
+    const auto d = h / 24;
+    return d == 1 ? QStringLiteral("ontem") : QStringLiteral("há %1 dias").arg(d);
+}
 
 // Que tipo de rede é esta interface. Decide o rótulo na lista e o aviso
 // embaixo dela — é a informação que o aluno precisa para escolher certo.
@@ -227,32 +240,101 @@ PainelMobile::PainelMobile(QString banco, QString materiais, QWidget* pai)
     auto* lado = new QVBoxLayout;
     lado->setSpacing(tema::esp(2));
     lado->addWidget(nota(
-        QStringLiteral("1. Conecte o celular à mesma VPN deste computador.\n"
-                       "2. Aponte a câmera para o QR code — ou copie o link e abra no celular.\n"
-                       "3. No navegador, use “Adicionar à tela inicial” para abrir como app."),
+        QStringLiteral("Com o celular na mesma VPN, aponte a câmera para o QR code. Ou abra o "
+                       "endereço abaixo no navegador e digite o seu PIN."),
         par));
+
+    // O caminho curto: o endereço que se digita, e o PIN que o aluno escolheu.
+    enderecoCurto_ = new QLabel(par);
+    enderecoCurto_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    QFont fe = tema::fonte(tema::Papel::Subtitulo);
+    fe.setWeight(QFont::Bold);
+    enderecoCurto_->setFont(fe);
+    lado->addWidget(enderecoCurto_);
+
+    auto* linhaPin = new QHBoxLayout;
+    pin_ = new QLineEdit(par);
+    pin_->setEchoMode(QLineEdit::Password);
+    pin_->setMaxLength(web::kPinMaximo);
+    pin_->setValidator(new QRegularExpressionValidator(
+        QRegularExpression(QStringLiteral("[0-9]{0,%1}").arg(web::kPinMaximo)), pin_));
+    pin_->setPlaceholderText(QStringLiteral("Novo PIN (%1 a %2 números)")
+                                 .arg(web::kPinMinimo)
+                                 .arg(web::kPinMaximo));
+    pin_->setMaximumWidth(tema::esp(60));
+    botaoPin_ = new QPushButton(QStringLiteral("Salvar PIN"), par);
+    botaoRemoverPin_ = new QPushButton(QStringLiteral("Remover PIN"), par);
+    botaoRemoverPin_->setProperty("papel", QStringLiteral("discreto"));
+    linhaPin->addWidget(pin_);
+    linhaPin->addWidget(botaoPin_);
+    linhaPin->addWidget(botaoRemoverPin_);
+    linhaPin->addStretch();
+    lado->addLayout(linhaPin);
+    estadoPin_ = nota(QString(), par);
+    lado->addWidget(estadoPin_);
+
     link_ = new QLineEdit(par);
     link_->setReadOnly(true);
     link_->setPlaceholderText(QStringLiteral("Ligue o servidor para gerar o link"));
     lado->addWidget(link_);
     auto* botoes = new QHBoxLayout;
     botaoCopiar_ = new QPushButton(QStringLiteral("Copiar link"), par);
-    botaoNovo_ = new QPushButton(QStringLiteral("Gerar novo código"), par);
-    botaoNovo_->setProperty("papel", QStringLiteral("perigo"));
+    botaoNovo_ = new QPushButton(QStringLiteral("Trocar QR code"), par);
+    botaoNovo_->setProperty("papel", QStringLiteral("discreto"));
     botaoNovo_->setToolTip(QStringLiteral(
-        "Perdeu o celular ou mostrou o QR para alguém? O código atual para de valer na hora, "
-        "e cada celular precisa parear de novo."));
+        "Mostrou o QR para alguém? O código atual deixa de parear na hora. Os aparelhos já "
+        "pareados continuam; para tirar um deles, use Desconectar na lista abaixo."));
     botoes->addWidget(botaoCopiar_);
     botoes->addWidget(botaoNovo_);
     botoes->addStretch();
     lado->addLayout(botoes);
     lado->addWidget(nota(
-        QStringLiteral("O link carrega o código de acesso: trate como uma senha. Ele vai depois "
-                       "do “#”, parte que o navegador nunca envia a servidor nenhum."),
+        QStringLiteral("O link e o PIN só servem para parear: cada celular recebe um acesso "
+                       "próprio, que aparece em Aparelhos e pode ser desconectado sozinho. No "
+                       "navegador, “Adicionar à tela inicial” abre como app."),
         par));
     lado->addStretch();
     lp->addLayout(lado, 1);
     raiz->addWidget(par);
+
+    // --- aparelhos ---------------------------------------------------------------
+    auto* aps = new QGroupBox(QStringLiteral("Aparelhos"), conteudo);
+    auto* la = new QVBoxLayout(aps);
+    la->setSpacing(tema::esp(2));
+    resumoAparelhos_ = nota(QString(), aps);
+    la->addWidget(resumoAparelhos_);
+    aparelhos_ = new QTableWidget(0, 5, aps);
+    aparelhos_->setHorizontalHeaderLabels({QStringLiteral("Aparelho"), QStringLiteral("Pareado"),
+                                           QStringLiteral("Último acesso"), QStringLiteral("De"),
+                                           QString()});
+    aparelhos_->verticalHeader()->hide();
+    aparelhos_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    aparelhos_->setSelectionMode(QAbstractItemView::NoSelection);
+    aparelhos_->setShowGrid(false);
+    aparelhos_->horizontalHeader()->setStretchLastSection(false);
+    aparelhos_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    for (int c = 1; c < 4; ++c) {
+        aparelhos_->horizontalHeader()->setSectionResizeMode(c, QHeaderView::ResizeToContents);
+    }
+    aparelhos_->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    aparelhos_->setMouseTracking(true);
+    connect(aparelhos_, &QTableWidget::cellClicked, this, [this](int linha, int coluna) {
+        if (coluna != 4) return;
+        if (auto* it = aparelhos_->item(linha, 4)) desconectar(it->data(Qt::UserRole).toLongLong());
+    });
+    connect(aparelhos_, &QTableWidget::cellEntered, this, [this](int, int coluna) {
+        aparelhos_->viewport()->setCursor(coluna == 4 ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    });
+    aparelhos_->setMinimumHeight(tema::esp(36));
+    tema::ajustarLista(aparelhos_);
+    la->addWidget(aparelhos_);
+    auto* linhaAps = new QHBoxLayout;
+    botaoTodos_ = new QPushButton(QStringLiteral("Desconectar todos"), aps);
+    botaoTodos_->setProperty("papel", QStringLiteral("perigo"));
+    linhaAps->addStretch();
+    linhaAps->addWidget(botaoTodos_);
+    la->addLayout(linhaAps);
+    raiz->addWidget(aps);
 
     // --- instruções ------------------------------------------------------------
     auto* como = new QGroupBox(QStringLiteral("Como chegar até o celular"), conteudo);
@@ -281,9 +363,9 @@ PainelMobile::PainelMobile(QString banco, QString materiais, QWidget* pai)
     // --- acessos -----------------------------------------------------------------
     auto* reg = new QGroupBox(QStringLiteral("Últimos acessos"), conteudo);
     auto* lr = new QVBoxLayout(reg);
-    lr->addWidget(nota(QStringLiteral("Desde que o servidor ligou. “Recusado” é um pedido sem "
-                                      "o código certo — se aparecer e não foi você, gere um "
-                                      "código novo."),
+    lr->addWidget(nota(QStringLiteral("Desde que o servidor ligou. “Recusado” é um pedido de "
+                                      "quem não está pareado, ou um PIN errado. Se aparecer e não "
+                                      "foi você, troque o PIN e o QR code."),
                        reg));
     acessos_ = new QTableWidget(0, 4, reg);
     acessos_->setHorizontalHeaderLabels(
@@ -327,9 +409,133 @@ PainelMobile::PainelMobile(QString banco, QString materiais, QWidget* pai)
         QTimer::singleShot(2000, this, [this] { botaoCopiar_->setText(QStringLiteral("Copiar link")); });
     });
     connect(botaoNovo_, &QPushButton::clicked, this, [this] { gerarNovoCodigo(); });
+    connect(botaoPin_, &QPushButton::clicked, this, [this] { salvarPin(); });
+    connect(pin_, &QLineEdit::returnPressed, this, [this] { salvarPin(); });
+    connect(botaoRemoverPin_, &QPushButton::clicked, this, [this] {
+        store::Database db(banco_.toStdString());
+        if (db.aberto() && db.migrar()) web::removerPin(db);
+        mostrarPin(QStringLiteral("PIN removido. Só o QR code pareia agora."));
+    });
+    connect(botaoTodos_, &QPushButton::clicked, this, [this] { desconectar(0); });
+
+    // "Último acesso" anda sozinho: o servidor grava, a lista relê.
+    relogioAparelhos_ = new QTimer(this);
+    relogioAparelhos_->setInterval(15 * 1000);
+    connect(relogioAparelhos_, &QTimer::timeout, this, [this] { listarAparelhos(); });
 
     sobreEndereco_->setText(explicacao(static_cast<Tipo>(endereco_->currentData(Qt::UserRole + 2).toInt())));
     atualizarEstado();
+    mostrarPin();
+    listarAparelhos();
+}
+
+void PainelMobile::showEvent(QShowEvent* e) {
+    QWidget::showEvent(e);
+    listarAparelhos();
+    relogioAparelhos_->start();
+}
+
+void PainelMobile::hideEvent(QHideEvent* e) {
+    QWidget::hideEvent(e);
+    relogioAparelhos_->stop();
+}
+
+void PainelMobile::salvarPin() {
+    const std::string pin = pin_->text().toStdString();
+    if (!web::pinValido(pin)) {
+        mostrarPin(QStringLiteral("O PIN precisa ter de %1 a %2 números.")
+                       .arg(web::kPinMinimo)
+                       .arg(web::kPinMaximo),
+                   /*erro=*/true);
+        return;
+    }
+    store::Database db(banco_.toStdString());
+    if (!db.aberto() || !db.migrar() || !web::definirPin(db, pin)) {
+        mostrarPin(QStringLiteral("Não consegui gravar o PIN no banco."), true);
+        return;
+    }
+    pin_->clear();
+    mostrarPin(QStringLiteral("PIN salvo. Os aparelhos já pareados continuam conectados."));
+}
+
+void PainelMobile::mostrarPin(const QString& recado, bool erro) {
+    bool tem = false;
+    {
+        store::Database db(banco_.toStdString());
+        tem = db.aberto() && web::temPin(db);
+    }
+    botaoRemoverPin_->setVisible(tem);
+    botaoPin_->setText(tem ? QStringLiteral("Trocar PIN") : QStringLiteral("Salvar PIN"));
+    QString t = recado;
+    if (t.isEmpty()) {
+        t = tem ? QStringLiteral("PIN definido. Ele não aparece aqui de novo; se esquecer, troque.")
+                : QStringLiteral("Sem PIN: só o QR code pareia. Crie um para digitar no celular.");
+    }
+    estadoPin_->setText(t);
+    estadoPin_->setStyleSheet(erro ? QStringLiteral("color: %1").arg(tema::cor::atrasado().name())
+                                   : QString());
+}
+
+void PainelMobile::listarAparelhos() {
+    std::vector<store::Database::DispositivoWeb> lista;
+    {
+        store::Database db(banco_.toStdString());
+        if (db.aberto() && db.migrar()) lista = db.dispositivosWeb();
+    }
+    const auto agora = QDateTime::currentSecsSinceEpoch();
+    int ativos = 0;
+    aparelhos_->setRowCount(static_cast<int>(lista.size()));
+    for (int i = 0; i < static_cast<int>(lista.size()); ++i) {
+        const auto& d = lista[static_cast<size_t>(i)];
+        // "Conectado" num servidor sem conexão permanente é "usou há pouco":
+        // a página relê os dados ao voltar para a tela, então dois minutos
+        // sem pedido já querem dizer que o celular está em outra coisa.
+        const bool ativo = noAr() && agora - d.ultimoAcesso < 120;
+        if (ativo) ++ativos;
+        auto* nome = new QTableWidgetItem((ativo ? QStringLiteral("● ") : QString()) + q(d.nome));
+        if (ativo) nome->setForeground(tema::cor::sucesso());
+        nome->setToolTip(ativo ? QStringLiteral("Usou nos últimos 2 minutos") : QString());
+        aparelhos_->setItem(i, 0, nome);
+        aparelhos_->setItem(
+            i, 1,
+            new QTableWidgetItem(QStringLiteral("%1 · %2")
+                                     .arg(QDateTime::fromSecsSinceEpoch(d.criadoEm)
+                                              .toString(QStringLiteral("dd/MM HH:mm")),
+                                          d.via == "pin" ? QStringLiteral("PIN")
+                                                         : QStringLiteral("QR code"))));
+        aparelhos_->setItem(i, 2, new QTableWidgetItem(haQuanto(agora - d.ultimoAcesso)));
+        aparelhos_->setItem(i, 3, new QTableWidgetItem(q(d.ultimoIp)));
+        // Texto clicável, e não um QPushButton na célula: o padding da folha
+        // de estilo não cabe na altura de uma linha de tabela e cortava o rótulo.
+        auto* sair = new QTableWidgetItem(QStringLiteral("Desconectar"));
+        sair->setForeground(tema::cor::atrasado());
+        sair->setData(Qt::UserRole, static_cast<qlonglong>(d.id));
+        sair->setToolTip(QStringLiteral("Tira o acesso deste aparelho agora"));
+        aparelhos_->setItem(i, 4, sair);
+    }
+    botaoTodos_->setVisible(lista.size() > 1);
+    if (lista.empty()) {
+        resumoAparelhos_->setText(QStringLiteral("Nenhum aparelho pareado ainda."));
+    } else {
+        resumoAparelhos_->setText(
+            QStringLiteral("%1 aparelho(s) pareado(s)%2. Desconectar tira o acesso na hora; o "
+                           "celular volta para a tela de pareamento.")
+                .arg(lista.size())
+                .arg(ativos ? QStringLiteral(", %1 usando agora").arg(ativos) : QString()));
+    }
+}
+
+void PainelMobile::desconectar(std::int64_t id) {
+    if (id == 0) {
+        const auto r = QMessageBox::question(
+            this, QStringLiteral("Desconectar todos"),
+            QStringLiteral("Todos os aparelhos perdem o acesso agora e precisam parear de novo. "
+                           "Continuar?"));
+        if (r != QMessageBox::Yes) return;
+    }
+    store::Database db(banco_.toStdString());
+    if (db.aberto() && db.migrar()) db.removerDispositivosWeb(id);
+    listarAparelhos();
 }
 
 PainelMobile::~PainelMobile() {
@@ -459,6 +665,7 @@ void PainelMobile::atualizarEstado(const QString& recado) {
         estado_->setText(QStringLiteral("<b>● Desligado.</b> Nenhuma porta aberta."));
     }
     mostrarPareamento();
+    if (aparelhos_) listarAparelhos();   // "usando agora" depende de estar no ar
     if (aoMudar) aoMudar(ar);
 }
 
@@ -466,6 +673,7 @@ void PainelMobile::mostrarPareamento() {
     const bool ar = noAr();
     botaoCopiar_->setEnabled(ar);
     if (!ar) {
+        enderecoCurto_->setText(QStringLiteral("Ligue o servidor para ver o endereço."));
         link_->clear();
         qr_->setPixmap(QPixmap());
         qr_->setText(QStringLiteral("Ligue o servidor para ver o QR code."));
@@ -478,6 +686,8 @@ void PainelMobile::mostrarPareamento() {
     }
     const auto& c = servidor_->config();
     const QString url = q(web::urlDePareamento(c.host, c.porta, token));
+    // Sem o "http://": é o que se digita, e todo navegador de celular completa.
+    enderecoCurto_->setText(QStringLiteral("%1:%2").arg(q(c.host)).arg(c.porta));
     link_->setText(url);
     link_->setCursorPosition(0);
 #ifdef SIGAA_QRCODE
@@ -490,14 +700,11 @@ void PainelMobile::mostrarPareamento() {
 }
 
 void PainelMobile::gerarNovoCodigo() {
-    const auto r = QMessageBox::question(
-        this, QStringLiteral("Gerar novo código"),
-        QStringLiteral("O código atual para de valer agora, e todo celular pareado precisa ler o "
-                       "QR code de novo. Continuar?"));
-    if (r != QMessageBox::Yes) return;
+    // Sem confirmação: trocar o QR não tira ninguém. Quem está pareado tem
+    // acesso próprio; o código só deixa de servir para parear um aparelho novo.
     store::Database db(banco_.toStdString());
     if (!db.aberto() || !db.migrar() || web::novoToken(db).empty()) {
-        QMessageBox::warning(this, QStringLiteral("Gerar novo código"),
+        QMessageBox::warning(this, QStringLiteral("Trocar QR code"),
                              QStringLiteral("Não consegui gravar o código novo no banco."));
         return;
     }
@@ -507,17 +714,26 @@ void PainelMobile::gerarNovoCodigo() {
 void PainelMobile::registrarAcesso(const web::Acesso& a) {
     // Página estática não interessa a ninguém: só os pedidos de dados.
     if (a.caminho.rfind("/api/", 0) != 0) return;
+    // Um aparelho novo, ou um que reapareceu: a lista muda.
+    if (a.caminho == "/api/parear" || a.status == 200) listarAparelhos();
     acessos_->insertRow(0);
     QString resultado;
-    if (a.status == 401) resultado = QStringLiteral("Recusado (sem código válido)");
+    if (a.caminho == "/api/parear") {
+        resultado = a.status == 200   ? QStringLiteral("Pareou: %1").arg(q(a.aparelho))
+                    : a.status == 429 ? QStringLiteral("PIN bloqueado (tentativas demais)")
+                                      : QStringLiteral("Pareamento recusado (PIN ou código errado)");
+    } else if (a.status == 401) resultado = QStringLiteral("Recusado (aparelho não pareado)");
     else if (a.status == 429) resultado = QStringLiteral("Bloqueado (tentativas demais)");
     else if (a.status >= 400) resultado = QStringLiteral("Erro %1").arg(a.status);
     else resultado = QStringLiteral("OK");
     const QStringList cel{QDateTime::fromSecsSinceEpoch(a.quando).toString(QStringLiteral("HH:mm:ss")),
-                          q(a.ip), q(a.caminho), resultado};
+                          a.aparelho.empty() ? q(a.ip) : QStringLiteral("%1 (%2)").arg(q(a.aparelho), q(a.ip)),
+                          q(a.caminho), resultado};
     for (int i = 0; i < cel.size(); ++i) {
         auto* it = new QTableWidgetItem(cel[i]);
-        if (a.status == 401 || a.status == 429) it->setForeground(tema::cor::atrasado());
+        if (a.status == 401 || a.status == 429 || a.status == 400) {
+            it->setForeground(tema::cor::atrasado());
+        }
         acessos_->setItem(0, i, it);
     }
     if (acessos_->rowCount() > kMaxAcessos) acessos_->setRowCount(kMaxAcessos);

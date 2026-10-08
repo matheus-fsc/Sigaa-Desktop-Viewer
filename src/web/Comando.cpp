@@ -32,7 +32,11 @@ int uso() {
                  "  sigaa-cli web [--escutar <ip>[:<porta>]] [--banco <db>] [--materiais <dir>]\n"
                  "                 serve as telas para o celular (padrao 127.0.0.1:8765)\n"
                  "  sigaa-cli web token [--novo]\n"
-                 "                 mostra o codigo de pareamento; --novo revoga o anterior\n"
+                 "                 o codigo do QR; --novo troca (os aparelhos pareados seguem)\n"
+                 "  sigaa-cli web pin <6 a 12 digitos> | --remover\n"
+                 "                 PIN para parear digitando o endereco no celular\n"
+                 "  sigaa-cli web aparelhos [--desconectar <id>|todos]\n"
+                 "                 os celulares pareados\n"
                  "\n"
                  "Escute no IP da VPN (tailscale0, wg0...), nunca em 0.0.0.0. Ver docs/WEB.md.\n";
     return 2;
@@ -43,6 +47,8 @@ int uso() {
 int comando(int argc, char** argv) {
     Config cfg;
     bool pedirToken = false, tokenNovo = false;
+    bool pedirPin = false, removerPin_ = false, listar = false;
+    std::string pin, desconectar;
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--escutar" && i + 1 < argc) {
@@ -70,6 +76,16 @@ int comando(int argc, char** argv) {
             cfg.fonte.materiais = argv[++i];
         } else if ((a == "--url" || a == "--instituicao") && i + 1 < argc) {
             ++i;   // já tratado em main(); só não é argumento daqui
+        } else if (a == "pin") {
+            pedirPin = true;
+        } else if (a == "--remover") {
+            removerPin_ = true;
+        } else if (a == "aparelhos") {
+            listar = true;
+        } else if (a == "--desconectar" && i + 1 < argc) {
+            desconectar = argv[++i];
+        } else if (pedirPin && pin.empty() && a.rfind("--", 0) != 0) {
+            pin = a;
         } else if (a == "token") {
             pedirToken = true;
         } else if (a == "--novo") {
@@ -94,6 +110,40 @@ int comando(int argc, char** argv) {
                   << " — rode um sync primeiro, ou passe --banco.\n";
         return 1;
     }
+    // A janela migra ao abrir; quem só usa o CLI precisa da tabela de aparelhos
+    // mesmo assim.
+    if (!db.migrar()) {
+        std::cerr << "sigaa-cli web: nao consegui preparar o banco: " << db.erro() << "\n";
+        return 1;
+    }
+
+    if (pedirPin) {
+        if (removerPin_) {
+            removerPin(db);
+            std::cerr << "PIN removido: so o QR code pareia agora.\n";
+            return 0;
+        }
+        if (!definirPin(db, pin)) {
+            std::cerr << "sigaa-cli web: o PIN precisa ter de " << kPinMinimo << " a "
+                      << kPinMaximo << " digitos.\n";
+            return 2;
+        }
+        std::cerr << "PIN gravado. No celular, abra o endereco do servidor e digite o PIN.\n";
+        return 0;
+    }
+    if (listar) {
+        if (!desconectar.empty()) {
+            const int n = db.removerDispositivosWeb(desconectar == "todos" ? 0 : std::atoll(desconectar.c_str()));
+            std::cerr << n << " aparelho(s) desconectado(s).\n";
+            return 0;
+        }
+        for (const auto& d : db.dispositivosWeb()) {
+            std::cout << d.id << "\t" << d.nome << "\t" << d.via << "\tultimo acesso "
+                      << d.ultimoAcesso << "\t" << d.ultimoIp << "\n";
+        }
+        return 0;
+    }
+
     const std::string token = tokenNovo ? novoToken(db) : tokenOuNovo(db);
     if (token.empty()) {
         std::cerr << "sigaa-cli web: nao consegui gravar o codigo de pareamento no banco.\n";
@@ -101,13 +151,14 @@ int comando(int argc, char** argv) {
     }
     if (pedirToken) {
         std::cout << token << "\n";
-        if (tokenNovo) std::cerr << "Codigo novo gravado. Os celulares pareados antes precisam parear de novo.\n";
+        if (tokenNovo) std::cerr << "Codigo novo gravado. O QR antigo nao pareia mais; os aparelhos ja pareados continuam.\n";
         return 0;
     }
 
     Servidor srv(cfg);
     srv.aoAcessar = [](const Acesso& a) {
-        std::cerr << a.ip << " " << a.metodo << " " << a.caminho << " " << a.status << "\n";
+        std::cerr << a.ip << " " << a.metodo << " " << a.caminho << " " << a.status
+                  << (a.aparelho.empty() ? "" : " (" + a.aparelho + ")") << "\n";
     };
     std::string erro;
     if (!srv.iniciar(&erro)) {
@@ -116,8 +167,12 @@ int comando(int argc, char** argv) {
     }
     std::cerr << "Acesso mobile no ar. Abra no celular (o codigo vai depois do #, que o\n"
                  "navegador nao envia a ninguem):\n\n  "
-              << urlDePareamento(cfg.host, cfg.porta, token)
-              << "\n\nCtrl+C para parar.\n";
+              << urlDePareamento(cfg.host, cfg.porta, token) << "\n\n";
+    if (temPin(db)) {
+        std::cerr << "Ou digite no navegador do celular " << cfg.host << ":" << cfg.porta
+                  << " e o seu PIN.\n\n";
+    }
+    std::cerr << "Ctrl+C para parar.\n";
 
     std::signal(SIGINT, aoSinal);
     std::signal(SIGTERM, aoSinal);

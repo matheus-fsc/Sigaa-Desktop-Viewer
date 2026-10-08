@@ -41,32 +41,53 @@ A escolha é guardada pelo **nome da interface**, não pelo IP. Com
 VPN está subindo), a aba tenta de novo a cada 30 s. Ela não cai em outra rede
 por conta própria.
 
-## 3. Pareamento
+## 3. Pareamento e aparelhos
 
-- Token de 256 bits (`random_device`), em base64url, guardado no banco
-  (`meta`, chave `web.token`). Não fica no cofre do sistema: quem lê o banco já
-  tem todos os dados que o token protege.
-- O QR code e o link carregam `http://<ip>:<porta>/#t=<token>`. O token vai no
-  **fragmento**, que o navegador nunca envia, então não aparece em log, proxy
-  nem histórico. A página o guarda em `localStorage` e limpa a barra de
-  endereço.
-- Toda chamada a `/api/*` leva `Authorization: Bearer <token>`. A checagem
-  roda no *pre-routing*, antes de qualquer rota, então uma rota nova não
-  nasce aberta. A comparação é em tempo constante.
-- O token é lido do banco a cada pedido. **Gerar novo código** derruba os
-  celulares antigos no pedido seguinte, sem reiniciar o servidor.
-- 10 tokens errados vindos do mesmo IP em 10 minutos resultam em 429 até a
-  janela passar.
-- A janela e o `sigaa-cli web` usam o mesmo token, então parear por um vale
-  para o outro.
+O celular pareia **uma vez**, com uma de duas credenciais, e recebe um token
+**só dele**:
+
+| Credencial | Como chega ao celular | Guardada como |
+|---|---|---|
+| Código do QR (256 bits, base64url) | QR code ou link `http://<ip>:<porta>/#t=<código>` | texto em `meta` (`web.token`), porque a aba precisa mostrá-lo de novo |
+| PIN do aluno (6 a 12 dígitos) | o aluno digita `<ip>:<porta>` no navegador e o PIN | sal + SHA-256 em `meta` (`web.pin`) |
+
+- `POST /api/parear` com `{"codigo"}` ou `{"pin"}`, mais `{"nome"}` (o sistema
+  e o navegador, por exemplo "Android · Chrome"). Se a credencial bater, o
+  servidor cria uma linha em `web_dispositivo` e devolve o token do aparelho.
+  É o único POST do servidor.
+- Toda chamada a `/api/*` leva `Authorization: Bearer <token-do-aparelho>`.
+  A checagem roda no *pre-routing*, antes de qualquer rota, então uma rota
+  nova não nasce aberta. O banco guarda só o SHA-256 do token, e a busca é
+  pelo hash.
+- **O código do QR e o PIN não dão acesso aos dados**, só servem para parear.
+  Trocar qualquer um dos dois não derruba quem já está pareado.
+- O código vai no **fragmento** da URL, que o navegador nunca envia. A página o
+  tira da barra de endereço antes de parear.
+- **Aparelhos**: a aba lista nome, data e forma de pareamento (QR ou PIN),
+  último acesso e IP, e o ● marca quem usou nos últimos 2 minutos. O "último
+  acesso" é gravado no máximo uma vez por minuto, para não disputar o banco
+  com o sync. **Desconectar** (um ou todos) apaga a linha, e o aparelho recebe
+  401 no pedido seguinte e volta para a tela de pareamento.
+- **Limites de tentativa:**
+  - 10 credenciais ou tokens errados vindos do mesmo IP em 10 minutos dão 429
+    para esse IP;
+  - 5 PINs errados **de qualquer IP** em 15 minutos fecham o pareamento por PIN
+    para todos até a janela passar. O QR code continua funcionando, e quem já
+    está pareado segue usando.
+
+  O mínimo de 6 dígitos é o que torna esse limite suficiente: um milhão de
+  combinações a 5 por quarto de hora.
+- O hash do PIN não é o que o protege, porque quem lê o banco já tem os dados
+  que ele guarda. O que protege o PIN é o limite de tentativas.
 
 ## 4. API
 
-Tudo é `GET` e devolve JSON com `Cache-Control: no-store`. Qualquer outro
-método recebe 405, mesmo com token.
+Tudo é `GET` (fora o pareamento) e devolve JSON com `Cache-Control: no-store`.
+Qualquer outro método recebe 405, mesmo com um aparelho pareado.
 
 | Rota | O que traz |
 |---|---|
+| `POST /api/parear` | troca código ou PIN pelo token do aparelho (§3) |
 | `/api/resumo` | instituição, período, `ultimo_sync` (epoch) e as contagens da barra de navegação |
 | `/api/agenda?semana=AAAA-MM-DD` | os 7 dias da semana daquela data (aulas pela grade, com o tópico do dia, faltas `n/limite` e a reposição como `extra`) e os prazos em aberto (até 7 dias de atraso) |
 | `/api/provas` | as provas **efetivas** (SIGAA mais as correções do aluno), com `estado` (`do_sigaa`, `deduzida`, `confirmada`, `corrigida`, `criada`, `conflito`) e `data_sigaa` quando o aluno corrigiu |
@@ -115,14 +136,17 @@ telas no quadro(1)/`). São quatro seções na barra de baixo, com contagens:
   e Provas.
 - **Novidades**: o que o portal anunciou, agrupado por dia.
 
-O tema segue o sistema e pode ser trocado no menu ⋯, onde também fica
-"Esquecer este celular". Ao voltar para a aba do navegador, a página relê os
+A tela de pareamento abre no PIN (teclado numérico), com o QR code e o link
+como alternativa. O tema segue o sistema e pode ser trocado no menu ⋯, onde
+também fica "Esquecer este celular". Esse item apaga só o token do celular; o
+aparelho continua na lista do computador até ser desconectado lá. Ao voltar para a aba do navegador, a página relê os
 dados, já que o computador pode ter sincronizado nesse meio-tempo.
 
 ## 7. Receitas
 
 **Tailscale.** Instale no PC e no celular com a mesma conta e escolha
-`tailscale0` (no Windows, `Tailscale`).
+`tailscale0` (no Windows, `Tailscale`). Crie um PIN na aba: no celular basta
+digitar `100.x.y.z:8765` e o PIN.
 
 **HTTPS, para instalar como app:** escolha `127.0.0.1`, rode
 `tailscale serve --bg 8765` e abra `https://<máquina>.<tailnet>.ts.net/#t=<token>`.
@@ -134,8 +158,9 @@ estar na mesma VPN.
 
 ```sh
 sigaa-cli web --escutar 100.101.2.3:8765    # ou o AppImage: SIGAA-Viewer.AppImage web …
-sigaa-cli web token                          # mostra o código
-sigaa-cli web token --novo                   # revoga o anterior
+sigaa-cli web token [--novo]                 # o código do QR; --novo troca
+sigaa-cli web pin 246810                     # PIN para parear digitando (ou --remover)
+sigaa-cli web aparelhos                      # lista; --desconectar <id>|todos
 ```
 
 ## 8. Falta

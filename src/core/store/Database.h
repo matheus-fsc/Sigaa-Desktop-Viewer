@@ -62,6 +62,27 @@ public:
     // Os mais recentes primeiro.
     std::vector<AcessoMcp> ultimosAcessosMcp(int limite = 50);
 
+    // --- acesso mobile (docs/WEB.md §3) ---------------------------------
+    struct DispositivoWeb {
+        std::int64_t id{0};
+        std::string nome;          // do navegador do celular: texto de terceiro
+        std::string via;           // "qr" ou "pin"
+        std::int64_t criadoEm{0};
+        std::int64_t ultimoAcesso{0};
+        std::string ultimoIp;
+    };
+    // `tokenHash` é o SHA-256 do token do aparelho; o token em si não é gravado.
+    // Devolve o id, ou 0 se falhou.
+    std::int64_t criarDispositivoWeb(const std::string& tokenHash, const std::string& nome,
+                                     const std::string& via, const std::string& ip,
+                                     std::int64_t agora);
+    std::optional<DispositivoWeb> dispositivoWebPorToken(const std::string& tokenHash);
+    bool tocarDispositivoWeb(std::int64_t id, const std::string& ip, std::int64_t agora);
+    // O usado por último primeiro.
+    std::vector<DispositivoWeb> dispositivosWeb();
+    // Um aparelho (`id`), ou todos com `id` = 0. Devolve quantos saíram.
+    int removerDispositivosWeb(std::int64_t id);
+
     // --- devolução do agente de IA (core/estudo/Registros.h) --------------
     //
     // Os `registrar*` devolvem o id novo, ou 0 em falha (com `erro()`).

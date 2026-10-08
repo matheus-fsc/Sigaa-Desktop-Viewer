@@ -271,13 +271,15 @@ só lê. Os detalhes e as decisões estão em [`docs/WEB.md`](docs/WEB.md).
 1. Na aba **Acesso mobile**, escolha a interface da VPN em *Endereço* e clique
    em **Ligar servidor**. Marque *Ligar sozinho sempre que o app abrir* para
    não precisar repetir.
-2. Com o celular na mesma VPN, leia o QR code. O link carrega um código de
-   acesso, que fica depois do `#` e nunca vai para servidor nenhum.
+2. Com o celular na mesma VPN, leia o QR code. Ou crie um **PIN** (6 a 12
+   números), digite o endereço curto que a aba mostra (`100.x.y.z:8765`) no
+   navegador do celular e entre com o PIN.
 3. No navegador do celular, use *Adicionar à tela inicial*.
 
-O servidor nunca escuta em todas as interfaces (`0.0.0.0`). Perdeu o celular?
-Use **Gerar novo código**, e o antigo para de valer no pedido seguinte. Sem
-janela, rode `sigaa-cli web --escutar <ip-da-vpn>`.
+Cada celular pareado ganha um acesso próprio e aparece em **Aparelhos**, com o
+último acesso e o IP. Perdeu um? Clique em **Desconectar** nele, e só ele perde
+o acesso, no pedido seguinte. O servidor nunca escuta em todas as interfaces
+(`0.0.0.0`). Sem janela, rode `sigaa-cli web --escutar <ip-da-vpn>`.
 
 ## Build
 
