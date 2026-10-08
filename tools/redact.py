@@ -132,6 +132,15 @@ RULES: list[tuple[str, re.Pattern[str], str]] = [
      # --check acusa um arquivo ja limpo.
      re.compile(r"(Cadastrado por:\s*<i>\s*)(?!DOCENTE TESTE)[^<\s][^<]*(</i>)"),
      r"\g<1>DOCENTE TESTE\g<2>"),
+    # --- "Ver Notas" da turma --------------------------------------------
+    # A tabela "Alunos Matriculados" tem uma linha por aluno (para o aluno, so
+    # a dele): a celula da matricula e, logo depois, o nome em texto solto.
+    # Ancorada na matricula, que a regra `matricula` redige mais abaixo.
+    ("nome-em-notas",
+     re.compile(r"(<td[^>]*>\s*\d{8,11}\s*</td>\s*<td[^>]*>\s*)"
+                r"(?!ALUNO TESTE)([^<\s][^<]*?)"
+                r"(\s*</td>)"),
+     r"\g<1>ALUNO TESTE\g<3>"),
     # TLD opcional de proposito: no HTML do SIGAA o e-mail aparece truncado
     # ("d2023013362@unifei....") e as vezes quebrado por tags, entao exigir
     # dominio completo faz a regra nunca casar. "@media" e afins nao casam

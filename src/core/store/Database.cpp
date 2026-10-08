@@ -99,6 +99,20 @@ CREATE TABLE IF NOT EXISTS frequencia_dia (
   PRIMARY KEY (id_turma, data)
 );
 
+-- "Ver Notas" da turma (core/parse/NotasParser.h). Uma linha por turma, com a
+-- planilha inteira em JSON: unidades, avaliacoes com peso e as notas.
+--
+-- JSON e nao tabelas por unidade/avaliacao: a planilha e lida e escrita
+-- SEMPRE INTEIRA (o professor cadastra, renomeia e apaga avaliacoes, e a
+-- pagina so mostra o estado atual), e ninguem consulta uma avaliacao solta.
+-- Nota em branco e `null` no JSON, nunca 0 — ver Notas em Models.h.
+CREATE TABLE IF NOT EXISTS notas (
+  id_turma      TEXT PRIMARY KEY,
+  turma_nome    TEXT,
+  dados         TEXT NOT NULL,
+  ultimo_visto  INTEGER
+);
+
 -- Presenca que o ALUNO registrou nos dias que o professor deixou em branco
 -- (core/frequencia/Presenca.h).
 --
@@ -461,6 +475,66 @@ StatusAtividade textoParaStatus(const std::string& s) {
     if (s == "na_semana") return StatusAtividade::NaSemana;
     if (s == "concluida") return StatusAtividade::Concluida;
     return StatusAtividade::Desconhecido;
+}
+
+// --- notas <-> JSON ----------------------------------------------------------
+// `null` é nota não lançada; nunca escrever 0 no lugar.
+
+nlohmann::json opcional(const std::optional<double>& v) {
+    return v ? nlohmann::json(*v) : nlohmann::json(nullptr);
+}
+
+std::optional<double> lerOpcional(const nlohmann::json& j, const char* k) {
+    if (!j.contains(k) || !j[k].is_number()) return std::nullopt;
+    return j[k].get<double>();
+}
+
+std::string notasParaJson(const Notas& n) {
+    nlohmann::json unidades = nlohmann::json::array();
+    for (const auto& u : n.unidades) {
+        nlohmann::json avs = nlohmann::json::array();
+        for (const auto& a : u.avaliacoes) {
+            avs.push_back({{"abrev", a.abrev}, {"denominacao", a.denominacao},
+                           {"peso", opcional(a.peso)}, {"nota_maxima", opcional(a.notaMaxima)},
+                           {"nota", opcional(a.nota)}});
+        }
+        unidades.push_back({{"numero", u.numero},
+                            {"metodo", u.metodo ? std::string(1, u.metodo) : std::string()},
+                            {"avaliacoes", avs}, {"nota", opcional(u.nota)}});
+    }
+    return nlohmann::json{{"unidades", unidades},
+                          {"reposicao", opcional(n.reposicao)},
+                          {"resultado", opcional(n.resultado)},
+                          {"faltas", n.faltas ? nlohmann::json(*n.faltas) : nlohmann::json(nullptr)},
+                          {"situacao", n.situacao}}
+        .dump();
+}
+
+bool notasDeJson(const std::string& texto, Notas& n) {
+    const auto j = nlohmann::json::parse(texto, nullptr, false);
+    if (!j.is_object()) return false;
+    for (const auto& ju : j.value("unidades", nlohmann::json::array())) {
+        UnidadeNota u;
+        u.numero = ju.value("numero", 0);
+        const std::string m = ju.value("metodo", std::string());
+        u.metodo = m.empty() ? 0 : m[0];
+        u.nota = lerOpcional(ju, "nota");
+        for (const auto& ja : ju.value("avaliacoes", nlohmann::json::array())) {
+            AvaliacaoNota a;
+            a.abrev = ja.value("abrev", std::string());
+            a.denominacao = ja.value("denominacao", std::string());
+            a.peso = lerOpcional(ja, "peso");
+            a.notaMaxima = lerOpcional(ja, "nota_maxima");
+            a.nota = lerOpcional(ja, "nota");
+            u.avaliacoes.push_back(std::move(a));
+        }
+        n.unidades.push_back(std::move(u));
+    }
+    n.reposicao = lerOpcional(j, "reposicao");
+    n.resultado = lerOpcional(j, "resultado");
+    if (j.contains("faltas") && j["faltas"].is_number_integer()) n.faltas = j["faltas"].get<int>();
+    n.situacao = j.value("situacao", std::string());
+    return true;
 }
 
 } // namespace
@@ -933,6 +1007,20 @@ Snapshot Database::carregarUltimo() {
         }
     }
     sqlite3_finalize(st);
+    st = nullptr;
+
+    // --- notas ---
+    if (sqlite3_prepare_v2(impl_->db, "SELECT id_turma, turma_nome, dados FROM notas", -1,
+                           &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            Notas n;
+            if (!notasDeJson(txt(st, 2), n)) continue;
+            n.idTurma = txt(st, 0);
+            n.turmaNome = txt(st, 1);
+            s.notas.push_back(std::move(n));
+        }
+    }
+    sqlite3_finalize(st);
 
     return s;
 }
@@ -1305,6 +1393,36 @@ bool Database::gravar(const Snapshot& s, std::int64_t agora) {
                 sqlite3_finalize(st);
                 return rollback();
             }
+        }
+    }
+    sqlite3_finalize(st);
+    st = nullptr;
+
+    // --- notas ---
+    // Upsert pelo mesmo motivo da frequência: um sync leve não traz notas, e
+    // isso não pode apagar as que estão guardadas.
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO notas (id_turma, turma_nome, dados, ultimo_visto)"
+            " VALUES (?,?,?,?)"
+            " ON CONFLICT(id_turma) DO UPDATE SET"
+            "   turma_nome=excluded.turma_nome, dados=excluded.dados,"
+            "   ultimo_visto=excluded.ultimo_visto",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return rollback();
+    }
+    for (const auto& n : s.notas) {
+        if (n.idTurma.empty()) continue;
+        const std::string dados = notasParaJson(n);
+        sqlite3_reset(st);
+        sqlite3_bind_text(st, 1, n.idTurma.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, n.turmaNome.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 3, dados.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 4, agora);
+        if (sqlite3_step(st) != SQLITE_DONE) {
+            impl_->erro = sqlite3_errmsg(impl_->db);
+            sqlite3_finalize(st);
+            return rollback();
         }
     }
     sqlite3_finalize(st);

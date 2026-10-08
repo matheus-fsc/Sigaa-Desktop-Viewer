@@ -57,6 +57,11 @@ struct OpcoesColeta {
     // inteiro e por isso só vale a pena buscar uma vez.
     bool incluirFrequencia{true};
 
+    // Abre o "Ver Notas" de cada turma visitada. Ligado pelo mesmo motivo da
+    // frequência: muda ao longo do semestre, e é o que diz ao aluno (e ao
+    // agente de IA) quanto ainda falta para passar.
+    bool incluirNotas{true};
+
     // Lê as notícias de cada turma visitada.
     //
     // A ÚLTIMA vem de graça: está na página inicial da turma, que a coleta

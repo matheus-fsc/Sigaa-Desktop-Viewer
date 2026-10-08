@@ -10,6 +10,8 @@
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QLabel>
+#include <QLocale>
+#include <QVBoxLayout>
 #include <QMetaObject>
 #include <QProgressBar>
 #include <QPushButton>
@@ -31,6 +33,7 @@
 #include <algorithm>
 
 #include "core/config/Instituicao.h"
+#include "core/estudo/Situacao.h"
 #include "core/http/SigaaSession.h"
 #include "core/store/Database.h"
 #include "core/sync/Baixador.h"
@@ -52,7 +55,8 @@ namespace {
 constexpr int kAbaAulas = 0;
 constexpr int kAbaArquivos = 1;
 constexpr int kAbaPresenca = 2;
-constexpr int kAbaParticipantes = 3;
+constexpr int kAbaNotas = 3;          // criada em código, ver montarNotas
+constexpr int kAbaParticipantes = 4;
 
 void escalarFonte(QWidget* w, qreal fator, bool negrito = false) {
     QFont f = w->font();
@@ -174,6 +178,7 @@ JanelaTurma::JanelaTurma(Turma turma, std::vector<TopicoAula> topicos,
     }
 
     montarPresenca();
+    montarNotas();
 
     connect(formulario_->botaoFechar, &QPushButton::clicked, this, &QDialog::accept);
     connect(formulario_->botaoAtualizar, &QPushButton::clicked, this,
@@ -201,6 +206,7 @@ JanelaTurma::JanelaTurma(Turma turma, std::vector<TopicoAula> topicos,
     relerCacheOffline();
     mostrarConteudo();
     recarregarPresenca();
+    recarregarNotas();
 
     if (topicos_.empty() && arquivos_.empty()) {
         // Nunca rodou um ciclo com turmas. Dizer isso é melhor do que ir buscar
@@ -373,6 +379,18 @@ void JanelaTurma::atualizarDoSigaa() {
             }
         }
 
+        // Notas: uma requisição, na mesma visita da frequência (o "Ver
+        // Notas" mora no mesmo painel "Alunos" do menu). É o que o agente de
+        // IA usa para saber quanto falta para a média.
+        if (turmaRemota_->abrirNotas(nullptr)) {
+            Snapshot parcial;
+            parcial.notas.push_back(turmaRemota_->notas());
+            store::Database db;
+            if (db.aberto() && db.migrar()) {
+                db.gravar(parcial, static_cast<std::int64_t>(
+                                       QDateTime::currentSecsSinceEpoch()));
+            }
+        }
         // Notícias: a lista (uma requisição) e o texto das que o banco ainda
         // não tem, com o mesmo teto do ciclo. Grava já, como participantes,
         // para a janela e o próximo ciclo verem o texto buscado aqui.
@@ -445,6 +463,7 @@ void JanelaTurma::atualizarDoSigaa() {
         relerCacheOffline();
         mostrarConteudo();
         recarregarPresenca();
+        recarregarNotas();
         recarregarNoticias();
         avisarConflitosPresenca(saida->conflitosPresenca);
         status(QStringLiteral("Atualizado: %1 aula(s), %2 arquivo(s), %3 participante(s).")
@@ -665,6 +684,167 @@ void JanelaTurma::recarregarPresenca() {
     formulario_->abas->setTabText(kAbaPresenca,
                                   QStringLiteral("Presença (%1)").arg(diasPresenca_.size()));
     atualizarAcoesPresenca();
+}
+
+// ---------------------------------------------------------------------------
+// Aba Notas
+// ---------------------------------------------------------------------------
+
+namespace {
+
+QString notaBr(const std::optional<double>& v) {
+    if (!v) return QStringLiteral("—");
+    return QLocale(QLocale::Portuguese, QLocale::Brazil).toString(*v, 'f', 1);
+}
+
+// Peso é quase sempre inteiro ("15", "35"); "15,0" só polui a coluna.
+QString pesoBr(double v) {
+    const bool inteiro = v == static_cast<double>(static_cast<long long>(v));
+    return QLocale(QLocale::Portuguese, QLocale::Brazil).toString(v, 'f', inteiro ? 0 : 1);
+}
+
+QString metodoDaUnidade(char m) {
+    switch (m) {
+        case 'P': return QStringLiteral("média ponderada");
+        case 'A': return QStringLiteral("média aritmética");
+        case 'S': return QStringLiteral("soma");
+    }
+    return {};
+}
+
+} // namespace
+
+void JanelaTurma::montarNotas() {
+    auto* aba = new QWidget(this);
+    auto* lay = new QVBoxLayout(aba);
+    rotuloNotas_ = new QLabel(aba);
+    rotuloNotas_->setWordWrap(true);
+    rotuloNotas_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    tvNotas_ = new QTreeView(aba);
+    tema::ajustarLista(tvNotas_);
+    tvNotas_->setRootIsDecorated(false);
+    tvNotas_->setItemsExpandable(false);
+    tvNotas_->setUniformRowHeights(true);
+    habilitarCopia(tvNotas_);
+    lay->addWidget(rotuloNotas_);
+    lay->addWidget(tvNotas_, 1);
+    formulario_->abas->insertTab(kAbaNotas, aba, QStringLiteral("Notas"));
+}
+
+void JanelaTurma::recarregarNotas() {
+    std::optional<Notas> notas;
+    store::Database db;
+    if (db.aberto() && db.migrar()) {
+        for (auto& n : db.carregarUltimo().notas) {
+            if (n.idTurma == turma_.idTurma) {
+                notas = std::move(n);
+                break;
+            }
+        }
+    }
+
+    auto* modelo = new QStandardItemModel(0, 3, tvNotas_);
+    modelo->setHorizontalHeaderLabels(
+        {QStringLiteral("Avaliação"), QStringLiteral("Peso"), QStringLiteral("Nota")});
+
+    auto linha = [&](const QString& nome, const QString& peso, const std::optional<double>& nota,
+                     bool unidade) {
+        QList<QStandardItem*> l{new QStandardItem(nome), new QStandardItem(peso),
+                                new QStandardItem(notaBr(nota))};
+        for (auto* i : l) i->setEditable(false);
+        l[1]->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        l[2]->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        if (unidade) {
+            QFont f = l[0]->font();
+            f.setBold(true);
+            for (auto* i : l) i->setFont(f);
+        }
+        // Não lançada fica apagada; zero lançado fica em vermelho, porque é a
+        // linha que o aluno precisa conferir (prova perdida ou provisório?).
+        if (!nota) {
+            l[2]->setForeground(tema::cor::apagado());
+        } else if (*nota == 0) {
+            l[2]->setForeground(tema::cor::atrasado());
+        }
+        modelo->appendRow(l);
+    };
+
+    if (notas) {
+        for (const auto& u : notas->unidades) {
+            QString titulo = QStringLiteral("Unidade %1").arg(u.numero);
+            if (!metodoDaUnidade(u.metodo).isEmpty() && !u.avaliacoes.empty()) {
+                titulo += QStringLiteral(" (%1)").arg(metodoDaUnidade(u.metodo));
+            }
+            linha(titulo, {}, u.nota, true);
+            for (const auto& a : u.avaliacoes) {
+                QString nome = QStringLiteral("    ") + QString::fromStdString(a.abrev);
+                if (!a.denominacao.empty() && a.denominacao != a.abrev) {
+                    nome += QStringLiteral(" — ") + QString::fromStdString(a.denominacao);
+                }
+                linha(nome, a.peso ? pesoBr(*a.peso) : QString(), a.nota, false);
+            }
+        }
+        if (notas->reposicao) linha(QStringLiteral("Reposição"), {}, notas->reposicao, true);
+        if (notas->resultado) linha(QStringLiteral("Resultado"), {}, notas->resultado, true);
+    }
+
+    auto* antigo = tvNotas_->model();
+    tvNotas_->setModel(modelo);
+    delete antigo;
+    tvNotas_->resizeColumnToContents(1);
+    tvNotas_->resizeColumnToContents(2);
+    tema::esticarColuna(tvNotas_, 0);
+
+    QString t;
+    if (!notas) {
+        t = QStringLiteral("As notas desta turma ainda não foram buscadas. "
+                           "Use “Atualizar” para trazer do SIGAA.");
+    } else if (notas->unidades.empty()) {
+        t = QStringLiteral("O professor ainda não montou a planilha de notas.");
+    } else {
+        const auto sit = estudo::situacaoNotas(&*notas);
+        const QString minima = notaBr(estudo::kMediaMinimaPadrao);
+        if (!sit.mediaParcial) {
+            t = QStringLiteral("Nenhuma nota lançada ainda. Para passar: média %1 (60%).")
+                    .arg(minima);
+        } else if (sit.precisa) {
+            t = QStringLiteral("Média parcial %1 em %2 de %3 unidades. Para chegar a %4, "
+                               "precisa de %5 de média nas que faltam")
+                    .arg(notaBr(sit.mediaParcial))
+                    .arg(sit.lancadas)
+                    .arg(sit.unidades)
+                    .arg(minima, notaBr(sit.precisa));
+            if (sit.risco == estudo::RiscoNota::SoReposicao) {
+                t += QStringLiteral(" — acima de 10, só com reposição");
+            }
+            t += QStringLiteral(" (supondo a média das unidades; confira no plano de ensino).");
+        } else {
+            t = QStringLiteral("Média %1 com todas as unidades lançadas: %2.")
+                    .arg(notaBr(notas->resultado ? notas->resultado : sit.mediaParcial),
+                         sit.risco == estudo::RiscoNota::Aprovado
+                             ? QStringLiteral("acima da média %1").arg(minima)
+                             : QStringLiteral("abaixo da média %1").arg(minima));
+        }
+        if (!sit.zeros.empty()) {
+            QStringList zs;
+            for (const auto& z : sit.zeros) zs << QString::fromStdString(z);
+            t += QStringLiteral("\n0,0 lançado em %1. Se você fez essa avaliação, pode ser "
+                                "nota ainda não corrigida — vale perguntar ao professor.")
+                     .arg(zs.join(QStringLiteral(", ")));
+        }
+        t += QStringLiteral("\nPara faltas, veja a aba Presença: a coluna de faltas da "
+                            "página de notas só é preenchida quando o professor fecha o diário.");
+    }
+    rotuloNotas_->setText(t);
+
+    int lancadas = 0;
+    if (notas) {
+        for (const auto& u : notas->unidades) lancadas += u.nota ? 1 : 0;
+    }
+    formulario_->abas->setTabText(
+        kAbaNotas, notas && !notas->unidades.empty()
+                       ? QStringLiteral("Notas (%1/%2)").arg(lancadas).arg(notas->unidades.size())
+                       : QStringLiteral("Notas"));
 }
 
 std::string JanelaTurma::diaSelecionado() const {

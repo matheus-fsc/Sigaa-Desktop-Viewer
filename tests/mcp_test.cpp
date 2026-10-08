@@ -136,6 +136,29 @@ struct Ambiente {
         colega.email = "fulana@exemplo.edu";
         s.participantes = {colega};
 
+        // Compiladores: 20 faltas de 16 e um 0,0 na P1 — o caso do primeiro
+        // contato com o período andando.
+        Frequencia f;
+        f.idTurma = "102";
+        f.turmaNome = "COMPILADORES";
+        f.presencas = 14;
+        f.aulasComRegistro = 34;
+        f.aulasPelaCH = 64;
+        f.temDados = true;
+        s.frequencias = {f};
+        Notas nt;
+        nt.idTurma = "102";
+        nt.turmaNome = "COMPILADORES";
+        UnidadeNota u1;
+        u1.numero = 1;
+        u1.metodo = 'P';
+        u1.avaliacoes.push_back({"P1", "Prova 1", 35.0, std::nullopt, 0.0});
+        u1.nota = 0.0;
+        UnidadeNota u2;
+        u2.numero = 2;
+        nt.unidades = {u1, u2};
+        s.notas = {nt};
+
         store::Database db(banco);
         REQUIRE(db.migrar());
         REQUIRE(db.gravar(s, 1000));
@@ -214,7 +237,7 @@ TEST_CASE("mcp: tools/list descreve todas as ferramentas de leitura", "[mcp]") {
     }
     for (const char* n : {"listar_turmas", "resumo_da_turma", "topicos_de_aula", "listar_provas",
                           "materia_da_prova", "listar_prazos", "listar_arquivos", "noticias",
-                          "frequencia"}) {
+                          "frequencia", "notas", "diagnostico"}) {
         INFO(n);
         CHECK(nomes.count(n) == 1);
     }
@@ -401,7 +424,7 @@ TEST_CASE("mcp: prompts trazem o roteiro, e so pedem registro com escrita libera
     amb.permitir("leitura");
     mcp::Servidor s({amb.banco, amb.materiais});
     const auto lista = s.tratar(pedido(1, "prompts/list"));
-    CHECK((*lista)["result"]["prompts"].size() == 4);
+    CHECK((*lista)["result"]["prompts"].size() == 5);
 
     auto r = s.tratar(pedido(2, "prompts/get",
                              {{"name", "estudar_para_prova"},
@@ -823,4 +846,47 @@ TEST_CASE("mcp propostas: foco em modo propoe vira proposta, e aceitar cria o po
     CHECK(db.carregarFocos()[0].nivel == 3);
     REQUIRE(mcp::desfazer(db, ps[0], 101));
     CHECK(db.carregarFocos().empty());
+}
+
+TEST_CASE("mcp: diagnostico aponta falta estourada, zero a confirmar e perguntas", "[mcp]") {
+    Ambiente amb;
+    amb.permitir("leitura");
+    mcp::Servidor s({amb.banco, amb.materiais});
+
+    auto r = chamar(s, "diagnostico", json::object());
+    REQUIRE(r["isError"] == false);
+    const auto& d = r["structuredContent"];
+    CHECK(d["primeiro_contato"] == true);
+    CHECK(d["media_minima"] == 6.0);
+
+    json comp;
+    for (const auto& t : d["turmas"]) {
+        if (t["turma_id"] == "102") comp = t;
+    }
+    REQUIRE(comp.is_object());
+    CHECK(comp["faltas"]["risco"] == "reprovado_por_falta");
+    CHECK(comp["faltas"]["passou_do_limite_em"] == 4);
+    CHECK(comp["notas"]["zeros_lancados"].size() == 1);
+    CHECK(comp["notas"]["precisa_nas_restantes"] == 12.0);
+    CHECK(comp["proxima_prova"]["prova"] == "Prova 2");
+
+    const std::string perguntas = d["perguntas_sugeridas"].dump();
+    CHECK(perguntas.find("abonar") != std::string::npos);
+    CHECK(perguntas.find("0,0") != std::string::npos);
+
+    r = chamar(s, "notas", {{"turma", "compiladores"}});
+    CHECK(r["structuredContent"]["coletada"] == true);
+    CHECK(r["structuredContent"]["unidades"][1]["nota"].is_null());
+    r = chamar(s, "notas", {{"turma", "ia"}});
+    CHECK(r["structuredContent"]["coletada"] == false);
+}
+
+TEST_CASE("mcp: prompt comecar manda chamar diagnostico antes de planejar", "[mcp]") {
+    Ambiente amb;
+    amb.permitir("leitura");
+    mcp::Servidor s({amb.banco, amb.materiais});
+    auto r = s.tratar(pedido(1, "prompts/get", {{"name", "comecar"}}));
+    const std::string t = (*r)["result"]["messages"][0]["content"]["text"];
+    CHECK(t.find("diagnostico") != std::string::npos);
+    CHECK(t.find("propor_horas") == std::string::npos);   // sem escrita liberada
 }

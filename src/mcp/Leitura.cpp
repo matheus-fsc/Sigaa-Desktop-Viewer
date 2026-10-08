@@ -5,9 +5,11 @@
 #include <chrono>
 #include <cstdio>
 #include <ctime>
+#include <map>
 #include <set>
 
 #include "core/avaliacao/Materia.h"
+#include "core/estudo/Situacao.h"
 #include "core/parse/Html.h"
 #include "core/parse/NoticiaParser.h"
 #include "core/report/TurmaMd.h"
@@ -130,6 +132,53 @@ const Frequencia* frequenciaDe(const Snapshot& s, const std::string& id) {
         if (f.idTurma == id) return &f;
     }
     return nullptr;
+}
+
+const Notas* notasDe(const Snapshot& s, const std::string& id) {
+    for (const auto& n : s.notas) {
+        if (n.idTurma == id) return &n;
+    }
+    return nullptr;
+}
+
+// A média mínima para passar: `estudo.media_minima` no meta, se o aluno a
+// informou; senão o padrão, marcado como suposição na resposta.
+std::pair<double, bool> mediaMinima(Contexto& c) {
+    if (const auto v = c.db().lerMeta("estudo.media_minima")) {
+        try {
+            return {std::stod(*v), true};
+        } catch (...) {
+        }
+    }
+    return {estudo::kMediaMinimaPadrao, false};
+}
+
+std::string nota1(double v) {
+    char b[16];
+    std::snprintf(b, sizeof b, "%.1f", v);
+    std::string o = b;
+    for (char& ch : o) {
+        if (ch == '.') ch = ',';
+    }
+    return o;
+}
+
+json jsonNota(const std::optional<double>& v) { return v ? json(*v) : json(nullptr); }
+
+json jsonFaltas(const estudo::SituacaoFaltas& f) {
+    if (f.risco == estudo::RiscoFalta::SemDados) return {{"risco", "sem_dados"}};
+    return {{"risco", estudo::nomeRisco(f.risco)}, {"faltas", f.faltas},
+            {"limite", f.limite}, {"ainda_pode_faltar", std::max(0, f.restam)},
+            {"passou_do_limite_em", std::max(0, -f.restam)},
+            {"aulas_restantes", f.aulasRestantes},
+            {"dias_nao_registrados", f.diasNaoRegistrados}};
+}
+
+json jsonSituacaoNotas(const estudo::SituacaoNotas& n) {
+    return {{"risco", estudo::nomeRisco(n.risco)}, {"unidades", n.unidades},
+            {"unidades_lancadas", n.lancadas}, {"media_parcial", jsonNota(n.mediaParcial)},
+            {"precisa_nas_restantes", jsonNota(n.precisa)}, {"zeros_lancados", n.zeros},
+            {"so_zeros", n.soZeros}};
 }
 
 // Resolve a turma do argumento, ou devolve o erro pronto.
@@ -475,6 +524,210 @@ Resultado frequencia(Contexto& c, const json& a) {
     return r;
 }
 
+Resultado notas(Contexto& c, const json& a) {
+    const Turma* t = nullptr;
+    if (auto e = exigirTurma(c, a, t)) return *e;
+    const Notas* n = notasDe(c.snapshot(), t->idTurma);
+    Resultado r;
+    if (!n) {
+        r.texto = "As notas de " + t->nome + " ainda não foram coletadas. O aluno pode "
+                  "sincronizar no app (a coleta entra na turma e abre \"Ver Notas\").";
+        r.dados = {{"turma", t->nome}, {"coletada", false}};
+        return r;
+    }
+    const auto [minima, informada] = mediaMinima(c);
+    const auto sit = estudo::situacaoNotas(n, minima);
+
+    json unidades = json::array();
+    std::string md = "## Notas de " + t->nome + "\n\n";
+    for (const auto& u : n->unidades) {
+        json avs = json::array();
+        std::string linha = "- **Unid. " + std::to_string(u.numero) + "**: " +
+                            (u.nota ? nota1(*u.nota) : std::string("não lançada"));
+        std::vector<std::string> partes;
+        for (const auto& av : u.avaliacoes) {
+            avs.push_back({{"sigla", av.abrev}, {"nome", av.denominacao},
+                           {"peso", jsonNota(av.peso)}, {"nota_maxima", jsonNota(av.notaMaxima)},
+                           {"nota", jsonNota(av.nota)}});
+            partes.push_back(av.abrev + " " + (av.nota ? nota1(*av.nota) : "—") +
+                             (av.peso ? " (peso " + nota1(*av.peso) + ")" : ""));
+        }
+        if (!partes.empty()) {
+            linha += " —";
+            for (size_t i = 0; i < partes.size(); ++i) linha += (i ? ", " : " ") + partes[i];
+        }
+        md += linha + "\n";
+        const char* metodo = u.metodo == 'P' ? "media_ponderada"
+                             : u.metodo == 'A' ? "media_aritmetica"
+                             : u.metodo == 'S' ? "soma" : "";
+        unidades.push_back({{"numero", u.numero}, {"metodo", metodo}, {"avaliacoes", avs},
+                            {"nota", jsonNota(u.nota)}});
+    }
+    if (n->resultado) md += "\nResultado: " + nota1(*n->resultado) + "\n";
+    if (!sit.zeros.empty()) {
+        md += "\n0,0 lançado em";
+        for (const auto& z : sit.zeros) md += " " + z;
+        md += ". Confirme com o aluno se ele fez: pode ser lançamento provisório.\n";
+    }
+    if (sit.precisa) {
+        md += "\nPara média " + nota1(minima) + ", precisa de " + nota1(*sit.precisa) +
+              " de média nas unidades que faltam (supondo média aritmética das unidades).\n";
+    }
+    r.dados = {{"turma", t->nome}, {"coletada", true}, {"unidades", unidades},
+               {"reposicao", jsonNota(n->reposicao)}, {"resultado", jsonNota(n->resultado)},
+               {"situacao_sigaa", n->situacao},
+               {"media_minima", minima}, {"media_minima_fonte", informada ? "informada_pelo_aluno" : "regra_da_unifei_60_por_cento"},
+               {"situacao", jsonSituacaoNotas(sit)},
+               {"observacao", "A coluna Faltas desta página só é preenchida quando o professor "
+                              "consolida o diário; para faltas use a ferramenta frequencia."}};
+    r.texto = md;
+    return r;
+}
+
+// O ponto de partida: onde o aluno está em cada turma, e o que perguntar a
+// ele antes de planejar qualquer coisa. Ver core/estudo/Situacao.h.
+Resultado diagnostico(Contexto& c, const json&) {
+    const Snapshot& s = c.snapshot();
+    const auto [minima, informada] = mediaMinima(c);
+
+    std::map<std::string, int> minutosPorTurma;
+    int registros = 0;
+    for (const auto& r : c.db().carregarRegistrosEstudo()) {
+        minutosPorTurma[r.idTurma] += r.minutos;
+        ++registros;
+    }
+    const auto desempenho = c.db().carregarDesempenho();
+    const auto focos = c.db().carregarFocos({}, true);
+
+    // Próxima prova de cada turma, e as que já passaram (para casar com as
+    // notas: P1 lançada vs. "Avaliação 1" de 14/09).
+    std::map<std::string, const avaliacao::Efetiva*> proxima;
+    std::map<std::string, int> passadas;
+    for (const auto& p : c.provas()) {
+        if (!p.av.quando.valid()) continue;
+        if (diasAte(p.av.quando) < 0) {
+            ++passadas[p.av.idTurma];
+        } else if (!proxima.count(p.av.idTurma)) {
+            proxima[p.av.idTurma] = &p;
+        }
+    }
+
+    json turmas = json::array();
+    json perguntas = json::array();
+    int reprovadasFalta = 0, noLimite = 0;
+    bool algumaParcial = false;
+    std::string md = "# Diagnóstico\n\n";
+    for (const auto& t : s.turmas) {
+        const auto f = estudo::situacaoFaltas(frequenciaDe(s, t.idTurma));
+        const Notas* n = notasDe(s, t.idTurma);
+        const auto sn = estudo::situacaoNotas(n, minima);
+
+        json j = {{"turma", t.nome}, {"turma_id", t.idTurma}, {"faltas", jsonFaltas(f)},
+                  {"notas", n ? jsonSituacaoNotas(sn) : json{{"risco", "nao_coletadas"}}},
+                  {"provas_passadas", passadas[t.idTurma]},
+                  {"minutos_estudados_no_app", minutosPorTurma[t.idTurma]}};
+        std::string linha = "- **" + t.nome + "**: ";
+        if (f.risco == estudo::RiscoFalta::SemDados) {
+            linha += "frequência não lançada";
+        } else {
+            linha += std::to_string(f.faltas) + "/" + std::to_string(f.limite) + " faltas";
+            if (f.risco == estudo::RiscoFalta::Reprovado) {
+                ++reprovadasFalta;
+                linha += " (**passou do limite**)";
+                perguntas.push_back(t.nome + ": o SIGAA conta " + std::to_string(f.faltas) +
+                                    " faltas para um limite de " + std::to_string(f.limite) +
+                                    ". O diário está certo? Há falta a abonar (atestado, "
+                                    "atividade da universidade)? Se estiver certo, vale "
+                                    "manter a matéria no plano de estudo?");
+            } else if (f.risco == estudo::RiscoFalta::NoLimite) {
+                ++noLimite;
+                linha += " (**no limite**: nenhuma falta a mais)";
+            } else if (f.risco == estudo::RiscoFalta::Atencao) {
+                linha += " (restam " + std::to_string(f.restam) + ")";
+            }
+        }
+        if (n && sn.mediaParcial) {
+            algumaParcial = true;
+            linha += "; média parcial " + nota1(*sn.mediaParcial) + " em " +
+                     std::to_string(sn.lancadas) + "/" + std::to_string(sn.unidades) + " unid.";
+            if (sn.precisa) linha += ", precisa de " + nota1(*sn.precisa) + " nas restantes";
+        }
+        if (!sn.zeros.empty()) {
+            std::string zs;
+            for (const auto& z : sn.zeros) zs += (zs.empty() ? "" : ", ") + z;
+            linha += "; 0,0 em " + zs;
+            perguntas.push_back(t.nome + ": o SIGAA mostra 0,0 em " + zs +
+                                ". Você fez essa avaliação? Pode ser nota ainda não "
+                                "corrigida que o professor lançou como zero.");
+        }
+        if (auto it = proxima.find(t.idTurma); it != proxima.end()) {
+            const auto& p = *it->second;
+            j["proxima_prova"] = {{"prova", p.av.descricao}, {"data", p.av.quando.toIso()},
+                                  {"dias_ate", diasAte(p.av.quando)},
+                                  {"estado", estado(p.estado)}};
+            linha += "; próxima: " + p.av.descricao + " em " + ddmm(p.av.quando) + " (" +
+                     std::to_string(diasAte(p.av.quando)) + " dias)";
+        }
+        md += linha + "\n";
+        turmas.push_back(j);
+    }
+
+    json atrasadas = json::array();
+    for (const auto& at : s.atividades) {
+        if (at.status == StatusAtividade::Concluida || !at.prazo.valid()) continue;
+        const int d = diasAte(at.prazo);
+        if (d < 0 && d >= -30) {
+            atrasadas.push_back({{"turma", at.turmaNome}, {"titulo", at.titulo},
+                                 {"prazo", at.prazo.toIso()}});
+        }
+    }
+
+    const bool semHistorico = registros == 0 && desempenho.empty() && focos.empty();
+    if (noLimite > 0) {
+        perguntas.push_back("Em " + std::to_string(noLimite) + " turma(s) não cabe mais "
+                            "nenhuma falta. O que tem feito você faltar (horário, trabalho, "
+                            "transporte, desânimo com a matéria)?");
+    }
+    if (algumaParcial) {
+        perguntas.push_back("A nota final é a média das unidades, ou algum professor usa "
+                            "outra conta (veja o plano de ensino)? As contas de \"precisa "
+                            "nas restantes\" supõem média das unidades.");
+    }
+    if (semHistorico) {
+        perguntas.push_back("O que você já estudou por fora neste período, e em quais "
+                            "matérias se sente mais perdido?");
+        perguntas.push_back("Quantas horas por dia você consegue estudar de verdade, fora "
+                            "as aulas?");
+    }
+    if (!atrasadas.empty()) {
+        perguntas.push_back(std::to_string(atrasadas.size()) + " entrega(s) passaram do "
+                            "prazo no último mês. Alguma ainda é aceita?");
+    }
+
+    md += "\n";
+    if (reprovadasFalta) md += "**" + std::to_string(reprovadasFalta) + " turma(s) já passaram do limite de faltas.**\n";
+    if (noLimite) md += "**" + std::to_string(noLimite) + " turma(s) no limite de faltas.**\n";
+    if (semHistorico) md += "Nenhum estudo registrado no app ainda: é o primeiro contato.\n";
+    md += "\n## Pergunte ao aluno, uma de cada vez\n\n";
+    for (const auto& q : perguntas) md += "- " + q.get<std::string>() + "\n";
+
+    Resultado r;
+    r.dados = {{"turmas", turmas},
+               {"entregas_atrasadas", atrasadas},
+               {"primeiro_contato", semHistorico},
+               {"media_minima", minima},
+               {"media_minima_fonte", informada ? "informada_pelo_aluno" : "regra_da_unifei_60_por_cento"},
+               {"perguntas_sugeridas", perguntas},
+               {"como_conduzir",
+                "Comece pelo risco de reprovação por falta, depois notas, depois provas "
+                "próximas. Não monte plano antes de ouvir o aluno. Faltas e notas são do "
+                "SIGAA, e a média para passar é 6,0 (60%); a média final como média das "
+                "unidades é suposição até o aluno confirmar; 0,0 pode ser lançamento "
+                "provisório."}};
+    r.texto = md;
+    return r;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -667,6 +920,17 @@ const std::vector<Ferramenta>& ferramentasDeLeitura() {
                      "Faltas do aluno na turma, o limite antes de reprovar (25% da carga "
                      "horária) e os dias lançados pelo professor.",
                      comTurma(json::object(), {"turma"}), frequencia});
+        v.push_back({"notas", "Notas",
+                     "As notas lançadas pelo professor no SIGAA (\"Ver Notas\"): unidades, "
+                     "avaliações com peso, a nota de cada uma e quanto falta para a média. "
+                     "Nota null é não lançada; 0 é zero lançado (pode ser provisório).",
+                     comTurma(json::object(), {"turma"}), notas});
+        v.push_back({"diagnostico", "Diagnóstico do período",
+                     "COMECE POR AQUI na primeira conversa, ou quando meu_progresso estiver "
+                     "vazio: onde o aluno está em cada turma (faltas contra o limite, notas "
+                     "contra a média, próxima prova), entregas atrasadas e as perguntas a "
+                     "fazer a ele antes de montar qualquer plano.",
+                     semArgs, diagnostico});
         return v;
     }();
     return fs;

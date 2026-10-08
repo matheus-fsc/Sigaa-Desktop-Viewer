@@ -757,3 +757,46 @@ TEST_CASE("abertura: SoExistente nao cria banco em caminho errado", "[database]"
     store::Database db(tmp.str(), store::Database::Abertura::SoExistente);
     CHECK(db.aberto());
 }
+
+TEST_CASE("notas: ida e volta preserva nota ausente e zero lancado", "[database][notas]") {
+    BancoTemp tmp;
+    store::Database db(tmp.str());
+    REQUIRE(db.migrar());
+
+    Notas n;
+    n.idTurma = "87854";
+    n.turmaNome = "FUNDAMENTOS DE ELETROMAGNETISMO";
+    UnidadeNota u1;
+    u1.numero = 1;
+    u1.metodo = 'P';
+    u1.avaliacoes.push_back({"T1", "Trabalho 1", 15.0, std::nullopt, 0.0});
+    u1.avaliacoes.push_back({"P1", "Avaliacao 1", 35.0, std::nullopt, 7.5});
+    u1.nota = 5.4;
+    UnidadeNota u2;
+    u2.numero = 2;
+    n.unidades = {u1, u2};
+    n.faltas = 0;
+    n.situacao = "--";
+
+    Snapshot s;
+    s.notas.push_back(n);
+    REQUIRE(db.gravar(s, 1000));
+
+    // Um sync que nao trouxe notas nao apaga as guardadas.
+    REQUIRE(db.gravar(Snapshot{}, 2000));
+
+    const auto lido = db.carregarUltimo();
+    REQUIRE(lido.notas.size() == 1);
+    const auto& l = lido.notas[0];
+    CHECK(l.idTurma == "87854");
+    REQUIRE(l.unidades.size() == 2);
+    CHECK(l.unidades[0].metodo == 'P');
+    REQUIRE(l.unidades[0].avaliacoes.size() == 2);
+    REQUIRE(l.unidades[0].avaliacoes[0].nota);
+    CHECK(*l.unidades[0].avaliacoes[0].nota == 0.0);
+    CHECK(*l.unidades[0].avaliacoes[1].nota == 7.5);
+    CHECK_FALSE(l.unidades[0].avaliacoes[0].notaMaxima);
+    CHECK_FALSE(l.unidades[1].nota);
+    CHECK(*l.faltas == 0);
+    CHECK_FALSE(l.resultado);
+}

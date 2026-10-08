@@ -602,7 +602,10 @@ Em aberto:
 4. **Mapear as demais abas da Turma Virtual.** ✅ **Arquivos** fechada em §1.6.1 (listagem +
    download, com parser e fixture de rede), ✅ **materiais do tópico** em §1.6.2 — estes vêm na
    própria página inicial da turma, sem abrir aba — e ✅ **Participantes** em §1.6.3 (parser,
-   fixture redigido e aba na janela da turma). Continuam abertas: Ver Notas, Frequência,
+   fixture redigido e aba na janela da turma), ✅ **Ver Notas** (07/10/2026: parser
+   `core/parse/NotasParser`, fixture `tests/fixtures/notas_rede.html`; a estrutura está no
+   `tr#trAval` do cabeçalho e nos `input[type=hidden]` `abrevAval_/denAval_/pesoAval_/notaAval_`;
+   buscada na mesma visita da Frequência, no ciclo e na janela da turma). Continuam abertas:
    Tarefas, Fóruns, Notícias, Plano de Curso. A ferramenta para capturá-las já
    existe: `sigaa-cli explorar <turma> <rótulo da aba> <dir>` grava o HTML cru de cada passo.
 7. **"Baixar todos os arquivos"** (§1.6.1): o comando existe na aba e provavelmente devolve um zip.

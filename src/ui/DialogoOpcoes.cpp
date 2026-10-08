@@ -183,6 +183,10 @@ DialogoOpcoes::DialogoOpcoes(const Config& atual, QWidget* pai) : QDialog(pai) {
 
     frequencia_ = new QCheckBox(QStringLiteral("Frequência (faltas)"), caixa);
     frequencia_->setChecked(atual.frequencia);
+    notas_ = new QCheckBox(QStringLiteral("Notas"), caixa);
+    notas_->setChecked(atual.notas);
+    notas_->setToolTip(QStringLiteral(
+        "O “Ver Notas” de cada turma, na mesma visita da frequência."));
     noticias_ = new QCheckBox(QStringLiteral("Notícias"), caixa);
     noticias_->setChecked(atual.noticias);
     noticias_->setToolTip(QStringLiteral(
@@ -193,7 +197,7 @@ DialogoOpcoes::DialogoOpcoes(const Config& atual, QWidget* pai) : QDialog(pai) {
     baixar_ = new QCheckBox(QStringLiteral("Baixar o material novo"), caixa);
     baixar_->setChecked(atual.baixarMateriais);
     baixar_->setToolTip(QStringLiteral("Depende de “Arquivos publicados”."));
-    for (QCheckBox* c : {frequencia_, noticias_, arquivos_, baixar_}) lv->addWidget(c);
+    for (QCheckBox* c : {frequencia_, notas_, noticias_, arquivos_, baixar_}) lv->addWidget(c);
 
     raiz->addWidget(caixa);
 
@@ -307,6 +311,7 @@ DialogoOpcoes::DialogoOpcoes(const Config& atual, QWidget* pai) : QDialog(pai) {
         for (QWidget* w : {static_cast<QWidget*>(intervaloPortal_),
                            static_cast<QWidget*>(intervaloCompleto_),
                            static_cast<QWidget*>(frequencia_),
+                           static_cast<QWidget*>(notas_),
                            static_cast<QWidget*>(noticias_),
                            static_cast<QWidget*>(arquivos_),
                            static_cast<QWidget*>(baixar_)}) {
@@ -325,6 +330,7 @@ DialogoOpcoes::DialogoOpcoes(const Config& atual, QWidget* pai) : QDialog(pai) {
                 [this] { atualizarResumo(); });
     }
     connect(frequencia_, &QCheckBox::toggled, this, [this] { atualizarResumo(); });
+    connect(notas_, &QCheckBox::toggled, this, [this] { atualizarResumo(); });
     connect(noticias_, &QCheckBox::toggled, this, [this] { atualizarResumo(); });
 
     ligar(automatico_->isChecked());
@@ -387,6 +393,7 @@ void DialogoOpcoes::atualizarResumo() {
     resumo_->setText(recadoLigado((24 * 60) / portal, (24 * 60) / completo,
                                   2 + (arquivos_->isChecked() ? 1 : 0) +
                                       (frequencia_->isChecked() ? 1 : 0) +
+                                      (notas_->isChecked() ? 1 : 0) +
                                       (noticias_->isChecked() ? 1 : 0)));
 }
 
@@ -428,6 +435,7 @@ DialogoOpcoes::Config DialogoOpcoes::config() const {
     c.minutosCompleto = intervaloCompleto_->currentData().toInt();
     c.arquivos = arquivos_->isChecked();
     c.frequencia = frequencia_->isChecked();
+    c.notas = notas_->isChecked();
     c.noticias = noticias_->isChecked();
     c.baixarMateriais = arquivos_->isChecked() && baixar_->isChecked();
     c.verificarAtualizacao = verificarAtualizacao_->isChecked();

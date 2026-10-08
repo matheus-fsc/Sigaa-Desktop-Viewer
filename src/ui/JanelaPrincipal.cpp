@@ -2480,6 +2480,7 @@ void JanelaPrincipal::sincronizar(const DialogoAtualizar::Escolha& escolha) {
     op.incluirTurmas = comTurmas;
     op.incluirArquivos = escolha.arquivos;
     op.incluirFrequencia = escolha.frequencia;
+    op.incluirNotas = escolha.notas;
     op.incluirNoticias = escolha.noticias;
     op.apenasTurmas = escolha.turmas;
     // O ciclo completo já está dentro de cada turma e já sabe o que falta no
@@ -2877,6 +2878,7 @@ DialogoOpcoes::Config JanelaPrincipal::configAtual() const {
         cfg.value(QStringLiteral("sync/minutosCompleto"), kMinutosTurmas).toInt();
     c.arquivos = cfg.value(QStringLiteral("sync/arquivos"), true).toBool();
     c.frequencia = cfg.value(QStringLiteral("sync/frequencia"), true).toBool();
+    c.notas = cfg.value(QStringLiteral("sync/notas"), true).toBool();
     c.noticias = cfg.value(QStringLiteral("sync/noticias"), true).toBool();
     c.baixarMateriais = cfg.value(QStringLiteral("sync/baixar"), true).toBool();
     c.verificarAtualizacao =
@@ -2902,6 +2904,7 @@ void JanelaPrincipal::aplicarConfig(const DialogoOpcoes::Config& c) {
     cfg.setValue(QStringLiteral("sync/minutosCompleto"), completo);
     cfg.setValue(QStringLiteral("sync/arquivos"), c.arquivos);
     cfg.setValue(QStringLiteral("sync/frequencia"), c.frequencia);
+    cfg.setValue(QStringLiteral("sync/notas"), c.notas);
     cfg.setValue(QStringLiteral("sync/noticias"), c.noticias);
     cfg.setValue(QStringLiteral("sync/baixar"), c.baixarMateriais);
     cfg.setValue(QStringLiteral("app/verificarAtualizacao"), c.verificarAtualizacao);
@@ -2910,6 +2913,7 @@ void JanelaPrincipal::aplicarConfig(const DialogoOpcoes::Config& c) {
     // duas telas que configuram a mesma coisa e discordam seriam pior que uma.
     ultimaEscolha_.arquivos = c.arquivos;
     ultimaEscolha_.frequencia = c.frequencia;
+    ultimaEscolha_.notas = c.notas;
     ultimaEscolha_.noticias = c.noticias;
     ultimaEscolha_.baixarMateriais = c.baixarMateriais;
 
@@ -2953,6 +2957,7 @@ void JanelaPrincipal::agendarProxima() {
         const auto c = configAtual();
         e.arquivos = c.arquivos;
         e.frequencia = c.frequencia;
+        e.notas = c.notas;
         e.noticias = c.noticias;
         e.baixarMateriais = c.baixarMateriais;
         sincronizar(e);

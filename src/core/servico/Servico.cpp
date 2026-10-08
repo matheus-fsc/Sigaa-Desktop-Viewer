@@ -210,6 +210,7 @@ Resultado executar(Opcoes op, const Log& log) {
     oc.incluirArquivos = op.incluirArquivos;
     oc.incluirParticipantes = buscarParticipantes;
     oc.incluirFrequencia = op.incluirFrequencia;
+    oc.incluirNotas = op.incluirNotas;
     oc.incluirNoticias = op.incluirNoticias;
     oc.noticiasComTexto = std::move(noticiasComTexto);
     oc.apenasTurmas = op.apenasTurmas;

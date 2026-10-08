@@ -78,6 +78,15 @@ public:
     // está em `frequencia().temDados`.
     bool abrirFrequencia(std::string* erro = nullptr);
 
+    // Turma -> "Ver Notas" (o item do painel "Alunos", vizinho de
+    // Frequência). Uma requisição, feita na MESMA visita à turma que a
+    // frequência: sair e voltar custaria as duas da navegação de novo.
+    // false quando a resposta não é a planilha de notas; planilha sem nota
+    // lançada é sucesso (`notas().temNota()` distingue).
+    bool abrirNotas(std::string* erro = nullptr);
+    // Vazia até `abrirNotas` rodar.
+    const Notas& notas() const { return notas_; }
+
     // Turma -> aba Notícias (ver `lerNoticias`). Só depois de `entrar`.
     bool abrirNoticias(const std::set<std::string>& noticiasComTexto, int maxTextos);
     const std::vector<Noticia>& noticias() const { return noticias_; }
@@ -126,6 +135,7 @@ private:
     std::vector<ArquivoTurma> arquivos_;
     std::vector<Participante> participantes_;
     Frequencia frequencia_;
+    Notas notas_;
     std::vector<Noticia> noticias_;
     std::vector<std::string> menu_;
     bool vazioConfirmado_{false};

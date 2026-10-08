@@ -37,7 +37,9 @@ namespace sync { class SessaoTurma; }
 }
 
 class QAction;
+class QLabel;
 class QPushButton;
+class QTreeView;
 
 namespace sigaa::ui {
 
@@ -118,6 +120,16 @@ private:
     void verHistoricoPresenca();
     void atualizarAcoesPresenca();
     void avisarConflitosPresenca(const std::vector<frequencia::Conflito>& cs);
+
+    // --- aba Notas ----------------------------------------------------------
+    //
+    // A planilha "Ver Notas" do SIGAA, lida do banco: unidades, avaliações com
+    // peso e nota, e quanto falta para a média (core/estudo/Situacao.h). Criada
+    // em código, como o botão Resumo, porque nasceu depois do formulário.
+    void montarNotas();
+    void recarregarNotas();
+    QTreeView* tvNotas_{nullptr};
+    QLabel* rotuloNotas_{nullptr};
 
     // A data selecionada na aba, ou vazio. Sai da CHAVE guardada na linha,
     // nunca do índice: a tabela é ordenável.

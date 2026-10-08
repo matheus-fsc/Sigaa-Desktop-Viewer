@@ -123,12 +123,14 @@ add_library(sigaa_core STATIC
   src/core/parse/ArquivoParser.cpp
   src/core/parse/NoticiaParser.cpp
   src/core/parse/FrequenciaParser.cpp
+  src/core/parse/NotasParser.cpp
   src/core/parse/ParticipanteParser.cpp
   src/core/atualizacao/Atualizador.cpp
   src/core/atualizacao/Sha256.cpp
   src/core/avaliacao/Ajustes.cpp
   src/core/planejamento/Planejamento.cpp
   src/core/estudo/Registros.cpp
+  src/core/estudo/Situacao.cpp
   src/core/avaliacao/Materia.cpp
   src/core/frequencia/Presenca.cpp
   src/core/calendar/Calendario.cpp
@@ -486,6 +488,8 @@ if(BUILD_TESTING)
     tests/sessao_viva_test.cpp
     tests/entrada_navegador_test.cpp
     tests/frequencia_parser_test.cpp
+    tests/notas_parser_test.cpp
+    tests/situacao_test.cpp
     tests/calendario_test.cpp
     tests/aviso_test.cpp
     tests/database_test.cpp

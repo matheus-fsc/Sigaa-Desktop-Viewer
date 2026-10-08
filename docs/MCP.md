@@ -168,10 +168,30 @@ Toda resposta leva `structuredContent` (JSON com `outputSchema`) **e** um
 | `listar_arquivos` | `turma`, `topico?` | id, título, tópico, baixado?, caminho, `resource_link` |
 | `noticias` | `turma`, `limite?` | notícias do professor, da mais nova |
 | `frequencia` | `turma` | faltas, limite, dias com falta |
+| `notas` | `turma` | a planilha "Ver Notas": unidades, avaliações com peso, nota de cada uma (`null` = não lançada, `0` = zero lançado), média parcial e quanto falta para 6,0 |
+| `diagnostico` | — | **o primeiro passo**: por turma, faltas contra o limite (`folgado`…`reprovado_por_falta`), notas contra a média, próxima prova; entregas atrasadas; `primeiro_contato`; e as perguntas a fazer ao aluno antes de planejar |
 | `meu_progresso` | `turma?` | o que agentes já devolveram (§5): horas estudadas, desempenho por tópico, pontos de foco abertos |
 
 `meu_progresso` é o que fecha o ciclo: numa conversa nova, o agente sabe o que
 outra conversa (ou outro agente) já viu.
+
+**O primeiro passo é um brainstorm, não um plano.** Quem conecta um agente com o
+período andando já tem faltas e notas — e um plano de horas montado sem olhar
+para elas estuda matéria perdida por falta. Por isso as instruções do servidor
+mandam começar por `diagnostico`, e o prompt `comecar` conduz a conversa. O
+diagnóstico (`core/estudo/Situacao.h`) separa fato de suposição:
+
+- faltas e limite (25% da CH) são do SIGAA;
+- a média para passar é 6,0 (60%, regra da UNIFEI; outra instituição grava a
+  sua em `estudo.media_minima` no `meta`);
+- "precisa de X nas unidades restantes" supõe média aritmética das unidades —
+  vira pergunta ao aluno;
+- `0,0` lançado pode ser prova perdida ou lançamento provisório — vira pergunta,
+  não veredito.
+
+A coluna "Faltas" da página de notas **não** é usada: o SIGAA só a preenche
+quando o professor consolida o diário (na captura de 07/10/2026 dizia 0, e o
+mapa de frequência da mesma turma contava 20).
 
 ### Recursos
 
@@ -191,6 +211,7 @@ Atalhos que o aluno escolhe no menu do agente:
 
 | Prompt | Argumentos | Faz o agente… |
 |---|---|---|
+| `comecar` | — | chamar `diagnostico`, mostrar o quadro (falta estourada → no limite → notas → provas próximas), fazer o brainstorm uma pergunta por vez, e só então propor horas, dificuldade e focos |
 | `estudar_para_prova` | `turma`, `prova` | ler a matéria da prova e os PDFs, montar um roteiro, e registrar o estudo ao fim |
 | `simulado` | `turma`, `prova`, `questoes?` | gerar questões da matéria, corrigir, e registrar desempenho por tópico |
 | `revisao_da_semana` | — | olhar provas e prazos dos próximos 7 dias e propor o que estudar |
