@@ -97,6 +97,11 @@ find_package(spdlog CONFIG REQUIRED)
 find_path(LEXBOR_INCLUDE_DIR lexbor/html/html.h REQUIRED)
 find_library(LEXBOR_LIBRARY NAMES lexbor lexbor_static REQUIRED)
 
+# cpp-httplib: o servidor do acesso mobile (src/web). Um cabeçalho só; o vcpkg
+# exporta config, as distros às vezes não — procurar o arquivo resolve as duas.
+# No Arch: `pacman -S cpp-httplib`; no Debian/Ubuntu: `libcpp-httplib-dev`.
+find_path(HTTPLIB_INCLUDE_DIR httplib.h REQUIRED)
+
 # ---------------------------------------------------------------------------
 # core/ — SEM dependência de UI, testável headless.
 # Esta é a regra de ouro do projeto: nada de Qt/wx aqui dentro.
@@ -118,10 +123,15 @@ add_library(sigaa_core STATIC
   src/core/parse/ArquivoParser.cpp
   src/core/parse/NoticiaParser.cpp
   src/core/parse/FrequenciaParser.cpp
+  src/core/parse/NotasParser.cpp
   src/core/parse/ParticipanteParser.cpp
   src/core/atualizacao/Atualizador.cpp
   src/core/atualizacao/Sha256.cpp
   src/core/avaliacao/Ajustes.cpp
+  src/core/planejamento/Planejamento.cpp
+  src/core/estudo/Registros.cpp
+  src/core/estudo/Situacao.cpp
+  src/core/avaliacao/Materia.cpp
   src/core/frequencia/Presenca.cpp
   src/core/calendar/Calendario.cpp
   src/core/sync/Crawler.cpp
@@ -132,6 +142,8 @@ add_library(sigaa_core STATIC
   src/core/config/DotEnv.cpp
   src/core/config/Instituicao.cpp
   src/core/util/Caminho.cpp
+  src/core/util/Texto.cpp
+  src/core/util/Pastas.cpp
 )
 
 target_include_directories(sigaa_core
@@ -179,6 +191,59 @@ if(WIN32)
 endif()
 
 # ---------------------------------------------------------------------------
+# mcp/ — o servidor MCP para agentes de IA (docs/MCP.md). Sem Qt, como o core:
+# roda dentro do sigaa-cli (`sigaa-cli mcp`) e é testado sem processo.
+# ---------------------------------------------------------------------------
+add_library(sigaa_mcp STATIC
+  src/mcp/Leitura.cpp
+  src/mcp/Escrita.cpp
+  src/mcp/Propostas.cpp
+  src/mcp/Rede.cpp
+  src/mcp/Ferramentas.cpp
+  src/mcp/Servidor.cpp
+  src/mcp/Comando.cpp
+  src/mcp/Instalar.cpp
+  src/mcp/Kit.cpp
+)
+target_include_directories(sigaa_mcp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(sigaa_mcp PUBLIC sigaa_core)
+
+# ---------------------------------------------------------------------------
+# web/ — o acesso mobile (docs/WEB.md): servidor HTTP só de leitura e as
+# páginas do celular, EMBUTIDAS no binário. Sem Qt: roda na janela (aba
+# Acesso mobile) e no `sigaa-cli web`.
+# ---------------------------------------------------------------------------
+file(GLOB SIGAA_PAGINAS_WEB CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/web/pagina/*")
+set(SIGAA_PAGINAS_CPP "${CMAKE_CURRENT_BINARY_DIR}/gerado/PaginasWeb.cpp")
+add_custom_command(
+  OUTPUT "${SIGAA_PAGINAS_CPP}"
+  COMMAND "${CMAKE_COMMAND}" "-DORIGEM=${CMAKE_CURRENT_SOURCE_DIR}/src/web/pagina"
+          "-DDESTINO=${SIGAA_PAGINAS_CPP}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Embutir.cmake"
+  DEPENDS ${SIGAA_PAGINAS_WEB} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Embutir.cmake"
+  COMMENT "Embutindo as páginas do acesso mobile"
+  VERBATIM)
+
+add_library(sigaa_web STATIC
+  src/web/Pareamento.cpp
+  src/web/Api.cpp
+  src/web/Servidor.cpp
+  src/web/Comando.cpp
+  "${SIGAA_PAGINAS_CPP}"
+)
+target_include_directories(sigaa_web
+  PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  PRIVATE ${HTTPLIB_INCLUDE_DIR})
+target_link_libraries(sigaa_web PUBLIC sigaa_mcp sigaa_core)
+find_package(Threads REQUIRED)
+target_link_libraries(sigaa_web PRIVATE Threads::Threads)
+if(WIN32)
+  # Winsock: o httplib só declara o #pragma comment no MSVC.
+  target_link_libraries(sigaa_web PRIVATE ws2_32)
+  # O httplib recusa compilar abaixo do Windows 10 (_WIN32_WINNT 0x0A00).
+  target_compile_definitions(sigaa_web PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
+endif()
+
+# ---------------------------------------------------------------------------
 # sigaa-cli — entregável da Fase 1. Prova que o scraping funciona,
 # sem escrever uma linha de UI.
 # ---------------------------------------------------------------------------
@@ -186,7 +251,7 @@ add_executable(sigaa-cli
   src/app/main.cpp
   src/app/Prompt.cpp
 )
-target_link_libraries(sigaa-cli PRIVATE sigaa_core sigaa_platform spdlog::spdlog)
+target_link_libraries(sigaa-cli PRIVATE sigaa_web sigaa_mcp sigaa_core sigaa_platform spdlog::spdlog)
 
 if(MSVC)
   # F5 na IDE precisa de argumentos, senão o CLI só imprime o "uso:" e sai.
@@ -237,6 +302,11 @@ elseif(SIGAA_UI)
     src/ui/JanelaDiagnostico.cpp
     src/ui/DialogoAtualizar.cpp
     src/ui/DialogoOpcoes.cpp
+    src/ui/Agentes.cpp
+    src/ui/Controles.cpp
+    src/ui/GraficoCarga.cpp
+    src/ui/Progresso.cpp
+    src/ui/Mobile.cpp
     src/ui/DialogosAvaliacao.cpp
     src/ui/EntrarNoSigaa.cpp
     src/ui/Copiar.cpp
@@ -245,6 +315,7 @@ elseif(SIGAA_UI)
     src/ui/InstanciaUnica.cpp
     src/ui/Modelos.cpp
     src/ui/PainelNoticias.cpp
+    src/ui/Planejamento.cpp
     src/ui/Tema.cpp
     src/ui/Trabalhador.cpp
 
@@ -271,7 +342,27 @@ elseif(SIGAA_UI)
     AUTOUIC_SEARCH_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/forms"
     AUTORCC ON)
   target_link_libraries(sigaa-ui PRIVATE
-    sigaa_core sigaa_platform Qt6::Widgets Qt6::Svg Qt6::Network)
+    sigaa_web sigaa_mcp sigaa_core sigaa_platform Qt6::Widgets Qt6::Svg Qt6::Network)
+
+  # O QR code do pareamento. Opcional: sem ele a aba mostra só o link para
+  # copiar, que funciona igual e só dá mais trabalho no celular.
+  #
+  # O config só existe no pacote do Arch (qrcodegencpp-cmake); no resto — o CI
+  # compila o qrcodegen.cpp do Nayuki e instala em /usr/local — procurar o
+  # cabeçalho e a biblioteca na mão, como o lexbor.
+  find_package(qrcodegencpp CONFIG QUIET)
+  find_path(QRCODEGEN_INCLUDE_DIR qrcodegen.hpp PATH_SUFFIXES qrcodegencpp qrcodegen)
+  find_library(QRCODEGEN_LIBRARY NAMES qrcodegencpp nayuki-qr-code-generator qrcodegen)
+  if(TARGET qrcodegencpp::qrcodegencpp)
+    target_link_libraries(sigaa-ui PRIVATE qrcodegencpp::qrcodegencpp)
+    target_compile_definitions(sigaa-ui PRIVATE SIGAA_QRCODE=1)
+  elseif(QRCODEGEN_INCLUDE_DIR AND QRCODEGEN_LIBRARY)
+    target_include_directories(sigaa-ui PRIVATE ${QRCODEGEN_INCLUDE_DIR})
+    target_link_libraries(sigaa-ui PRIVATE ${QRCODEGEN_LIBRARY})
+    target_compile_definitions(sigaa-ui PRIVATE SIGAA_QRCODE=1)
+  else()
+    message(STATUS "sigaa-ui: qrcodegencpp nao encontrado, a aba Acesso mobile fica sem QR code.")
+  endif()
 
   if(WIN32)
     # WIN32_EXECUTABLE tira o console preto que apareceria atras da janela.
@@ -397,6 +488,8 @@ if(BUILD_TESTING)
     tests/sessao_viva_test.cpp
     tests/entrada_navegador_test.cpp
     tests/frequencia_parser_test.cpp
+    tests/notas_parser_test.cpp
+    tests/situacao_test.cpp
     tests/calendario_test.cpp
     tests/aviso_test.cpp
     tests/database_test.cpp
@@ -406,8 +499,19 @@ if(BUILD_TESTING)
     tests/topico_parser_test.cpp
     tests/baixador_test.cpp
     tests/instituicao_test.cpp
+    tests/planejamento_test.cpp
+    tests/materia_test.cpp
+    tests/pastas_test.cpp
+    tests/mcp_test.cpp
+    tests/instalar_test.cpp
+    tests/web_test.cpp
   )
-  target_link_libraries(sigaa_tests PRIVATE sigaa_core Catch2::Catch2WithMain)
+  target_link_libraries(sigaa_tests PRIVATE sigaa_web sigaa_mcp sigaa_core Catch2::Catch2WithMain)
+  target_include_directories(sigaa_tests PRIVATE ${HTTPLIB_INCLUDE_DIR})   # o cliente do web_test
+  if(WIN32)
+    target_link_libraries(sigaa_tests PRIVATE ws2_32)
+    target_compile_definitions(sigaa_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
+  endif()
   target_compile_definitions(sigaa_tests PRIVATE
     FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
   include(Catch)

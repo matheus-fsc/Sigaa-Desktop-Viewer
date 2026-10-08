@@ -1,5 +1,7 @@
 #include "ui/Modelos.h"
 
+#include "core/avaliacao/Materia.h"
+
 #include "ui/Distintivos.h"
 #include "ui/Tema.h"
 
@@ -471,79 +473,15 @@ ResumoProvas resumoProvas(const std::vector<avaliacao::Efetiva>& provas) {
 
 MateriaDaProva materiaDaProva(const Snapshot& s, const avaliacao::Efetiva& prova,
                               const std::vector<avaliacao::Efetiva>& todas) {
+    // A regra mora no core (core/avaliacao/Materia.h), onde o servidor MCP
+    // também a usa. Aqui só se troca de tipo.
+    const auto c = avaliacao::materiaDaProva(s, prova, todas);
     MateriaDaProva m;
-    const QDate dataProva = paraQDate(prova.av.quando);
-    if (!dataProva.isValid()) return m;
-
-    // A anterior da mesma turma: a mais recente estritamente antes desta.
-    // `todas` já está em ordem cronológica, então a última que passar vale.
-    for (const auto& p : todas) {
-        const QDate d = paraQDate(p.av.quando);
-        if (p.av.idTurma != prova.av.idTurma || !d.isValid() || d >= dataProva) continue;
-        m.desde = d;
-        m.provaAnterior = umaLinha(p.av.descricao);
-    }
-
-    std::vector<const TopicoAula*> escolhidos;
-    for (const auto& t : s.topicos) {
-        if (t.idTurma != prova.av.idTurma) continue;
-        m.coletada = true;
-        const QDate ini = paraQDate(t.inicio);
-        // A janela da prova: DEPOIS do dia da anterior e ANTES do dia desta.
-        // Estritamente antes — o tópico registrado no próprio dia da prova é a
-        // aula depois dela (em EDO, "Noções de sequências e séries" caiu em
-        // 01/10, dia da Avaliação 1, e é matéria da Avaliação 2).
-        // E o do dia da anterior ENTRA: pela mesma regra, ele já é matéria
-        // desta. O anúncio da anterior, que cai no mesmo dia, sai pelo filtro
-        // de "não é matéria" abaixo.
-        if (!ini.isValid() || ini >= dataProva) continue;
-        if (m.desde.isValid() && ini < m.desde) continue;
-        escolhidos.push_back(&t);
-    }
-    // Estável: tópicos do mesmo dia ficam na ordem em que o professor os
-    // registrou, que é a ordem da aula.
-    std::stable_sort(escolhidos.begin(), escolhidos.end(),
-                     [](const TopicoAula* a, const TopicoAula* b) { return a->inicio < b->inicio; });
-
-    // O que NÃO é matéria, mesmo registrado como tópico: o anúncio de prova
-    // ("Primeira avaliação", "Revisão para a P1"), aula de dúvidas ou de
-    // exercícios, "Não haverá aula", a apresentação da disciplina. Entram na
-    // conta dos ARQUIVOS (a lista da aula de exercícios é material de estudo),
-    // mas não na lista de tópicos, onde seriam só ruído.
-    static const QRegularExpression naoEhMateria(
-        QStringLiteral("\\b(prova|avalia|revis|d[uú]vida|exerc[ií]cio|n[aã]o haver[aá]|"
-                       "sem aula|feriado|recesso|apresenta[cç][aã]o da disciplina)"),
-        QRegularExpression::CaseInsensitiveOption | QRegularExpression::UseUnicodePropertiesOption);
-
-    QSet<QString> titulos;       // para casar arquivos: todos os tópicos da janela
-    QSet<QString> jaListados;    // para não repetir: o mesmo título registrado duas vezes
-    QSet<QString> ids;
-    for (const TopicoAula* t : escolhidos) {
-        const QString titulo = umaLinha(t->titulo);
-        titulos.insert(titulo);
-        for (const auto& mat : t->materiais) {
-            if (!mat.id.empty()) ids.insert(QString::fromStdString(mat.id));
-        }
-        if (naoEhMateria.match(titulo).hasMatch()) continue;
-        // Professor que registra a mesma aula duas vezes (ou repete o título
-        // na aula seguinte) contava em dobro: 35 "tópicos" numa turma com 17
-        // aulas até a prova. A chave ignora caixa e pontuação.
-        QString chave = titulo.toLower();
-        chave.remove(QRegularExpression(QStringLiteral("[^\\w ]"),
-                                        QRegularExpression::UseUnicodePropertiesOption));
-        chave = chave.simplified();
-        if (jaListados.contains(chave)) continue;
-        jaListados.insert(chave);
-        m.topicos.push_back(titulo);
-    }
-    // Os da aba Arquivos, casados pelo título do tópico — a mesma ponte que
-    // `materiaisDoTopico` usa.
-    for (const auto& a : s.arquivos) {
-        if (a.idTurma == prova.av.idTurma && titulos.contains(umaLinha(a.topico))) {
-            ids.insert(QString::fromStdString(a.idArquivo));
-        }
-    }
-    for (const QString& id : ids) m.idsArquivos.push_back(id.toStdString());
+    m.coletada = c.coletada;
+    m.desde = paraQDate(c.desde);
+    m.provaAnterior = QString::fromStdString(c.provaAnterior);
+    for (const auto& t : c.topicos) m.topicos.push_back(QString::fromStdString(t));
+    m.idsArquivos = c.idsArquivos;
     return m;
 }
 
@@ -856,7 +794,7 @@ QStandardItem* celulaFaltas(const Frequencia* f) {
 }  // namespace
 
 QStandardItemModel* modeloAgenda(const Snapshot& s, QDate inicio, QDate fim, QDate hoje,
-                                 QObject* pai) {
+                                 QObject* pai, const std::vector<planejamento::Sessao>& estudo) {
     auto* m = novoModelo(pai, {QStringLiteral("Turma"), QStringLiteral("Aula"),
                                QStringLiteral("Horário"), QStringLiteral("Material"),
                                QStringLiteral("Faltas")});
@@ -911,6 +849,27 @@ QStandardItemModel* modeloAgenda(const Snapshot& s, QDate inicio, QDate fim, QDa
                                     : QStringLiteral("%1 arquivo(s)").arg(a.materiais),
                                 a.materiais),
                            celulaFaltas(freq.value(a.idTurma, nullptr))});
+        }
+
+        // As sessões de estudo do plano, depois das aulas: a aula é o que
+        // acontece, o estudo é o que o aluno se propôs a fazer.
+        for (const auto& se : estudo) {
+            if (paraQDate(se.dia) != dia) continue;
+            auto* turma = item(umaLinha(se.turmaNome));
+            turma->setData(QString::fromStdString(se.idTurma), PapelIdTurma);
+            const QDate dp = paraQDate(se.dataProva);
+            auto* oque = item(QStringLiteral("Estudar para %1 (%2)")
+                                  .arg(QString::fromStdString(se.prova),
+                                       dp.toString(QStringLiteral("dd/MM"))));
+            oque->setCheckable(true);
+            oque->setCheckState(se.feita ? Qt::Checked : Qt::Unchecked);
+            oque->setData(QString::fromStdString(se.chave()), PapelChaveSessao);
+            oque->setForeground(QBrush(se.feita ? cor::apagado() : tema::cor::acento()));
+            oque->setToolTip(QStringLiteral("Sessão do seu planejamento de estudo. Marque "
+                                            "quando tiver estudado."));
+            filhos.append({turma, oque,
+                           item(QString::fromStdString(planejamento::duracao(se.minutos)), 99),
+                           item(QString()), item(QString())});
         }
 
         const int n = filhos.size();

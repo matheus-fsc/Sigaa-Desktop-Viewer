@@ -33,12 +33,14 @@
 #include "core/http/SessaoViva.h"
 #include "ui/DialogoAtualizar.h"
 #include "ui/DialogoOpcoes.h"
+#include "ui/Planejamento.h"
 #include "core/model/Models.h"
 #include "platform/Credenciais.h"
 
 class QLabel;
 class QProgressBar;
 class QPushButton;
+class QStandardItem;
 class QSystemTrayIcon;
 class QTimer;
 
@@ -53,6 +55,7 @@ namespace sigaa::ui {
 
 class Trabalhador;
 class NavegacaoAbas;
+class PainelMobile;
 class CargaSemanal;
 class CalendarioProvas;
 class DialogoConfirmarDatas;
@@ -311,6 +314,20 @@ private:
     QToolButton* cargaSeguinte_{nullptr};
     void atualizarCarga();
     void abrirCargaCompleta();
+    // --- aba Estudo ----------------------------------------------------------
+    void montarEstudo();
+    // Leva à aba Estudo, na página Planejamento.
+    void irParaPlanejamento();
+    // O que o planejamento recebe: provas futuras, entregas, turmas e aulas.
+    EntradasEstudo entradasDoPlanejamento() const;
+    // "Estudo (1h hoje)": o estudo pendente de hoje no rótulo da aba.
+    void atualizarTituloEstudo();
+    // Refaz o plano em silêncio, se o aluno já usa o planejamento, e guarda
+    // as sessões em `estudo_` para a Agenda. Sem plano guardado, não faz nada:
+    // o planejamento é opt-in.
+    void atualizarEstudo();
+    // O check de uma sessão de estudo marcado na Agenda.
+    void marcarEstudoDaAgenda(QStandardItem* it);
     // O mês seguinte ao do calendário principal, embaixo dele (ver
     // montarProvas). Some quando a coluna não tem altura para os dois.
     CalendarioProvas* calSeguinte_{nullptr};
@@ -327,7 +344,18 @@ private:
     // mesmo motivo do filtro de provas: a semana é escolha do usuário, e o ciclo
     // automático de 20 minutos não pode arrastá-lo de volta para hoje enquanto
     // ele olha a semana que vem.
+    // A última marca `mcp.alteracao` vista no banco. Vazio até a primeira
+    // ativação: a carga inicial já leu tudo.
+    std::optional<std::string> marcaMcp_;
     QDate inicioAgenda_;
+    // As sessões do plano de estudo, para a Agenda. Vazio = sem planejamento.
+    std::vector<planejamento::Sessao> estudo_;
+    PainelEstudo* painelEstudo_{nullptr};
+    int abaEstudo_{-1};
+    // --- aba Acesso mobile ----------------------------------------------------
+    void montarMobile();
+    PainelMobile* painelMobile_{nullptr};
+    int abaMobile_{-1};
 
     // Acumulador da roda horizontal: um trackpad manda dezenas de eventos de
     // poucos graus, e virar a semana em cada um daria um borrão de meses.

@@ -162,6 +162,7 @@ QColor inferido();   // dado deduzido, não cadastrado pelo professor
 QColor apagado();    // concluído ou já passado: presente, sem peso
 QColor sucesso();    // baixado, disponível offline
 QColor acento();     // informação sem urgência: prova daqui a mais de 7 dias
+QColor materia(int i);   // a cor da i-ésima matéria (m1..m8, em ciclo)
 } // namespace cor
 
 } // namespace sigaa::ui::tema

@@ -42,6 +42,7 @@ public:
         // O que o ciclo completo busca dentro de cada turma.
         bool arquivos{true};
         bool frequencia{true};
+        bool notas{true};
         bool noticias{true};
         bool baixarMateriais{true};
 
@@ -69,6 +70,7 @@ Q_SIGNALS:
     // O canto do desenvolvedor. A janela principal é quem sabe abrir essas
     // telas; o diálogo só avisa que o botão foi clicado.
     void pediuDiagnostico();
+    void pediuAgentes();
     void pediuRelatorio();
 
     void pediuProcurarAtualizacao();
@@ -94,6 +96,7 @@ private:
     QComboBox* intervaloCompleto_{nullptr};
     QCheckBox* arquivos_{nullptr};
     QCheckBox* frequencia_{nullptr};
+    QCheckBox* notas_{nullptr};
     QCheckBox* noticias_{nullptr};
     QCheckBox* baixar_{nullptr};
     QLabel* resumo_{nullptr};

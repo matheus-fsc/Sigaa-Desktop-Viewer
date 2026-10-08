@@ -6,6 +6,7 @@
 #include "core/jsf/JsfForm.h"
 #include "core/parse/ArquivoParser.h"
 #include "core/parse/FrequenciaParser.h"
+#include "core/parse/NotasParser.h"
 #include "core/parse/NoticiaParser.h"
 #include "core/parse/Html.h"
 #include "core/parse/ParticipanteParser.h"
@@ -270,6 +271,25 @@ bool SessaoTurma::abrirFrequencia(std::string* erro) {
         return false;
     }
     frequencia_ = r.frequencia;
+    return true;
+}
+
+bool SessaoTurma::abrirNotas(std::string* erro) {
+    if (!naTurma_) {
+        falhar(erro, "chame entrar() antes");
+        return false;
+    }
+    html::Document doc;
+    if (!abrirAbaPorRotulo(sessao_, docTurma_, "Ver Notas", &doc, erro)) return false;
+
+    const auto r = parse::parseNotas(doc, turma_.idTurma, turma_.nome);
+    if (!r.pareceNotas) {
+        // Mesma guarda da frequência: sessão expirada não pode virar
+        // "nenhuma nota lançada".
+        falhar(erro, "a resposta nao parece a planilha de notas (sessao expirada?)");
+        return false;
+    }
+    notas_ = r.notas;
     return true;
 }
 

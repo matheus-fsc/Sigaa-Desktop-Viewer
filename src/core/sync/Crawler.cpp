@@ -5,6 +5,7 @@
 #include "core/parse/ArquivoParser.h"
 #include "core/parse/FrequenciaParser.h"
 #include "core/parse/Html.h"
+#include "core/parse/NotasParser.h"
 #include "core/parse/NoticiaParser.h"
 #include "core/parse/ParticipanteParser.h"
 #include "core/parse/PortalParser.h"
@@ -102,6 +103,23 @@ void coletarFrequencia(http::SigaaSession& sessao, const html::Document& docTurm
     }
 }
 
+// "Ver Notas" da turma. Mesma regra da frequência: falhar NÃO conta como
+// turma com falha, e a planilha sem nota lançada é guardada (`temNota`).
+void coletarNotas(http::SigaaSession& sessao, const html::Document& docTurma,
+                  const Turma& t, ResultadoColeta& res, const OpcoesColeta& op) {
+    html::Document doc;
+    if (!abrirAbaPorRotulo(sessao, docTurma, "Ver Notas", &doc, nullptr)) return;
+
+    const auto r = parse::parseNotas(doc, t.idTurma, t.nome);
+    if (!r.pareceNotas) return;
+
+    int lancadas = 0;
+    for (const auto& u : r.notas.unidades) lancadas += u.nota ? 1 : 0;
+    avisar(op, "  notas: " + std::to_string(lancadas) + " de " +
+                   std::to_string(r.notas.unidades.size()) + " unidade(s) com nota");
+    res.snapshot.notas.push_back(r.notas);
+}
+
 // Notícias da turma. Mesma regra das outras abas: falhar aqui NÃO conta como
 // turma com falha. A lógica mora em Materiais (`lerNoticias`), porque a janela
 // da turma, que chega à turma por outro caminho, também a usa.
@@ -197,6 +215,7 @@ ResultadoColeta coletar(http::SigaaSession& sessao, const OpcoesColeta& op) {
 
                 if (op.incluirArquivos) coletarArquivos(sessao, dt, t, res, op);
                 if (op.incluirFrequencia) coletarFrequencia(sessao, dt, t, res, op);
+                if (op.incluirNotas) coletarNotas(sessao, dt, t, res, op);
                 if (op.incluirNoticias) coletarNoticias(sessao, dt, t, res, op);
                 if (op.incluirParticipantes) {
                     coletarParticipantes(sessao, dt, t, res, op);

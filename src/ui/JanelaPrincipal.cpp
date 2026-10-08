@@ -6,6 +6,7 @@
 #include <QDialog>
 #include <QScrollBar>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QApplication>
 #include <QDesktopServices>
 #include <QEvent>
@@ -63,7 +64,9 @@
 #include "ui/Icones.h"
 #include "ui/JanelaDiagnostico.h"
 #include "ui/JanelaTurma.h"
+#include "ui/Mobile.h"
 #include "ui/Modelos.h"
+#include "ui/Planejamento.h"
 #include "ui/Tema.h"
 #include "ui/Trabalhador.h"
 #include "ui_JanelaPrincipal.h"
@@ -241,6 +244,8 @@ JanelaPrincipal::JanelaPrincipal(QWidget* pai)
     formulario_->setupUi(this);
 
     montarListas();
+    montarEstudo();         // antes da aba lembrada e da navegação: é uma aba
+    montarMobile();         // idem, e depois da Estudo: as abas são lembradas por índice
     montarAbaLembrada();
     montarAcoes();
     montarStatus();
@@ -292,6 +297,21 @@ JanelaPrincipal::~JanelaPrincipal() {
 
 void JanelaPrincipal::changeEvent(QEvent* ev) {
     QMainWindow::changeEvent(ev);
+    // Voltou para o app: um agente de IA pode ter gravado no banco enquanto
+    // isso (docs/MCP.md §9). Barato — uma leitura de `meta` — e só recarrega
+    // quando a marca mudou e não há coleta em andamento, que recarrega sozinha.
+    if (ev->type() == QEvent::ActivationChange && isActiveWindow() && navegacao_ &&
+        !(barra_ && barra_->isVisible())) {
+        store::Database db;
+        if (db.aberto()) {
+            const std::string marca = db.lerMeta("mcp.alteracao").value_or("");
+            if (marcaMcp_.has_value() && marca != *marcaMcp_) {
+                recarregarDoBanco();
+                status(QStringLiteral("Atualizado com o que o agente de IA gravou."));
+            }
+            marcaMcp_ = marca;
+        }
+    }
     if (ev->type() == QEvent::PaletteChange || ev->type() == QEvent::ThemeChange) {
         aplicarIcones();
         // O título e o resumo da agenda levam as cores dentro do HTML; sem
@@ -1412,6 +1432,17 @@ void JanelaPrincipal::abrirCargaCompleta() {
     botoes->button(QDialogButtonBox::Close)->setAutoDefault(false);
     botoes->button(QDialogButtonBox::Close)->setIcon(QIcon());
     connect(botoes, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    // O passo seguinte a "onde aperta": como distribuir o estudo até lá.
+    auto* planejar = botoes->addButton(QStringLiteral("Ver planejamento"),
+                                       QDialogButtonBox::ActionRole);
+    planejar->setProperty("papel", QStringLiteral("primario"));
+    planejar->setAutoDefault(false);
+    planejar->setToolTip(QStringLiteral("Distribui suas horas livres de estudo entre as "
+                                        "provas que vêm, e mostra onde o semestre aperta."));
+    connect(planejar, &QPushButton::clicked, &dlg, [this, &dlg] {
+        dlg.accept();
+        irParaPlanejamento();
+    });
     raiz->addWidget(botoes);
 
     // Clicar numa semana filtra a lista e fecha: o diálogo é para achar a
@@ -1430,6 +1461,173 @@ void JanelaPrincipal::abrirCargaCompleta() {
         rolagem->horizontalScrollBar()->setValue(std::max(0, colunaHoje - 2) * kColunaPeriodo);
     });
     dlg.exec();
+}
+
+EntradasEstudo JanelaPrincipal::entradasDoPlanejamento() const {
+    EntradasEstudo e;
+    const QDateTime agora = QDateTime::currentDateTime();
+    for (const auto& p : provas_) {
+        if (jaPassou(p.av.quando, agora)) continue;
+        // Substitutiva e reposição só faz quem precisa. Planejar para elas
+        // de saída tiraria horas das provas que todos fazem.
+        const QString desc = QString::fromStdString(p.av.descricao).toLower();
+        if (desc.contains(QStringLiteral("substitutiv")) ||
+            desc.contains(QStringLiteral("reposi"))) {
+            continue;
+        }
+        planejamento::ProvaAlvo a;
+        a.idTurma = p.av.idTurma;
+        a.turmaNome = p.av.turmaNome;
+        a.descricao = p.av.descricao;
+        a.data = p.av.quando;
+        a.inferida = p.estado == avaliacao::Estado::Inferida;
+        // O tamanho da matéria: os tópicos entre esta prova e a anterior, os
+        // mesmos que a "Próxima prova" lista.
+        const MateriaDaProva m = materiaDaProva(snapshot_, p, provas_);
+        a.topicos = m.coletada ? static_cast<int>(m.topicos.size()) : -1;
+        auto& info = e.infoProvas[a.idTurma + "|" + a.descricao];
+        info.topicosColetados = m.coletada;
+        for (const auto& t : m.topicos) info.topicos.push_back(t.toStdString());
+        info.corrigida = p.estado == avaliacao::Estado::Editada;
+        info.quandoSigaa = p.quandoSigaa;
+        e.provas.push_back(std::move(a));
+    }
+    for (const auto& at : snapshot_.atividades) {
+        if (at.status == StatusAtividade::Concluida) continue;
+        if (jaPassou(at.prazo, agora)) {
+            // Atrasada há mais de duas semanas já não é "o que fazer": ou foi
+            // entregue fora do app, ou não vai ser.
+            const QDate p(at.prazo.year, at.prazo.month, at.prazo.day);
+            if (at.prazo.valid() && p.daysTo(agora.date()) <= 14) {
+                e.atrasadas.push_back({at.idTurma, at.turmaNome, at.titulo, at.prazo});
+            }
+            continue;
+        }
+        e.entregas.push_back({at.idTurma, at.turmaNome, at.titulo, at.prazo});
+    }
+    for (const auto& t : snapshot_.turmas) e.turmas.emplace_back(t.idTurma, t.nome);
+    // As aulas da grade saem do tempo de estudo de cada dia da semana.
+    e.aulas = planejamento::minutosDeAulaPorDia(snapshot_.turmas);
+    return e;
+}
+
+void JanelaPrincipal::montarEstudo() {
+    painelEstudo_ = new PainelEstudo(QDir::current().absoluteFilePath(QStringLiteral("sigaa-viewer.db")),
+                                     pastaBaseMateriais(), formulario_->abas);
+    // No fim: as outras abas têm índice fixo (setTabText por número) e a aba
+    // lembrada é guardada por índice.
+    abaEstudo_ = formulario_->abas->addTab(painelEstudo_, QStringLiteral("Estudo"));
+    // O painel replanejou ou recebeu um check: a Agenda lê o banco de novo.
+    // Sem replanejar aqui — o painel acabou de fazer isso.
+    // "Confirmar" e "Corrigir" de uma data deduzida, no "O que fazer": as
+    // mesmas ações da aba Provas.
+    painelEstudo_->aoTratarProva = [this](const std::string& idTurma, const std::string& descricao,
+                                          bool corrigirData) {
+        for (const auto& p : provas_) {
+            if (p.av.idTurma != idTurma || p.av.descricao != descricao) continue;
+            const avaliacao::Efetiva copia = p;
+            if (corrigirData) corrigir(copia);
+            else confirmar(copia);
+            return;
+        }
+    };
+    painelEstudo_->aoMudarPlano = [this] {
+        store::Database db;
+        if (db.aberto() && db.migrar()) {
+            // As pendentes que ficaram para trás são só a medida do Progresso;
+            // a Agenda mostra o plano de hoje em diante e o que foi feito.
+            const QDate hoje = QDate::currentDate();
+            estudo_.clear();
+            for (auto& s : db.carregarSessoesEstudo()) {
+                if (s.feita || !s.dia.valid() || QDate(s.dia.year, s.dia.month, s.dia.day) >= hoje) {
+                    estudo_.push_back(std::move(s));
+                }
+            }
+        }
+        montarAgenda();
+        atualizarTituloEstudo();
+    };
+}
+
+void JanelaPrincipal::montarMobile() {
+    painelMobile_ = new PainelMobile(QDir::current().absoluteFilePath(QStringLiteral("sigaa-viewer.db")),
+                                     pastaBaseMateriais(), formulario_->abas);
+    abaMobile_ = formulario_->abas->addTab(painelMobile_, QStringLiteral("Acesso mobile"));
+    // O ponto no nome é o aviso de que há uma porta aberta, visível de
+    // qualquer aba — quem esqueceu o servidor ligado precisa poder notar.
+    painelMobile_->aoMudar = [this](bool noAr) {
+        formulario_->abas->setTabText(abaMobile_, noAr ? QStringLiteral("Acesso mobile ●")
+                                                       : QStringLiteral("Acesso mobile"));
+    };
+    // Depois do ciclo de eventos: a janela aparece primeiro, e uma VPN que
+    // demora a responder não atrasa a abertura.
+    QTimer::singleShot(0, painelMobile_, [p = painelMobile_] { p->ligarSeAutomatico(); });
+}
+
+void JanelaPrincipal::irParaPlanejamento() {
+    painelEstudo_->mostrarPlanejamento();
+    formulario_->abas->setCurrentIndex(abaEstudo_);
+}
+
+void JanelaPrincipal::atualizarTituloEstudo() {
+    const QDate hoje = QDate::currentDate();
+    int minutos = 0;
+    for (const auto& se : estudo_) {
+        if (!se.feita && QDate(se.dia.year, se.dia.month, se.dia.day) == hoje) minutos += se.minutos;
+    }
+    formulario_->abas->setTabText(
+        abaEstudo_, minutos > 0 ? QStringLiteral("Estudo (%1 hoje)")
+                                      .arg(QString::fromStdString(planejamento::duracao(minutos)))
+                                : QStringLiteral("Estudo"));
+    if (navegacao_) navegacao_->sincronizar();
+}
+
+void JanelaPrincipal::atualizarEstudo() {
+    store::Database db;
+    if (!db.aberto() || !db.migrar()) return;
+    const auto guardadas = db.carregarSessoesEstudo();
+    if (guardadas.empty()) {
+        estudo_.clear();
+        atualizarTituloEstudo();
+        return;
+    }
+    // Replanejar a cada recarga, e não só quando a janela abre: uma prova
+    // confirmada ou uma entrega nova mudam o plano, e a Agenda de amanhã tem
+    // de refletir isso sem o aluno lembrar de abrir o Planejamento.
+    const QDate h = QDate::currentDate();
+    DateTime hoje;
+    hoje.year = h.year();
+    hoje.month = h.month();
+    hoje.day = h.day();
+    const auto e = entradasDoPlanejamento();
+    planejamento::DoAgente agente;
+    agente.estudos = db.carregarRegistrosEstudo();
+    agente.focos = db.carregarFocos({}, /*soAbertos=*/true);
+    agente.propostas = db.carregarPropostas();
+    auto plano = planejamento::planejar(e.provas, e.entregas, db.carregarPreferenciasEstudo(),
+                                        guardadas, hoje, e.aulas, agente);
+    db.substituirSessoesEstudo(plano.sessoes, hoje.toIso());
+    estudo_ = std::move(plano.sessoes);
+    atualizarTituloEstudo();
+}
+
+void JanelaPrincipal::marcarEstudoDaAgenda(QStandardItem* it) {
+    const QString chave = it->data(PapelChaveSessao).toString();
+    if (chave.isEmpty()) return;
+    const bool feita = it->checkState() == Qt::Checked;
+    store::Database db;
+    if (!db.aberto() ||
+        !db.marcarSessaoEstudo(chave.toStdString(), feita, QDateTime::currentSecsSinceEpoch())) {
+        status(QStringLiteral("Não consegui guardar a marcação do estudo."));
+        return;
+    }
+    for (auto& se : estudo_) {
+        if (QString::fromStdString(se.chave()) == chave) se.feita = feita;
+    }
+    // A cor muda junto com o check: feito fica apagado, como aula passada.
+    // Sem `blockSignals`, mudar a cor dispararia `itemChanged` de novo.
+    QSignalBlocker bloqueio(it->model());
+    it->setForeground(QBrush(feita ? tema::cor::apagado() : tema::cor::acento()));
 }
 
 QString JanelaPrincipal::detalheDaProva(const avaliacao::Efetiva& prova, QString* dica) const {
@@ -2035,6 +2233,8 @@ void JanelaPrincipal::mostrar(const Snapshot& s) {
     atualizarResumoProvas(s);
     if (semanaFiltrada_.isValid()) filtrarProvasPorSemana(semanaFiltrada_);
     else filtrarProvasPorDia(diaFiltrado_);
+    painelEstudo_->definirEntradas(entradasDoPlanejamento());
+    atualizarEstudo();
     montarAgenda();
 
     // A contagem na aba continua sendo a de HOJE mesmo com a agenda paginada
@@ -2261,7 +2461,10 @@ void JanelaPrincipal::montarAgenda() {
     auto* arvore = formulario_->arvoreHoje;
 
     auto* antigo = arvore->model();
-    arvore->setModel(modeloAgenda(s, inicio, fim, hoje, arvore));
+    auto* modelo = modeloAgenda(s, inicio, fim, hoje, arvore, estudo_);
+    connect(modelo, &QStandardItemModel::itemChanged, this,
+            &JanelaPrincipal::marcarEstudoDaAgenda);
+    arvore->setModel(modelo);
     delete antigo;
 
     // Expandir só os dias com aula: sete grupos abertos, cinco deles com uma
@@ -2379,6 +2582,7 @@ void JanelaPrincipal::sincronizar(const DialogoAtualizar::Escolha& escolha) {
     op.incluirTurmas = comTurmas;
     op.incluirArquivos = escolha.arquivos;
     op.incluirFrequencia = escolha.frequencia;
+    op.incluirNotas = escolha.notas;
     op.incluirNoticias = escolha.noticias;
     op.apenasTurmas = escolha.turmas;
     // O ciclo completo já está dentro de cada turma e já sabe o que falta no
@@ -2743,6 +2947,14 @@ void JanelaPrincipal::abrirOpcoes() {
 
     // O diagnóstico e o relatório abrem SOBRE o diálogo, sem fechá-lo: quem
     // foi ali investigar um problema quase sempre volta para mexer na rotina.
+    connect(&dlg, &DialogoOpcoes::pediuAgentes, this, [this, &dlg] {
+        // Os agentes moram na aba Estudo. Aceitar (e não rejeitar) Opções:
+        // o aluno pode ter mudado algo antes de clicar, e perder em silêncio
+        // seria pior que salvar.
+        dlg.accept();
+        painelEstudo_->mostrarAgentes();
+        formulario_->abas->setCurrentIndex(abaEstudo_);
+    });
     connect(&dlg, &DialogoOpcoes::pediuDiagnostico, this, [this, &dlg] {
         JanelaDiagnostico(&dlg).exec();
     });
@@ -2768,6 +2980,7 @@ DialogoOpcoes::Config JanelaPrincipal::configAtual() const {
         cfg.value(QStringLiteral("sync/minutosCompleto"), kMinutosTurmas).toInt();
     c.arquivos = cfg.value(QStringLiteral("sync/arquivos"), true).toBool();
     c.frequencia = cfg.value(QStringLiteral("sync/frequencia"), true).toBool();
+    c.notas = cfg.value(QStringLiteral("sync/notas"), true).toBool();
     c.noticias = cfg.value(QStringLiteral("sync/noticias"), true).toBool();
     c.baixarMateriais = cfg.value(QStringLiteral("sync/baixar"), true).toBool();
     c.verificarAtualizacao =
@@ -2793,6 +3006,7 @@ void JanelaPrincipal::aplicarConfig(const DialogoOpcoes::Config& c) {
     cfg.setValue(QStringLiteral("sync/minutosCompleto"), completo);
     cfg.setValue(QStringLiteral("sync/arquivos"), c.arquivos);
     cfg.setValue(QStringLiteral("sync/frequencia"), c.frequencia);
+    cfg.setValue(QStringLiteral("sync/notas"), c.notas);
     cfg.setValue(QStringLiteral("sync/noticias"), c.noticias);
     cfg.setValue(QStringLiteral("sync/baixar"), c.baixarMateriais);
     cfg.setValue(QStringLiteral("app/verificarAtualizacao"), c.verificarAtualizacao);
@@ -2801,6 +3015,7 @@ void JanelaPrincipal::aplicarConfig(const DialogoOpcoes::Config& c) {
     // duas telas que configuram a mesma coisa e discordam seriam pior que uma.
     ultimaEscolha_.arquivos = c.arquivos;
     ultimaEscolha_.frequencia = c.frequencia;
+    ultimaEscolha_.notas = c.notas;
     ultimaEscolha_.noticias = c.noticias;
     ultimaEscolha_.baixarMateriais = c.baixarMateriais;
 
@@ -2844,6 +3059,7 @@ void JanelaPrincipal::agendarProxima() {
         const auto c = configAtual();
         e.arquivos = c.arquivos;
         e.frequencia = c.frequencia;
+        e.notas = c.notas;
         e.noticias = c.noticias;
         e.baixarMateriais = c.baixarMateriais;
         sincronizar(e);

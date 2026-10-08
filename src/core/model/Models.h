@@ -277,6 +277,58 @@ struct Frequencia {
     bool reprovado() const { return limiteFaltas() > 0 && faltas() > limiteFaltas(); }
 };
 
+// "Ver Notas" da turma — o item do painel "Alunos" no menu da turma virtual.
+//
+// A página é a planilha do professor vista pelo aluno: uma linha (a dele),
+// colunas agrupadas por unidade. Cada unidade tem as avaliações que o
+// professor cadastrou (T1, P1...), com peso, e a nota da unidade, que o
+// próprio SIGAA calcula. Unidade sem avaliação cadastrada tem só a nota.
+//
+// NOTA AUSENTE NÃO É ZERO. Célula em branco é "não lançada" e vira nullopt;
+// "0,0" é um zero lançado. Confundir os dois faria o app dizer ao aluno que
+// ele zerou uma prova que o professor nem corrigiu — ou o contrário.
+struct AvaliacaoNota {
+    std::string abrev;         // "P1"
+    std::string denominacao;   // "Avaliaçao 1" (sic: o professor digita)
+    std::optional<double> peso;
+    std::optional<double> notaMaxima;
+    std::optional<double> nota;
+};
+
+struct UnidadeNota {
+    int numero{0};             // 1, 2, 3
+    // Como o SIGAA compõe a nota da unidade: 'P' média ponderada pelos pesos,
+    // 'A' aritmética, 'S' soma. 0 quando a página não disse.
+    char metodo{0};
+    std::vector<AvaliacaoNota> avaliacoes;
+    std::optional<double> nota;
+};
+
+struct Notas {
+    std::string idTurma;
+    std::string turmaNome;
+    std::vector<UnidadeNota> unidades;
+    std::optional<double> reposicao;
+    std::optional<double> resultado;   // média final, quando o SIGAA já calculou
+    // A coluna "Faltas" desta página. NÃO É A FREQUÊNCIA DO SEMESTRE: o SIGAA
+    // só a preenche quando o professor consolida o diário. Na captura de
+    // 07/10/2026 ela dizia 0 enquanto o mapa de frequência da mesma turma
+    // contava 20. Quem quer saber de faltas lê `Frequencia`.
+    std::optional<int> faltas;
+    std::string situacao;              // "--", "APR", "REP", "REPF"...
+
+    // Alguma nota (de avaliação ou de unidade) lançada?
+    bool temNota() const {
+        for (const auto& u : unidades) {
+            if (u.nota) return true;
+            for (const auto& a : u.avaliacoes) {
+                if (a.nota) return true;
+            }
+        }
+        return resultado.has_value();
+    }
+};
+
 struct Snapshot {
     std::vector<Turma> turmas;
     std::vector<Atividade> atividades;
@@ -295,6 +347,9 @@ struct Snapshot {
     // Uma por turma, quando a coleta entra nas turmas E o professor lançou
     // alguma frequência. Turma sem diário aberto simplesmente não aparece.
     std::vector<Frequencia> frequencias;
+    // Uma por turma visitada cuja página "Ver Notas" abriu, com ou sem nota
+    // lançada (`temNota` distingue).
+    std::vector<Notas> notas;
     std::optional<int> minutosSessaoRestantes;  // lido do header do SIGAA
 };
 

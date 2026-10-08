@@ -27,6 +27,9 @@
 
 #include "core/config/DotEnv.h"
 #include "core/config/Instituicao.h"
+#include "mcp/Comando.h"
+#include "mcp/Rede.h"
+#include "web/Comando.h"
 #include "app/Prompt.h"
 #include "core/http/SigaaSession.h"
 #include "core/http/Trafego.h"
@@ -344,6 +347,17 @@ int usage() {
         "  sigaa-cli baixar <turma> <id> [<dir>]        baixa um arquivo (dir: materiais)\n"
         "  sigaa-cli explorar <turma> [<aba>] [<dir>]   recon: entra na turma e grava o\n"
         "                                               HTML cru da aba (padrao dir=recon)\n"
+        "  sigaa-cli mcp [--banco <db>] [--materiais <dir>]\n"
+        "                                               servidor MCP para agentes de IA\n"
+        "  sigaa-cli mcp permitir|bloquear <categoria>  leitura, arquivos, escrita, rede, todas\n"
+        "  sigaa-cli mcp estado                         o que esta liberado\n"
+        "  sigaa-cli mcp instalar <cliente> [--imprimir] registra o servidor no agente\n"
+        "  sigaa-cli mcp remover <cliente>              desfaz o registro\n"
+        "  sigaa-cli mcp clientes                       agentes detectados e conectados\n"
+        "  sigaa-cli mcp kit <turma> [<prova>]          pasta de estudo para chat na web\n"
+        "  sigaa-cli web [--escutar <ip>[:<porta>]]      acesso mobile: telas para o celular\n"
+        "                                               pela VPN (docs/WEB.md)\n"
+        "  sigaa-cli web token [--novo]                 codigo de pareamento; --novo revoga\n"
         "\n"
         "opcoes do sync:\n"
         "  --turmas          entra em cada turma (mais lento, traz provas, topicos e\n"
@@ -692,6 +706,18 @@ int main(int argc, char** argv) {
 
     if (std::string(argv[1]) == "login") return cmdLogin();
     if (std::string(argv[1]) == "logout") return cmdLogout();
+    if (std::string(argv[1]) == "mcp") {
+        // A senha do cofre, para as ferramentas de rede. Só por aqui: a
+        // biblioteca do MCP não conhece o cofre, e o agente nunca vê a senha.
+        sigaa::mcp::definirProvedorDeCredenciais([]() -> std::optional<sigaa::mcp::Credenciais> {
+            auto r = sigaa::plat::resolverCredenciais();
+            if (!r.ok()) return std::nullopt;
+            return sigaa::mcp::Credenciais{std::move(r.cred.login), std::move(r.cred.senha)};
+        });
+        return sigaa::mcp::comando(argc, argv);
+    }
+
+    if (std::string(argv[1]) == "web") return sigaa::web::comando(argc, argv);
 
     if (std::string(argv[1]) == "arquivos") {
         if (argc < 3) return usage();

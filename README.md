@@ -225,6 +225,77 @@ universidade e podemos desenhar juntos a abstração.
 
 ---
 
+## Agentes de IA (MCP)
+
+Estude com o Claude, o Codex, o Gemini ou o Cursor usando os seus tópicos,
+provas e PDFs, sem arrastar arquivo nem copiar e colar. O app traz um servidor
+[MCP](https://modelcontextprotocol.io) que o agente inicia sozinho e que lê o
+banco local do app. O plano completo, com as decisões e os riscos, está em
+[`docs/MCP.md`](docs/MCP.md).
+
+**Conectar.** Na aba **Estudo > Agentes de IA**, libere o que o agente pode
+fazer e clique em *Conectar* no agente que você usa. Pelo terminal é o mesmo:
+
+```sh
+sigaa-cli mcp permitir leitura arquivos        # o que o agente pode ler
+sigaa-cli mcp instalar claude-code             # ou codex, gemini, cursor, vscode...
+sigaa-cli mcp clientes                         # quais agentes foram achados
+```
+
+Conectar só escreve a entrada `sigaa` na configuração do agente, com uma cópia
+`.bak` antes; um arquivo com comentários não é reescrito, e o app mostra o
+trecho para colar. No AppImage, o registro aponta para o próprio `.AppImage`,
+que atende `mcp` sem abrir janela.
+
+**O que o agente pode fazer**, cada item liberado à parte e todos desligados
+por padrão:
+
+| Permissão | Ferramentas |
+|---|---|
+| leitura | `listar_turmas`, `resumo_da_turma`, `topicos_de_aula`, `listar_provas`, `materia_da_prova`, `listar_prazos`, `listar_arquivos`, `noticias`, `frequencia`, `meu_progresso` |
+| arquivos | o caminho de cada PDF baixado, e o conteúdo dele (`sigaa://arquivo/{id}`) |
+| escrita | `registrar_estudo`, `registrar_desempenho`, `marcar_foco`, `resolver_foco` |
+| rede | `baixar_arquivo`, `atualizar_turma`, com orçamento por conversa |
+
+Há também quatro prompts prontos: `estudar_para_prova`, `simulado`,
+`revisao_da_semana` e `explicar_topico`. A turma pode ser dada pelo nome sem
+acento, pelo código ou pela sigla ("edo", "ia"), e a prova como "P2".
+
+**O que nunca sai:** a sua senha (as ferramentas de rede usam o cofre por
+dentro) e a lista de participantes da turma, que são dados dos seus colegas.
+Tudo que um agente lê ou grava fica em **Atividade**, e o que ele registrou
+aparece em **Estudo > Progresso**: os pontos de foco (com *Já domino* e
+*Apagar*), o desempenho por tópico e o histórico, com quem gravou. O
+Planejamento usa os mesmos dados: o estudo feito com o agente desconta da
+prova, e cada ponto de foco aberto reserva mais tempo e vira dica.
+
+**Chat na web**, que não roda servidor local: **Kit para IA**, na janela da
+turma (ou `sigaa-cli mcp kit <turma> [prova]`), junta numa pasta o
+`turma.md`, a matéria da prova, os PDFs e as instruções para o assistente.
+
+> O que o agente lê vai para a empresa que o fornece, como qualquer mensagem
+> que você manda a ele. Libere só o que você mandaria numa conversa.
+
+## Acesso mobile
+
+Agenda, provas, turmas e materiais no celular, pelo navegador. O próprio app
+serve as telas pela sua VPN (Tailscale, WireGuard, OpenVPN, ZeroTier…): nada
+vai para a internet aberta, a senha do SIGAA não sai do computador e o celular
+só lê. Os detalhes e as decisões estão em [`docs/WEB.md`](docs/WEB.md).
+
+1. Na aba **Acesso mobile**, escolha a interface da VPN em *Endereço* e clique
+   em **Ligar servidor**. Marque *Ligar sozinho sempre que o app abrir* para
+   não precisar repetir.
+2. Com o celular na mesma VPN, leia o QR code. Ou crie um **PIN** (6 a 12
+   números), digite o endereço curto que a aba mostra (`100.x.y.z:8765`) no
+   navegador do celular e entre com o PIN.
+3. No navegador do celular, use *Adicionar à tela inicial*.
+
+Cada celular pareado ganha um acesso próprio e aparece em **Aparelhos**, com o
+último acesso e o IP. Perdeu um? Clique em **Desconectar** nele, e só ele perde
+o acesso, no pedido seguinte. O servidor nunca escuta em todas as interfaces
+(`0.0.0.0`). Sem janela, rode `sigaa-cli web --escutar <ip-da-vpn>`.
+
 ## Build
 
 Requisitos: **CMake ≥ 3.24** e um compilador C++20 (MSVC 2022+, GCC 12+, Clang 15+).
@@ -252,13 +323,15 @@ continua existindo para quem quiser o vcpkg também no Linux.
 
 ```sh
 # Arch / CachyOS / Manjaro
-sudo pacman -S --needed base-devel cmake ninja curl sqlite nlohmann-json spdlog catch2 qt6-base qt6-svg
+sudo pacman -S --needed base-devel cmake ninja curl sqlite nlohmann-json spdlog catch2 qt6-base qt6-svg \
+                        cpp-httplib qrcodegencpp-cmake   # o QR code do acesso mobile é opcional
 # lexbor não está nos repos oficiais, vem do AUR:
 yay -S lexbor          # ou paru -S lexbor
 
 # Debian / Ubuntu
 sudo apt install build-essential cmake ninja-build libcurl4-openssl-dev libsqlite3-dev \
-                 nlohmann-json3-dev libspdlog-dev catch2 qt6-base-dev libqt6svg6-dev
+                 nlohmann-json3-dev libspdlog-dev catch2 qt6-base-dev libqt6svg6-dev \
+                 libcpp-httplib-dev
 # lexbor: pacote `liblexbor-dev` no Debian 13+/Ubuntu 24.10+; nas versões
 # anteriores, compile de github.com/lexbor/lexbor (cmake, dois minutos).
 
@@ -276,7 +349,7 @@ novidade aparece só na janela.
 ### macOS (Homebrew)
 
 ```sh
-brew install cmake ninja qt lexbor nlohmann-json spdlog catch2
+brew install cmake ninja qt lexbor nlohmann-json spdlog catch2 cpp-httplib
 
 cmake -S . -B build/macos -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/macos --parallel

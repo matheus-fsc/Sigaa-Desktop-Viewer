@@ -89,6 +89,21 @@ jobs:
           sudo cmake --install /tmp/lexbor/build
           sudo ldconfig
 
+      # cpp-httplib (o servidor do acesso mobile) é um cabeçalho só; o do 22.04
+      # é de 2022. A versão fixa é a mesma em que o projeto foi testado.
+      # qrcodegen (o QR code do pareamento) também não está no 22.04: são dois
+      # arquivos, compilados como biblioteca estática para o AppImage não
+      # precisar levar mais um .so.
+      - name: cpp-httplib e qrcodegen
+        run: |
+          sudo curl -fsSL -o /usr/local/include/httplib.h \
+            https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.56.0/httplib.h
+          git clone --depth 1 -b v1.8.0 https://github.com/nayuki/QR-Code-generator.git /tmp/qr
+          g++-12 -std=c++17 -O2 -fPIC -c /tmp/qr/cpp/qrcodegen.cpp -o /tmp/qr/qrcodegen.o
+          ar rcs /tmp/qr/libqrcodegencpp.a /tmp/qr/qrcodegen.o
+          sudo install -Dm644 /tmp/qr/cpp/qrcodegen.hpp /usr/local/include/qrcodegencpp/qrcodegen.hpp
+          sudo install -Dm644 /tmp/qr/libqrcodegencpp.a /usr/local/lib/libqrcodegencpp.a
+
       - name: empacotar
         run: |
           versao="${{ github.event.inputs.versao }}"
@@ -153,7 +168,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: dependencias
-        run: brew install ninja lexbor nlohmann-json spdlog catch2
+        run: brew install ninja lexbor nlohmann-json spdlog catch2 cpp-httplib
+
+      # O QR code do pareamento: dois arquivos, compilados aqui (ver o job linux).
+      - name: qrcodegen
+        run: |
+          git clone --depth 1 -b v1.8.0 https://github.com/nayuki/QR-Code-generator.git /tmp/qr
+          clang++ -std=c++17 -O2 -c /tmp/qr/cpp/qrcodegen.cpp -o /tmp/qr/qrcodegen.o
+          ar rcs /tmp/qr/libqrcodegencpp.a /tmp/qr/qrcodegen.o
+          sudo install -d /usr/local/include/qrcodegencpp /usr/local/lib
+          sudo install -m644 /tmp/qr/cpp/qrcodegen.hpp /usr/local/include/qrcodegencpp/
+          sudo install -m644 /tmp/qr/libqrcodegencpp.a /usr/local/lib/
 
       # O mesmo Qt das outras duas plataformas: uma variavel a menos entre elas
       # quando alguem reporta um bug de interface.

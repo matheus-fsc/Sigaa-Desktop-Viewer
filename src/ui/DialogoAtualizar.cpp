@@ -27,11 +27,12 @@ namespace {
 // mas só as que ainda não estão no banco, e no máximo cinco por turma — no
 // ciclo típico é zero ou uma, e somar o pior caso sempre faria a estimativa
 // mentir para cima em toda atualização.
-int segundosEstimados(int turmas, bool arquivos, bool frequencia, bool noticias) {
+int segundosEstimados(int turmas, bool arquivos, bool frequencia, bool notas,
+                      bool noticias) {
     constexpr int kPorRequisicao = 2;   // arredondado para cima: inclui o parse
     int reqs = 1;                       // o portal, sempre
-    const int porTurma =
-        2 + (arquivos ? 1 : 0) + (frequencia ? 1 : 0) + (noticias ? 1 : 0);
+    const int porTurma = 2 + (arquivos ? 1 : 0) + (frequencia ? 1 : 0) + (notas ? 1 : 0) +
+                         (noticias ? 1 : 0);
     reqs += turmas * porTurma;
     return reqs * kPorRequisicao;
 }
@@ -104,6 +105,12 @@ DialogoAtualizar::DialogoAtualizar(const std::vector<Turma>& turmas,
                        "semana para semana."));
     frequencia_->setChecked(ultima.frequencia);
 
+    notas_ = new QCheckBox(QStringLiteral("Notas"), caixaOpcoes);
+    notas_->setToolTip(
+        QStringLiteral("Abre o “Ver Notas” de cada turma, na mesma visita da "
+                       "frequência: uma requisição a mais por turma."));
+    notas_->setChecked(ultima.notas);
+
     noticias_ = new QCheckBox(QStringLiteral("Notícias"), caixaOpcoes);
     noticias_->setToolTip(QStringLiteral(
         "Abre a aba Notícias da turma. O texto de cada notícia nova custa mais uma "
@@ -123,6 +130,7 @@ DialogoAtualizar::DialogoAtualizar(const std::vector<Turma>& turmas,
     baixar_->setChecked(ultima.baixarMateriais);
 
     lo->addWidget(frequencia_);
+    lo->addWidget(notas_);
     lo->addWidget(noticias_);
     lo->addWidget(arquivos_);
     lo->addWidget(baixar_);
@@ -188,7 +196,7 @@ DialogoAtualizar::DialogoAtualizar(const std::vector<Turma>& turmas,
         accept();
     });
 
-    for (QCheckBox* c : {frequencia_, noticias_, arquivos_, baixar_}) {
+    for (QCheckBox* c : {frequencia_, notas_, noticias_, arquivos_, baixar_}) {
         connect(c, &QCheckBox::toggled, this, &DialogoAtualizar::atualizarResumo);
     }
     connect(soPortal_, &QCheckBox::toggled, this, [this](bool sim) {
@@ -196,6 +204,7 @@ DialogoAtualizar::DialogoAtualizar(const std::vector<Turma>& turmas,
         // por quê, em vez de a caixa sumir e ela procurar onde foi parar.
         lista_->setEnabled(!sim);
         frequencia_->setEnabled(!sim);
+        notas_->setEnabled(!sim);
         noticias_->setEnabled(!sim);
         arquivos_->setEnabled(!sim);
         baixar_->setEnabled(!sim);
@@ -205,6 +214,7 @@ DialogoAtualizar::DialogoAtualizar(const std::vector<Turma>& turmas,
 
     lista_->setEnabled(!soPortal_->isChecked());
     frequencia_->setEnabled(!soPortal_->isChecked());
+    notas_->setEnabled(!soPortal_->isChecked());
     noticias_->setEnabled(!soPortal_->isChecked());
     arquivos_->setEnabled(!soPortal_->isChecked());
     baixar_->setEnabled(!soPortal_->isChecked() && arquivos_->isChecked());
@@ -223,7 +233,8 @@ void DialogoAtualizar::atualizarResumo() {
     // conferir os prazos.
     const int turmasReais = soPortal ? 0 : marcadas;
     const int seg = segundosEstimados(turmasReais, arquivos_->isChecked(),
-                                      frequencia_->isChecked(), noticias_->isChecked());
+                                      frequencia_->isChecked(), notas_->isChecked(),
+                                      noticias_->isChecked());
 
     QString t;
     if (turmasReais == 0) {
@@ -247,6 +258,7 @@ DialogoAtualizar::Escolha DialogoAtualizar::escolha() const {
     e.entrarNasTurmas = !soPortal_->isChecked();
     e.arquivos = arquivos_->isChecked();
     e.frequencia = frequencia_->isChecked();
+    e.notas = notas_->isChecked();
     e.noticias = noticias_->isChecked();
     e.baixarMateriais = arquivos_->isChecked() && baixar_->isChecked();
 
