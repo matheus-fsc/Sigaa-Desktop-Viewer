@@ -231,7 +231,8 @@ TEST_CASE("mcp: tools/list descreve todas as ferramentas de leitura", "[mcp]") {
     const auto r = s.tratar(pedido(2, "tools/list"));
     std::set<std::string> nomes;
     for (const auto& t : (*r)["result"]["tools"]) {
-        nomes.insert(t["name"]);
+        // get<> explícito: o GCC 12 acha o insert(json) ambíguo.
+        nomes.insert(t["name"].get<std::string>());
         CHECK(t["inputSchema"]["type"] == "object");
         CHECK_FALSE(t["description"].get<std::string>().empty());
     }

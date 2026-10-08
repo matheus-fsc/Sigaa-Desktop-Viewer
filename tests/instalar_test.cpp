@@ -139,8 +139,12 @@ TEST_CASE("instalar: Codex em TOML, com caminho do Windows escapado", "[instalar
     CHECK(t.find("[profiles.rapido]") != std::string::npos);
     CHECK(t.find("velho") == std::string::npos);
     CHECK(t.find("[mcp_servers.sigaa.env]") == std::string::npos);
-    CHECK(t.find(R"(command = "C:\\Programas\\SIGAA\\sigaa-cli.exe")") != std::string::npos);
-    CHECK(t.find(R"("C:\\x\\a \"b\".db")") != std::string::npos);
+    // Fora do CHECK: o pré-processador do MSVC não aceita string raw com \" como
+    // argumento de macro (C2017 "illegal escape sequence").
+    const std::string comando = R"(command = "C:\\Programas\\SIGAA\\sigaa-cli.exe")";
+    const std::string banco = R"("C:\\x\\a \"b\".db")";
+    CHECK(t.find(comando) != std::string::npos);
+    CHECK(t.find(banco) != std::string::npos);
     // Uma seção sigaa só.
     CHECK(t.find("[mcp_servers.sigaa]") == t.rfind("[mcp_servers.sigaa]"));
 
