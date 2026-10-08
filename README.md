@@ -152,10 +152,21 @@ quando ela importa.
 
 ![Aba Presença](docs/img/turma-presenca.png)
 
+### Notas
+
+A planilha "Ver Notas" do professor: as unidades, as avaliações com peso e a
+nota de cada uma. Acima dela, a média parcial e quanto falta para 6,0 (60%)
+nas unidades que ainda não têm nota. Nota em branco é "não lançada", nunca
+zero; um 0,0 lançado fica em vermelho, para você conferir se fez a avaliação
+ou se o professor lançou um zero provisório.
+
+As faltas continuam vindo da aba Presença: a coluna de faltas da página de
+notas só é preenchida quando o professor fecha o diário.
+
 ### Atualizar
 
 O gargalo do app não é processar HTML, é esperar o SIGAA responder: cada turma
-custa de 2 a 4 requisições de ~1,5 s. O diálogo troca um clique por dezenas de
+custa de 2 a 6 requisições de ~1,5 s (frequência, notas, notícias e arquivos são uma cada). O diálogo troca um clique por dezenas de
 segundos: marque só a turma que interessa. Duplo clique numa turma escolhe e
 confirma de uma vez.
 
@@ -252,13 +263,22 @@ por padrão:
 
 | Permissão | Ferramentas |
 |---|---|
-| leitura | `listar_turmas`, `resumo_da_turma`, `topicos_de_aula`, `listar_provas`, `materia_da_prova`, `listar_prazos`, `listar_arquivos`, `noticias`, `frequencia`, `meu_progresso` |
+| leitura | `diagnostico`, `listar_turmas`, `resumo_da_turma`, `topicos_de_aula`, `listar_provas`, `materia_da_prova`, `listar_prazos`, `listar_arquivos`, `noticias`, `frequencia`, `notas`, `meu_progresso` |
 | arquivos | o caminho de cada PDF baixado, e o conteúdo dele (`sigaa://arquivo/{id}`) |
-| escrita | `registrar_estudo`, `registrar_desempenho`, `marcar_foco`, `resolver_foco` |
+| escrita | `registrar_estudo`, `registrar_desempenho`, `marcar_foco`, `resolver_foco`, `propor_horas`, `propor_dificuldade`, `propor_sessao` |
 | rede | `baixar_arquivo`, `atualizar_turma`, com orçamento por conversa |
 
-Há também quatro prompts prontos: `estudar_para_prova`, `simulado`,
-`revisao_da_semana` e `explicar_topico`. A turma pode ser dada pelo nome sem
+Há também cinco prompts prontos: `comecar`, `estudar_para_prova`, `simulado`,
+`revisao_da_semana` e `explicar_topico`. O `comecar` é a primeira conversa: o
+agente chama `diagnostico` (faltas contra o limite, notas contra a média,
+próxima prova de cada turma) e conversa com você antes de montar qualquer
+plano.
+
+**Propostas.** Mudanças no plano (horas de um dia, dificuldade de uma matéria,
+sessão extra, ponto de foco) passam por você: em **Agentes de IA** você escolhe,
+para cada tipo, se o agente não pode, só propõe ou aplica direto, e um teto de
+horas por dia. O que ele propõe aparece em **Progresso** para aceitar, ajustar,
+recusar ou desfazer. A turma pode ser dada pelo nome sem
 acento, pelo código ou pela sigla ("edo", "ia"), e a prova como "P2".
 
 **O que nunca sai:** a sua senha (as ferramentas de rede usam o cofre por
