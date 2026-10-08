@@ -210,6 +210,39 @@ o nome das ferramentas.
 | `registrar_desempenho` | `turma`, `topico`, `acertos`, `total`, `tipo` (`simulado`/`exercicio`/`revisao`), `quando?` | resultado num tópico |
 | `marcar_foco` | `turma`, `topico`, `nivel` (1–3), `motivo` | ponto em que o aluno tem dificuldade |
 | `resolver_foco` | `id`, `motivo?` | fecha um ponto de foco |
+| `propor_horas` | `dia_semana`, `horas` (0–16, de 0,5 em 0,5), `motivo` | mudança no tempo disponível de um dia |
+| `propor_dificuldade` | `turma`, `dificuldade` (`facil`/`media`/`dificil`), `motivo` | mudança na dificuldade de uma matéria |
+| `propor_sessao` | `turma`, `dia` (hoje a +60 dias), `minutos` (30–180, múltiplo de 30), `topico`, `motivo` | sessão extra de revisão |
+
+### Propostas: o agente muda o plano, o aluno decide quanto
+
+As três `propor_*` (e `marcar_foco`) obedecem a um **modo por tipo**, que o
+aluno escolhe em Estudo → Agentes de IA → Permissões (`mcp/Propostas.h`):
+
+| Modo | O que a ferramenta faz |
+|---|---|
+| Não pode | recusa, dizendo por quê; a recusa fica na Atividade com o motivo |
+| Propõe | grava uma proposta **pendente**; o aluno aceita, ajusta ou recusa em Progresso |
+| Aplica e avisa | aplica na hora e grava a proposta como **aplicada**; o aluno pode desfazer |
+
+Padrões: horas e dificuldade **propõem** (mexem no plano todo); sessões extras
+e pontos de foco **aplicam e avisam** (são pequenos, e desfazer custa um
+clique). Há também um **teto de horas por dia** (6, 8, 10 ou 12; padrão 8):
+`propor_horas` acima dele é recusada, e uma pendente que ficou acima porque o
+aluno baixou o teto não pode ser aceita sem ajuste.
+
+Detalhes que importam:
+
+- Uma proposta nova para a mesma coisa (o mesmo dia, a mesma turma, o mesmo
+  tópico) **substitui** a pendente: o aluno responde à opinião mais recente.
+- Aceitar guarda o valor de antes **no momento do aceite**; desfazer volta a
+  ele. Recusada ou desfeita pode ser reaberta.
+- Trocar um tipo para "Aplica e avisa" aplica as pendentes dele; para "Não
+  pode", elas ficam guardadas e escondidas (a tela diz quantas).
+- Sessão extra valendo soma os minutos à próxima prova da turma e os reserva
+  naquele dia do plano. Horas e dificuldade entram pelas preferências.
+- `meu_progresso` devolve as últimas propostas com o estado, para o agente
+  não propor de novo o que foi recusado.
 
 ### Tabelas
 
@@ -239,7 +272,17 @@ CREATE TABLE ponto_foco (
 );
 CREATE TABLE mcp_acesso (       -- auditoria, ver §7
   quando INTEGER NOT NULL, origem TEXT, ferramenta TEXT NOT NULL,
-  turma TEXT, ok INTEGER NOT NULL
+  turma TEXT, ok INTEGER NOT NULL,
+  motivo TEXT                    -- por que foi recusado
+);
+CREATE TABLE proposta_agente (  -- mcp/Propostas.h
+  id INTEGER PRIMARY KEY, origem TEXT NOT NULL, criado_em INTEGER NOT NULL,
+  respondida_em INTEGER,
+  tipo TEXT NOT NULL,            -- horas | dificuldade | sessao | foco
+  estado TEXT NOT NULL,          -- pendente | aceita | aplicada | recusada | desfeita
+  id_turma TEXT, dia_semana INTEGER, dia TEXT, topico TEXT,
+  de INTEGER NOT NULL DEFAULT 0, para INTEGER NOT NULL,
+  motivo TEXT, ref INTEGER       -- ref: o ponto de foco criado ao aceitar
 );
 ```
 
@@ -256,13 +299,13 @@ um tópico de aula conhecido.
 
 ### Onde aparece
 
-A aba Estudo ganha a página **Progresso**: horas por matéria e por semana,
-desempenho por tópico, pontos de foco abertos (com origem e botão de apagar).
-`registro_estudo` também desconta do tempo que o planejamento reserva para a
-prova — estudo feito com o agente é estudo feito.
-
-> Isso depende do redesenho da aba Estudo (§11, Fase 0): as páginas atuais
-> estão confusas e não vão para o próximo deploy.
+Na aba Estudo, página **Progresso** (docs/ESTUDO.md §3): as propostas do
+agente com Aceitar / Ajustar / Recusar, métricas, uma linha por matéria,
+pontos de foco (com Desfazer), desempenho por tópico e o histórico com a
+origem de cada linha. `registro_estudo` também desconta do tempo que o
+planejamento reserva para a prova — estudo feito com o agente é estudo feito.
+O que o agente mudou nas horas ou na dificuldade aparece marcado em **Horas e
+dificuldade**, com Desfazer.
 
 ## 6. Conector
 

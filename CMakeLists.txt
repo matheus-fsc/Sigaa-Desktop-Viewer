@@ -128,6 +128,7 @@ add_library(sigaa_core STATIC
   src/core/atualizacao/Sha256.cpp
   src/core/avaliacao/Ajustes.cpp
   src/core/planejamento/Planejamento.cpp
+  src/core/estudo/Registros.cpp
   src/core/avaliacao/Materia.cpp
   src/core/frequencia/Presenca.cpp
   src/core/calendar/Calendario.cpp
@@ -194,6 +195,7 @@ endif()
 add_library(sigaa_mcp STATIC
   src/mcp/Leitura.cpp
   src/mcp/Escrita.cpp
+  src/mcp/Propostas.cpp
   src/mcp/Rede.cpp
   src/mcp/Ferramentas.cpp
   src/mcp/Servidor.cpp

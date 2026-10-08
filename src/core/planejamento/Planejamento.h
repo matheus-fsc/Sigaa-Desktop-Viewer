@@ -128,10 +128,15 @@ struct Dica {
 //   - o estudo registrado conta como feito para a prova citada nele (ou, sem
 //     prova, para a próxima da turma depois do dia em que estudou);
 //   - cada ponto de foco ABERTO numa turma acrescenta 30 min × nível à prova
-//     mais próxima dela, e vira dica quando essa prova está a até 21 dias.
+//     mais próxima dela, e vira dica quando essa prova está a até 21 dias;
+//   - cada sessão extra valendo (aceita ou aplicada, de hoje em diante) soma
+//     os minutos dela à próxima prova da turma depois do dia, e os reserva
+//     naquele dia — mesmo que o dia já esteja cheio: foi o aluno que aceitou.
+//     As outras propostas (horas, dificuldade) já chegam pelas Preferencias.
 struct DoAgente {
     std::vector<estudo::RegistroEstudo> estudos;
     std::vector<estudo::PontoFoco> focos;
+    std::vector<estudo::Proposta> propostas;
 };
 
 struct Plano {

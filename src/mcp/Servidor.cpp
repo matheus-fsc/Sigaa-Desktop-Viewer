@@ -149,11 +149,15 @@ std::string base64(const std::string& bytes) {
 
 Servidor::Servidor(Config c) : config_(std::move(c)) {}
 
-void Servidor::auditar(const std::string& oque, const std::string& turma, bool sucesso) {
+void Servidor::auditar(const std::string& oque, const std::string& turma, bool sucesso,
+                       const std::string& motivo) {
     store::Database db(config_.banco, store::Database::Abertura::SoExistente);
     if (db.aberto()) {
+        // O motivo da recusa é a mensagem que o agente recebeu, curta: a tela
+        // de Atividade mostra uma linha.
+        std::string m = motivo.substr(0, 200);
         db.registrarAcessoMcp(static_cast<std::int64_t>(std::time(nullptr)), cliente_, oque, turma,
-                              sucesso);
+                              sucesso, m);
     }
 }
 
@@ -297,7 +301,7 @@ json Servidor::chamarFerramenta(const json& p) {
         }
         turma = c.turmaUsada;
     }
-    auditar(nome, turma, !r.erro);
+    auditar(nome, turma, !r.erro, r.erro ? r.texto : std::string());
 
     json content = json::array({{{"type", "text"}, {"text", r.texto}}});
     for (const auto& e : r.extras) content.push_back(e);
@@ -352,7 +356,7 @@ json Servidor::lerRecurso(const json& p, json* e) {
     store::Database db(config_.banco, store::Database::Abertura::SoExistente);
     if (!db.aberto() || !db.migrar()) return falhar(kErroInterno, "banco do SIGAA Viewer indisponível");
     if (!permitido(db, Permissao::Leitura)) {
-        auditar(uri, "", false);
+        auditar(uri, "", false, semPermissao(Permissao::Leitura));
         return falhar(kSemPermissao, semPermissao(Permissao::Leitura));
     }
     Contexto c(db, config_.materiais, cliente_);
@@ -402,7 +406,7 @@ json Servidor::lerRecurso(const json& p, json* e) {
     if (resto.rfind("arquivo/", 0) == 0) {
         const std::string id = resto.substr(8);
         if (!permitido(db, Permissao::Arquivos)) {
-            auditar(uri, "", false);
+            auditar(uri, "", false, semPermissao(Permissao::Arquivos));
             return falhar(kSemPermissao, semPermissao(Permissao::Arquivos));
         }
         for (const auto& a : c.snapshot().arquivos) {

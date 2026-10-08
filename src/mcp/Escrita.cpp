@@ -6,7 +6,9 @@
 #include <mutex>
 
 #include "core/parse/Html.h"
+#include "core/planejamento/Planejamento.h"
 #include "core/util/Texto.h"
+#include "mcp/Propostas.h"
 
 namespace sigaa::mcp {
 
@@ -203,6 +205,86 @@ Resultado registrarDesempenho(Contexto& c, const json& a) {
     });
 }
 
+// O que sobra de uma proposta depois de `propor`: o texto para o agente.
+std::string respostaDaProposta(bool aplicada) {
+    return aplicada ? " Aplicada: o aluno permitiu que você mude isto sozinho, e ele pode desfazer."
+                    : " Ficou como proposta: o aluno vê em Estudo > Progresso e aceita, ajusta ou "
+                      "recusa. meu_progresso mostra a resposta.";
+}
+
+Resultado gravarProposta(Contexto& c, estudo::Proposta q, const std::string& resumo) {
+    if (!dentroDoLimite()) throw Erro{"limite de 60 registros por minuto atingido; espere um pouco"};
+    q.origem = c.cliente();
+    std::string erro;
+    bool aplicada = false;
+    const auto id = propor(c.db(), q, agora(), &erro, &aplicada);
+    if (!id) throw Erro{erro};
+    Resultado res;
+    res.dados = {{"id", id}, {"estado", aplicada ? "aplicada" : "pendente"}};
+    res.texto = resumo + "." + respostaDaProposta(aplicada);
+    return res;
+}
+
+const char* const kDias[] = {"segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo"};
+
+Resultado proporHoras(Contexto& c, const json& a) {
+    return comValidacao("Não propus: ", [&] {
+        const std::string dia = util::dobrar(textoObrigatorio(a, "dia_semana", 20));
+        int d = -1;
+        for (int i = 0; i < 7; ++i) {
+            if (dia.rfind(kDias[i], 0) == 0) d = i;
+        }
+        if (d < 0) throw Erro{"`dia_semana` tem de ser segunda, terca, quarta, quinta, sexta, sabado ou domingo"};
+        if (!a.contains("horas") || !a["horas"].is_number()) throw Erro{"falta `horas` (número)"};
+        const double h = a["horas"].get<double>();
+        if (h < 0 || h > 16) throw Erro{"`horas` tem de estar entre 0 e 16"};
+        estudo::Proposta q;
+        q.tipo = estudo::TipoProposta::Horas;
+        q.diaSemana = d;
+        // Em meias horas, como o aluno ajusta na tela.
+        q.para = static_cast<int>(h * 2 + 0.5) * 30;
+        q.motivo = textoObrigatorio(a, "motivo", kMaxTexto);
+        return gravarProposta(c, q, "Horas de " + std::string(kDias[d]) + ": " +
+                                        planejamento::duracao(q.para) + " disponíveis no dia");
+    });
+}
+
+Resultado proporDificuldade(Contexto& c, const json& a) {
+    return comValidacao("Não propus: ", [&] {
+        const Turma& t = turmaObrigatoria(c, a);
+        const std::string v = util::dobrar(textoObrigatorio(a, "dificuldade", 20));
+        estudo::Proposta q;
+        q.tipo = estudo::TipoProposta::Dificuldade;
+        q.idTurma = t.idTurma;
+        q.para = v == "facil" ? 1 : v == "media" ? 2 : v == "dificil" ? 3 : 0;
+        if (!q.para) throw Erro{"`dificuldade` tem de ser facil, media ou dificil"};
+        q.motivo = textoObrigatorio(a, "motivo", kMaxTexto);
+        return gravarProposta(c, q, "Dificuldade de " + t.nome + ": " + v);
+    });
+}
+
+Resultado proporSessao(Contexto& c, const json& a) {
+    return comValidacao("Não propus: ", [&] {
+        const Turma& t = turmaObrigatoria(c, a);
+        DateTime d = lerDataIso(textoObrigatorio(a, "dia", 32));
+        if (!d.valid()) throw Erro{"`dia` tem de ser uma data aaaa-mm-dd"};
+        d.hasTime = false;
+        d.hour = d.minute = 0;
+        if (diasAteHoje(d) < 0) throw Erro{"`dia` já passou; proponha de hoje em diante"};
+        if (diasAteHoje(d) > 60) throw Erro{"`dia` está a mais de 60 dias"};
+        estudo::Proposta q;
+        q.tipo = estudo::TipoProposta::Sessao;
+        q.idTurma = t.idTurma;
+        q.dia = d;
+        q.para = inteiroObrigatorio(a, "minutos", 30, 180);
+        if (q.para % 30) throw Erro{"`minutos` tem de ser múltiplo de 30"};
+        q.topico = textoObrigatorio(a, "topico", kMaxTopico);
+        q.motivo = textoObrigatorio(a, "motivo", kMaxTexto);
+        return gravarProposta(c, q, "Sessão extra de " + planejamento::duracao(q.para) + " em " +
+                                        t.nome + " (" + q.topico + ") no dia " + d.toIso());
+    });
+}
+
 Resultado marcarFoco(Contexto& c, const json& a) {
     return comValidacao("Não registrei: ", [&] {
         const Turma& t = turmaObrigatoria(c, a);
@@ -213,6 +295,16 @@ Resultado marcarFoco(Contexto& c, const json& a) {
         f.topico = textoObrigatorio(a, "topico", kMaxTopico);
         f.nivel = inteiroObrigatorio(a, "nivel", 1, 3);
         f.motivo = textoObrigatorio(a, "motivo", kMaxTexto);
+        // O aluno escolhe se o agente marca foco sozinho ou só propõe.
+        if (modo(c.db(), estudo::TipoProposta::Foco) != Modo::Aplica) {
+            estudo::Proposta q;
+            q.tipo = estudo::TipoProposta::Foco;
+            q.idTurma = t.idTurma;
+            q.topico = f.topico;
+            q.para = f.nivel;
+            q.motivo = f.motivo;
+            return gravarProposta(c, q, "Ponto de foco \"" + f.topico + "\" em " + t.nome);
+        }
         if (!dentroDoLimite()) throw Erro{"limite de 60 registros por minuto atingido; espere um pouco"};
         bool atualizou = false;
         const auto id = c.db().marcarFoco(f, &atualizou);
@@ -297,6 +389,22 @@ Resultado meuProgresso(Contexto& c, const json& a) {
                              {"nivel", f.nivel}, {"motivo", f.motivo}, {"origem", f.origem}});
         }
 
+        // As últimas propostas e o que o aluno respondeu: para o agente não
+        // propor de novo o que foi recusado.
+        json propostas = json::array();
+        for (const auto& q : c.db().carregarPropostas()) {
+            if (!idTurma.empty() && q.idTurma != idTurma) continue;
+            if (propostas.size() >= 10) break;
+            json j = {{"id", q.id}, {"tipo", estudo::nomeTipo(q.tipo)},
+                      {"estado", estudo::nomeEstado(q.estado)}, {"de", q.de}, {"para", q.para},
+                      {"origem", q.origem}};
+            if (!q.idTurma.empty()) j["turma"] = nomes[q.idTurma];
+            if (q.diaSemana >= 0) j["dia_semana"] = kDias[q.diaSemana];
+            if (q.dia.valid()) j["dia"] = q.dia.toIso();
+            if (!q.topico.empty()) j["topico"] = q.topico;
+            propostas.push_back(std::move(j));
+        }
+
         std::string md = "# Progresso" + (nomeTurma.empty() ? std::string() : " — " + nomeTurma) + "\n\n";
         if (porTurma.empty() && desempenho.empty() && focos.empty()) {
             md += "Nada registrado ainda. Use registrar_estudo, registrar_desempenho e "
@@ -322,9 +430,21 @@ Resultado meuProgresso(Contexto& c, const json& a) {
                       " (" + f["turma"].get<std::string>() + "): " + f["motivo"].get<std::string>() + "\n";
             }
         }
+        if (!propostas.empty()) {
+            md += "\n## Propostas de mudança no plano\n\n";
+            for (const auto& q : propostas) {
+                md += "- [id " + std::to_string(q["id"].get<std::int64_t>()) + "] " +
+                      q["tipo"].get<std::string>() + " " +
+                      (q.contains("turma") ? q["turma"].get<std::string>() + " " : std::string()) +
+                      (q.contains("dia_semana") ? q["dia_semana"].get<std::string>() + " " : std::string()) +
+                      std::to_string(q["de"].get<int>()) + " → " + std::to_string(q["para"].get<int>()) +
+                      ": " + q["estado"].get<std::string>() + "\n";
+            }
+        }
         Resultado res;
         res.dados = {{"tempo", porTurma}, {"ultimas_sessoes", sessoes},
-                     {"desempenho", desempenho}, {"focos_abertos", focos}};
+                     {"desempenho", desempenho}, {"focos_abertos", focos},
+                     {"propostas", propostas}};
         res.texto = md;
         return res;
     });
@@ -385,7 +505,8 @@ const std::vector<Ferramenta>& ferramentasDeEscrita() {
         f = {"marcar_foco", "Marcar ponto de foco",
              "Marca um ponto em que o aluno precisa focar ou tem dificuldade, com o motivo. "
              "Nível 1 = atenção, 2 = dificuldade, 3 = crítico (cai na próxima prova e ele não "
-             "domina). Marcar de novo o mesmo tópico atualiza o ponto aberto, não duplica.",
+             "domina). Marcar de novo o mesmo tópico atualiza o ponto aberto, não duplica. "
+             "Se o aluno preferiu aprovar antes, vira uma proposta para ele aceitar.",
              {{"type", "object"},
               {"properties",
                {{"turma", turmaProp()},
@@ -394,6 +515,51 @@ const std::vector<Ferramenta>& ferramentasDeEscrita() {
                 {"motivo", {{"type", "string"}, {"maxLength", kMaxTexto}}}}},
               {"required", {"turma", "topico", "nivel", "motivo"}}},
              marcarFoco, Permissao::Escrita, false};
+        v.push_back(f);
+
+        f = {"propor_horas", "Propor horas de um dia",
+             "Propõe mudar quanto tempo o aluno tem para a faculdade num dia da semana (aulas "
+             "e estudo juntos; o app desconta as aulas). Use quando a carga de provas pede mais "
+             "tempo, com o motivo. Conforme o que o aluno permitiu, vira proposta para ele "
+             "aceitar ou é aplicada na hora; nunca passa do teto de horas por dia dele.",
+             {{"type", "object"},
+              {"properties",
+               {{"dia_semana", {{"type", "string"},
+                                {"enum", {"segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo"}}}},
+                {"horas", {{"type", "number"}, {"minimum", 0}, {"maximum", 16},
+                           {"description", "total do dia, em passos de 0.5"}}},
+                {"motivo", {{"type", "string"}, {"maxLength", kMaxTexto}}}}},
+              {"required", {"dia_semana", "horas", "motivo"}}},
+             proporHoras, Permissao::Escrita, false};
+        v.push_back(f);
+
+        f = {"propor_dificuldade", "Propor dificuldade de uma matéria",
+             "Propõe mudar a dificuldade de uma matéria (difícil recebe 50% mais tempo de estudo, "
+             "fácil 30% menos), com o motivo — de preferência o desempenho registrado. Conforme "
+             "o que o aluno permitiu, vira proposta ou é aplicada na hora.",
+             {{"type", "object"},
+              {"properties",
+               {{"turma", turmaProp()},
+                {"dificuldade", {{"type", "string"}, {"enum", {"facil", "media", "dificil"}}}},
+                {"motivo", {{"type", "string"}, {"maxLength", kMaxTexto}}}}},
+              {"required", {"turma", "dificuldade", "motivo"}}},
+             proporDificuldade, Permissao::Escrita, false};
+        v.push_back(f);
+
+        f = {"propor_sessao", "Propor sessão extra",
+             "Propõe uma sessão extra de estudo num dia, para revisar um ponto fraco antes da "
+             "próxima prova da turma. Ela soma ao plano e reserva o tempo naquele dia. Conforme "
+             "o que o aluno permitiu, vira proposta ou é aplicada na hora.",
+             {{"type", "object"},
+              {"properties",
+               {{"turma", turmaProp()},
+                {"dia", {{"type", "string"}, {"description", "aaaa-mm-dd; de hoje até 60 dias"}}},
+                {"minutos", {{"type", "integer"}, {"minimum", 30}, {"maximum", 180},
+                             {"description", "múltiplo de 30"}}},
+                {"topico", {{"type", "string"}, {"maxLength", kMaxTopico}}},
+                {"motivo", {{"type", "string"}, {"maxLength", kMaxTexto}}}}},
+              {"required", {"turma", "dia", "minutos", "topico", "motivo"}}},
+             proporSessao, Permissao::Escrita, false};
         v.push_back(f);
 
         f = {"resolver_foco", "Resolver ponto de foco",

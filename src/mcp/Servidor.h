@@ -50,7 +50,8 @@ private:
     nlohmann::json listarPrompts();
     nlohmann::json pegarPrompt(const nlohmann::json& p, nlohmann::json* erro);
 
-    void auditar(const std::string& oque, const std::string& turma, bool ok);
+    void auditar(const std::string& oque, const std::string& turma, bool ok,
+                 const std::string& motivo = {});
 
     Config config_;
     std::string cliente_{"desconhecido"};

@@ -368,6 +368,28 @@ CREATE TABLE IF NOT EXISTS mcp_acesso (
 
 CREATE INDEX IF NOT EXISTS idx_mcp_acesso_quando ON mcp_acesso(quando);
 
+-- Mudancas no plano que um agente propos ou aplicou (core/estudo/Registros.h,
+-- Proposta). Ficam depois de respondidas: sao o historico do que mudou no
+-- plano e por que, e e o `de` guardado aqui que deixa desfazer.
+CREATE TABLE IF NOT EXISTS proposta_agente (
+  id            INTEGER PRIMARY KEY,
+  origem        TEXT NOT NULL,
+  criado_em     INTEGER NOT NULL,
+  respondida_em INTEGER,
+  tipo          TEXT NOT NULL,   -- horas | dificuldade | sessao | foco
+  estado        TEXT NOT NULL,   -- pendente | aceita | aplicada | recusada | desfeita
+  id_turma      TEXT,
+  dia_semana    INTEGER,
+  dia           TEXT,
+  topico        TEXT,
+  de            INTEGER NOT NULL DEFAULT 0,
+  para          INTEGER NOT NULL,
+  motivo        TEXT,
+  ref           INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_proposta_estado ON proposta_agente(estado, tipo);
+
 -- Celulares pareados com o acesso mobile (docs/WEB.md §3). Cada um tem o seu
 -- token, e e o que deixa a aba listar e desconectar um aparelho so. Do token
 -- fica so o SHA-256: a tabela diz QUEM esta pareado, nao serve para entrar.
@@ -501,11 +523,12 @@ Database::Database(const std::string& caminho, Abertura modo)
 
 bool Database::registrarAcessoMcp(std::int64_t quando, const std::string& origem,
                                   const std::string& ferramenta, const std::string& turma,
-                                  bool ok) {
+                                  bool ok, const std::string& motivo) {
     if (!aberto()) return false;
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2(impl_->db,
-            "INSERT INTO mcp_acesso (quando, origem, ferramenta, turma, ok) VALUES (?,?,?,?,?)",
+            "INSERT INTO mcp_acesso (quando, origem, ferramenta, turma, ok, motivo)"
+            " VALUES (?,?,?,?,?,?)",
             -1, &st, nullptr) != SQLITE_OK) {
         impl_->erro = sqlite3_errmsg(impl_->db);
         return false;
@@ -515,6 +538,8 @@ bool Database::registrarAcessoMcp(std::int64_t quando, const std::string& origem
     sqlite3_bind_text(st, 3, ferramenta.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(st, 4, turma.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(st, 5, ok ? 1 : 0);
+    if (ok || motivo.empty()) sqlite3_bind_null(st, 6);
+    else sqlite3_bind_text(st, 6, motivo.c_str(), -1, SQLITE_TRANSIENT);
     const bool r = sqlite3_step(st) == SQLITE_DONE;
     if (!r) impl_->erro = sqlite3_errmsg(impl_->db);
     sqlite3_finalize(st);
@@ -526,7 +551,7 @@ std::vector<Database::AcessoMcp> Database::ultimosAcessosMcp(int limite) {
     if (!aberto()) return out;
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2(impl_->db,
-            "SELECT quando, origem, ferramenta, turma, ok FROM mcp_acesso"
+            "SELECT quando, origem, ferramenta, turma, ok, motivo FROM mcp_acesso"
             " ORDER BY quando DESC, rowid DESC LIMIT ?",
             -1, &st, nullptr) == SQLITE_OK) {
         sqlite3_bind_int(st, 1, limite);
@@ -537,6 +562,7 @@ std::vector<Database::AcessoMcp> Database::ultimosAcessosMcp(int limite) {
             a.ferramenta = txt(st, 2);
             a.turma = txt(st, 3);
             a.ok = sqlite3_column_int(st, 4) != 0;
+            a.motivo = txt(st, 5);
             out.push_back(std::move(a));
         }
     }
@@ -697,6 +723,8 @@ bool Database::migrar() {
     };
     static const Coluna kColunasTardias[] = {
         {"ajuste_avaliacao", "descartada", "INTEGER NOT NULL DEFAULT 0"},
+        // Por que um acesso foi recusado ("sem permissão de materiais").
+        {"mcp_acesso", "motivo", "TEXT"},
     };
     for (const auto& c : kColunasTardias) {
         if (impl_->temColuna(c.tabela, c.nome)) continue;
@@ -1855,7 +1883,8 @@ std::vector<planejamento::Sessao> Database::carregarSessoesEstudo() {
     return out;
 }
 
-bool Database::substituirSessoesEstudo(const std::vector<planejamento::Sessao>& ss) {
+bool Database::substituirSessoesEstudo(const std::vector<planejamento::Sessao>& ss,
+                                       const std::string& desde) {
     if (!aberto()) return false;
     if (!impl_->exec("BEGIN IMMEDIATE")) return false;
     auto rollback = [&] {
@@ -1864,8 +1893,21 @@ bool Database::substituirSessoesEstudo(const std::vector<planejamento::Sessao>& 
     };
     // As feitas não são apagadas: o upsert abaixo as regrava como vieram, e
     // uma feita que não esteja em `ss` (não deveria acontecer) continua lá.
-    if (!impl_->exec("DELETE FROM sessao_estudo WHERE feita = 0")) return rollback();
+    // Com `desde`, as pendentes de antes dele também ficam: são o que estava
+    // planejado e não foi feito, a base do "seguiu o plano" do Progresso.
     sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db, "DELETE FROM sessao_estudo WHERE feita = 0 AND (?='' OR dia >= ?)",
+                           -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return rollback();
+    }
+    sqlite3_bind_text(st, 1, desde.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, desde.c_str(), -1, SQLITE_TRANSIENT);
+    const bool apagou = sqlite3_step(st) == SQLITE_DONE;
+    if (!apagou) impl_->erro = sqlite3_errmsg(impl_->db);
+    sqlite3_finalize(st);
+    st = nullptr;
+    if (!apagou) return rollback();
     if (sqlite3_prepare_v2(impl_->db,
             "INSERT INTO sessao_estudo (chave, id_turma, turma_nome, prova, data_prova, dia,"
             " minutos, feita) VALUES (?,?,?,?,?,?,?,?)"
@@ -2155,10 +2197,112 @@ std::vector<estudo::PontoFoco> Database::carregarFocos(const std::string& idTurm
     return out;
 }
 
+bool Database::reabrirFoco(std::int64_t id, std::int64_t agora) {
+    if (!aberto()) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "UPDATE ponto_foco SET resolvido=0, atualizado_em=? WHERE id=? AND resolvido=1", -1,
+            &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return false;
+    }
+    sqlite3_bind_int64(st, 1, agora);
+    sqlite3_bind_int64(st, 2, id);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE && sqlite3_changes(impl_->db) == 1;
+    sqlite3_finalize(st);
+    return ok;
+}
+
+std::int64_t Database::inserirProposta(const estudo::Proposta& p) {
+    if (!aberto()) return 0;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "INSERT INTO proposta_agente (origem, criado_em, respondida_em, tipo, estado, id_turma,"
+            " dia_semana, dia, topico, de, para, motivo, ref) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return 0;
+    }
+    const std::string dia = p.dia.valid() ? p.dia.toIso() : std::string();
+    sqlite3_bind_text(st, 1, p.origem.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 2, p.criadoEm);
+    if (p.respondidaEm) sqlite3_bind_int64(st, 3, p.respondidaEm);
+    else sqlite3_bind_null(st, 3);
+    sqlite3_bind_text(st, 4, estudo::nomeTipo(p.tipo), -1, SQLITE_STATIC);
+    sqlite3_bind_text(st, 5, estudo::nomeEstado(p.estado), -1, SQLITE_STATIC);
+    sqlite3_bind_text(st, 6, p.idTurma.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(st, 7, p.diaSemana);
+    sqlite3_bind_text(st, 8, dia.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 9, p.topico.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(st, 10, p.de);
+    sqlite3_bind_int(st, 11, p.para);
+    sqlite3_bind_text(st, 12, p.motivo.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 13, p.ref);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if (!ok) impl_->erro = sqlite3_errmsg(impl_->db);
+    sqlite3_finalize(st);
+    return ok ? sqlite3_last_insert_rowid(impl_->db) : 0;
+}
+
+std::vector<estudo::Proposta> Database::carregarPropostas() {
+    std::vector<estudo::Proposta> out;
+    if (!aberto()) return out;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT id, origem, criado_em, respondida_em, tipo, estado, id_turma, dia_semana, dia,"
+            " topico, de, para, motivo, ref FROM proposta_agente ORDER BY criado_em DESC, id DESC",
+            -1, &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            estudo::Proposta p;
+            p.id = sqlite3_column_int64(st, 0);
+            p.origem = txt(st, 1);
+            p.criadoEm = sqlite3_column_int64(st, 2);
+            p.respondidaEm = sqlite3_column_int64(st, 3);
+            p.tipo = estudo::tipoPorNome(txt(st, 4));
+            p.estado = estudo::estadoPorNome(txt(st, 5));
+            p.idTurma = txt(st, 6);
+            p.diaSemana = sqlite3_column_type(st, 7) == SQLITE_NULL ? -1 : sqlite3_column_int(st, 7);
+            p.dia = deIso(txt(st, 8));
+            p.topico = txt(st, 9);
+            p.de = sqlite3_column_int(st, 10);
+            p.para = sqlite3_column_int(st, 11);
+            p.motivo = txt(st, 12);
+            p.ref = sqlite3_column_int64(st, 13);
+            out.push_back(std::move(p));
+        }
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+
+bool Database::responderProposta(const estudo::Proposta& p) {
+    if (!aberto()) return false;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "UPDATE proposta_agente SET estado=?, para=?, ref=?, respondida_em=?, motivo=?"
+            " WHERE id=?",
+            -1, &st, nullptr) != SQLITE_OK) {
+        impl_->erro = sqlite3_errmsg(impl_->db);
+        return false;
+    }
+    sqlite3_bind_text(st, 1, estudo::nomeEstado(p.estado), -1, SQLITE_STATIC);
+    sqlite3_bind_int(st, 2, p.para);
+    sqlite3_bind_int64(st, 3, p.ref);
+    if (p.respondidaEm) sqlite3_bind_int64(st, 4, p.respondidaEm);
+    else sqlite3_bind_null(st, 4);
+    sqlite3_bind_text(st, 5, p.motivo.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 6, p.id);
+    const bool ok = sqlite3_step(st) == SQLITE_DONE && sqlite3_changes(impl_->db) == 1;
+    if (!ok) impl_->erro = sqlite3_errmsg(impl_->db);
+    sqlite3_finalize(st);
+    return ok;
+}
+
 bool Database::apagarDoAgente(TabelaAgente t, std::int64_t id) {
     if (!aberto()) return false;
     const char* sql = t == TabelaAgente::Estudo       ? "DELETE FROM registro_estudo WHERE id=?"
                       : t == TabelaAgente::Desempenho ? "DELETE FROM desempenho WHERE id=?"
+                      : t == TabelaAgente::Proposta   ? "DELETE FROM proposta_agente WHERE id=?"
                                                       : "DELETE FROM ponto_foco WHERE id=?";
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2(impl_->db, sql, -1, &st, nullptr) != SQLITE_OK) return false;

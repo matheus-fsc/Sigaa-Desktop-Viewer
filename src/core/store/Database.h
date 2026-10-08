@@ -50,7 +50,8 @@ public:
     // Auditoria do servidor MCP: um registro por chamada de ferramenta ou
     // leitura de recurso. Só o pedido, nunca o conteúdo devolvido.
     bool registrarAcessoMcp(std::int64_t quando, const std::string& origem,
-                            const std::string& ferramenta, const std::string& turma, bool ok);
+                            const std::string& ferramenta, const std::string& turma, bool ok,
+                            const std::string& motivo = {});
 
     struct AcessoMcp {
         std::int64_t quando{0};
@@ -58,6 +59,7 @@ public:
         std::string ferramenta;
         std::string turma;
         bool ok{false};
+        std::string motivo;   // por que foi recusado; vazio quando ok
     };
     // Os mais recentes primeiro.
     std::vector<AcessoMcp> ultimosAcessosMcp(int limite = 50);
@@ -101,7 +103,17 @@ public:
     std::vector<estudo::PontoFoco> carregarFocos(const std::string& idTurma = {},
                                                  bool soAbertos = false);
 
-    enum class TabelaAgente { Estudo, Desempenho, Foco };
+    // Falso se o id não existe ou não estava resolvido. É o "Desfazer" do
+    // "Já domino".
+    bool reabrirFoco(std::int64_t id, std::int64_t agora);
+
+    // Propostas de mudança no plano (mcp/Propostas.h). Mais recentes primeiro.
+    std::int64_t inserirProposta(const estudo::Proposta& p);
+    std::vector<estudo::Proposta> carregarPropostas();
+    // Grava estado, valor final (`para`), `ref`, `respondidaEm` e `motivo`.
+    bool responderProposta(const estudo::Proposta& p);
+
+    enum class TabelaAgente { Estudo, Desempenho, Foco, Proposta };
     bool apagarDoAgente(TabelaAgente t, std::int64_t id);
     // Tudo que uma origem gravou; origem vazia = de todos os agentes.
     // Devolve quantas linhas saíram.
@@ -191,8 +203,11 @@ public:
 
     std::vector<planejamento::Sessao> carregarSessoesEstudo();
     // Grava o plano recalculado: apaga as pendentes e insere `ss`. As feitas
-    // nunca são apagadas, nem desmarcadas por um replano.
-    bool substituirSessoesEstudo(const std::vector<planejamento::Sessao>& ss);
+    // nunca são apagadas, nem desmarcadas por um replano. Com `desde`
+    // ("aaaa-mm-dd", o hoje), as pendentes de antes dele ficam: o que foi
+    // planejado e não feito é a medida de quanto o aluno seguiu o plano.
+    bool substituirSessoesEstudo(const std::vector<planejamento::Sessao>& ss,
+                                 const std::string& desde = {});
     // O check do aluno. Falso se a chave não existe.
     bool marcarSessaoEstudo(const std::string& chave, bool feita, std::int64_t agora);
 

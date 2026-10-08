@@ -360,3 +360,56 @@ TEST_CASE("planejamento: foco aberto pede mais tempo e vira dica", "[planejament
     CHECK(minutosDaProva(pl, "1", "Prova 1") == base);
     CHECK_FALSE(temDica(pl, TipoDica::Foco));
 }
+
+TEST_CASE("planejamento: sessao extra do agente reserva o dia e soma a prova", "[planejamento]") {
+    const auto p = prova("1", "Prova 1", dia(2026, 10, 15));
+    const int base = minutosNecessarios(p, Dificuldade::Media);
+
+    estudo::Proposta q;
+    q.tipo = estudo::TipoProposta::Sessao;
+    q.estado = estudo::EstadoProposta::Aceita;
+    q.idTurma = "1";
+    q.dia = dia(2026, 10, 3);
+    q.para = 60;
+    q.topico = "Laplace";
+    DoAgente ag;
+    ag.propostas = {q};
+    auto pl = planejar({p}, {}, Preferencias{}, {}, kHoje, {}, ag);
+    CHECK(minutosDaProva(pl, "1", "Prova 1") == base + 60);
+    int noDia = 0;
+    for (const auto& s : pl.sessoes) {
+        if (s.dia.toIso() == "2026-10-03") noDia += s.minutos;
+    }
+    CHECK(noDia >= 60);
+
+    // Pendente ou desfeita não entra.
+    for (auto e : {estudo::EstadoProposta::Pendente, estudo::EstadoProposta::Desfeita}) {
+        ag.propostas[0].estado = e;
+        pl = planejar({p}, {}, Preferencias{}, {}, kHoje, {}, ag);
+        CHECK(minutosDaProva(pl, "1", "Prova 1") == base);
+    }
+}
+
+TEST_CASE("planejamento: pendente do passado fica guardada com desde", "[planejamento]") {
+    const auto caminho = (std::filesystem::temp_directory_path() / "sigaa-teste-desde.db").string();
+    std::filesystem::remove(caminho);
+    {
+        store::Database db(caminho);
+        REQUIRE(db.migrar());
+        Sessao velha;
+        velha.idTurma = "1";
+        velha.prova = "Prova 1";
+        velha.dataProva = dia(2026, 10, 15);
+        velha.dia = dia(2026, 9, 28);
+        velha.minutos = 60;
+        Sessao nova = velha;
+        nova.dia = dia(2026, 10, 2);
+        REQUIRE(db.substituirSessoesEstudo({velha, nova}));
+        // Replano: a velha (antes de hoje) fica; a nova é trocada.
+        REQUIRE(db.substituirSessoesEstudo({}, "2026-10-01"));
+        const auto ss = db.carregarSessoesEstudo();
+        REQUIRE(ss.size() == 1);
+        CHECK(ss[0].dia.toIso() == "2026-09-28");
+    }
+    std::filesystem::remove(caminho);
+}

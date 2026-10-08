@@ -24,6 +24,7 @@
 #include "core/sync/Baixador.h"
 #include "core/config/Instituicao.h"
 #include "mcp/Escrita.h"
+#include "mcp/Propostas.h"
 #include "mcp/Rede.h"
 #include "mcp/Servidor.h"
 
@@ -731,4 +732,95 @@ TEST_CASE("mcp: gravar marca o banco para a UI recarregar; ler nao", "[mcp][escr
     const auto marca = db.lerMeta("mcp.alteracao");
     REQUIRE(marca.has_value());
     CHECK(marca->find("registrar_estudo") != std::string::npos);
+}
+
+// --- propostas de mudança no plano ---------------------------------------------
+
+TEST_CASE("mcp propostas: o modo decide se propoe, aplica ou recusa", "[mcp][propostas]") {
+    mcp::zerarLimiteDeEscrita();
+    Ambiente amb;
+    amb.permitir("leitura");
+    amb.permitir("escrita");
+    mcp::Servidor s({amb.banco, amb.materiais});
+
+    // Padrão de dificuldade: propõe. Nada muda até o aluno aceitar.
+    auto r = chamar(s, "propor_dificuldade",
+                    {{"turma", "compiladores"}, {"dificuldade", "dificil"}, {"motivo", "40% em LL(1)"}});
+    REQUIRE(r["isError"] == false);
+    CHECK(r["structuredContent"]["estado"] == "pendente");
+    store::Database db(amb.banco);
+    CHECK(db.carregarPreferenciasEstudo().dificuldadeDe("102") == planejamento::Dificuldade::Media);
+    CHECK(mcp::pendentesVisiveis(db) == 1);
+
+    // Propor de novo a mesma coisa troca a pendente, não duplica.
+    chamar(s, "propor_dificuldade",
+           {{"turma", "compiladores"}, {"dificuldade", "dificil"}, {"motivo", "e 60% em FIRST"}});
+    auto ps = db.carregarPropostas();
+    REQUIRE(ps.size() == 1);
+    CHECK(ps[0].motivo == "e 60% em FIRST");
+
+    // Aceitar aplica; desfazer volta.
+    REQUIRE(mcp::aceitar(db, ps[0], 3, estudo::EstadoProposta::Aceita, 100));
+    CHECK(db.carregarPreferenciasEstudo().dificuldadeDe("102") == planejamento::Dificuldade::Dificil);
+    REQUIRE(mcp::desfazer(db, ps[0], 101));
+    CHECK(db.carregarPreferenciasEstudo().dificuldadeDe("102") == planejamento::Dificuldade::Media);
+    CHECK(db.carregarPropostas()[0].estado == estudo::EstadoProposta::Desfeita);
+
+    // Sessões extras: padrão aplica e avisa.
+    const DateTime amanha = emDias(1);
+    r = chamar(s, "propor_sessao", {{"turma", "compiladores"}, {"dia", amanha.toIso()}, {"minutos", 60},
+                                     {"topico", "Laplace"}, {"motivo", "errou 4 de 5"}});
+    REQUIRE(r["isError"] == false);
+    CHECK(r["structuredContent"]["estado"] == "aplicada");
+
+    // Não pode: recusa, e a recusa fica na atividade com o motivo.
+    REQUIRE(mcp::gravarModo(db, estudo::TipoProposta::Horas, mcp::Modo::NaoPode));
+    r = chamar(s, "propor_horas", {{"dia_semana", "sabado"}, {"horas", 6}, {"motivo", "3 provas"}});
+    CHECK(r["isError"] == true);
+    const auto log = db.ultimosAcessosMcp(1);
+    REQUIRE(log.size() == 1);
+    CHECK_FALSE(log[0].ok);
+    CHECK(log[0].motivo.find("não permite") != std::string::npos);
+}
+
+TEST_CASE("mcp propostas: teto de horas e aplicar as pendentes ao mudar o modo", "[mcp][propostas]") {
+    mcp::zerarLimiteDeEscrita();
+    Ambiente amb;
+    amb.permitir("leitura");
+    amb.permitir("escrita");
+    mcp::Servidor s({amb.banco, amb.materiais});
+    store::Database db(amb.banco);
+    REQUIRE(mcp::gravarTeto(db, 6));
+
+    auto r = chamar(s, "propor_horas", {{"dia_semana", "sabado"}, {"horas", 7}, {"motivo", "x"}});
+    CHECK(r["isError"] == true);   // acima do teto
+
+    r = chamar(s, "propor_horas", {{"dia_semana", "sabado"}, {"horas", 5.5}, {"motivo", "x"}});
+    REQUIRE(r["isError"] == false);
+    CHECK(r["structuredContent"]["estado"] == "pendente");
+
+    REQUIRE(mcp::gravarModo(db, estudo::TipoProposta::Horas, mcp::Modo::Aplica));
+    CHECK(mcp::aplicarPendentes(db, estudo::TipoProposta::Horas, 100) == 1);
+    CHECK(db.carregarPreferenciasEstudo().minutosPorDia[5] == 330);
+}
+
+TEST_CASE("mcp propostas: foco em modo propoe vira proposta, e aceitar cria o ponto", "[mcp][propostas]") {
+    mcp::zerarLimiteDeEscrita();
+    Ambiente amb;
+    amb.permitir("leitura");
+    amb.permitir("escrita");
+    mcp::Servidor s({amb.banco, amb.materiais});
+    store::Database db(amb.banco);
+    REQUIRE(mcp::gravarModo(db, estudo::TipoProposta::Foco, mcp::Modo::Propoe));
+    auto r = chamar(s, "marcar_foco", {{"turma", "compiladores"}, {"topico", "LR"}, {"nivel", 2},
+                                        {"motivo", "confunde SLR"}});
+    REQUIRE(r["isError"] == false);
+    CHECK(db.carregarFocos().empty());
+    auto ps = db.carregarPropostas();
+    REQUIRE(ps.size() == 1);
+    REQUIRE(mcp::aceitar(db, ps[0], 3, estudo::EstadoProposta::Aceita, 100));
+    REQUIRE(db.carregarFocos().size() == 1);
+    CHECK(db.carregarFocos()[0].nivel == 3);
+    REQUIRE(mcp::desfazer(db, ps[0], 101));
+    CHECK(db.carregarFocos().empty());
 }

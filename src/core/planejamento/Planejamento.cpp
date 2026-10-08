@@ -219,18 +219,48 @@ Plano planejar(const std::vector<ProvaAlvo>& provasIn, const std::vector<Entrega
         }
     }
 
+    // Sessões extras que o agente propôs e valem: tempo a mais para a próxima
+    // prova da turma, preso ao dia escolhido.
+    std::map<std::string, std::map<int, int>> reservas;   // chaveProva → dia → minutos
+    for (const auto& q : agente.propostas) {
+        if (q.tipo != estudo::TipoProposta::Sessao || !q.valendo() || !q.dia.valid()) continue;
+        const int d = paraDia(q.dia);
+        if (d < hoje) continue;
+        for (const auto& p : provas) {
+            if (p.idTurma != q.idTurma || paraDia(p.data) <= d) continue;
+            reservas[p.idTurma + "|" + p.descricao][d] += q.para;
+            break;
+        }
+    }
+
     // --- distribuição, prova a prova ----------------------------------------
     std::map<std::string, int> primeiraSessao;   // por chaveProva: primeiro dia
     for (const auto& p : provas) {
         const int alvo = paraDia(p.data);
         const Dificuldade dif = prefs.dificuldadeDe(p.idTurma);
         const std::string chaveP = p.idTurma + "|" + p.descricao;
-        int falta = minutosNecessarios(p, dif) + extraPorFoco[chaveP] - feito[chaveP];
+        int extraSessao = 0;
+        for (const auto& [d, m] : reservas[chaveP]) extraSessao += m;
+        int falta = minutosNecessarios(p, dif) + extraPorFoco[chaveP] + extraSessao - feito[chaveP];
         if (falta <= 0) continue;
 
         const int inicio = std::max(hoje, alvo - kJanela);
         std::map<int, int> blocos;               // desta prova, por dia
         int blocosFaltando = (falta + kBloco - 1) / kBloco;
+        // As reservas entram primeiro, no dia delas. Um dia com sessão FEITA
+        // desta prova fica como está (a chave é uma por prova por dia): o
+        // tempo da reserva continua na conta e vai para outro dia.
+        for (const auto& [d, m] : reservas[chaveP]) {
+            Sessao chk;
+            chk.idTurma = p.idTurma;
+            chk.prova = p.descricao;
+            chk.dia = deDia(d);
+            if (diasFeitos.count(chk.chave())) continue;
+            const int n = std::min(blocosFaltando, (m + kBloco - 1) / kBloco);
+            blocos[d] += n;
+            usado[d] += n * kBloco;
+            blocosFaltando -= n;
+        }
         while (blocosFaltando > 0) {
             int melhor = -1;
             double melhorPeso = -1;
