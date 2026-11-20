@@ -160,10 +160,11 @@ jobs:
             dist/SHA256SUMS
 
   macos:
-    # macos-14 e Apple Silicon (arm64). O runner Intel (macos-13) existe, e um
-    # .dmg arm64 NAO abre num Mac Intel — quando houver quem peca, o job vira
-    # uma matriz de duas arquiteturas e o nome do arquivo ja distingue as duas.
-    runs-on: macos-14
+    # macos-15 e Apple Silicon (arm64). Um .dmg arm64 NAO abre num Mac Intel —
+    # quando houver quem peca, o job vira uma matriz de duas arquiteturas e o
+    # nome do arquivo ja distingue as duas. Era macos-14 ate o GitHub aposentar
+    # o runner (nov/2026): o job falhava em 1 s e levava o `publicar` junto.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
