@@ -800,3 +800,135 @@ TEST_CASE("notas: ida e volta preserva nota ausente e zero lancado", "[database]
     CHECK(*l.faltas == 0);
     CHECK_FALSE(l.resultado);
 }
+
+// --- turma que sai do portal (trancamento) ----------------------------------
+// Trancar uma disciplina a tira do portal. Ela tem de sumir da tela — e so da
+// tela: os dados ficam, para o aluno usar quando cursar de novo.
+
+namespace {
+
+Turma turma(const std::string& id, const std::string& nome) {
+    Turma t;
+    t.idTurma = id;
+    t.nome = nome;
+    t.periodo = "2026.2";
+    return t;
+}
+
+Snapshot comDuasTurmas() {
+    Snapshot s;
+    s.turmas = {turma("1", "COMPILADORES"), turma("2", "ADMINISTRACAO")};
+    Atividade a = umaAtividade("Lista 1");
+    a.idTurma = "2";
+    s.atividades = {a};
+    Avaliacao av = umaAvaliacao();
+    av.idTurma = "2";
+    s.avaliacoes = {av};
+    TopicoAula tp;
+    tp.idTurma = "2";
+    tp.titulo = "Aula 1";
+    s.topicos = {tp};
+    return s;
+}
+
+} // namespace
+
+TEST_CASE("turma trancada some da leitura mas os dados ficam no banco", "[database][trancada]") {
+    BancoTemp tmp;
+    store::Database db(tmp.str());
+    REQUIRE(db.migrar());
+    REQUIRE(db.gravar(comDuasTurmas(), 1000));
+
+    Snapshot depois;
+    depois.turmas = {turma("1", "COMPILADORES")};   // "2" foi trancada
+    REQUIRE(db.gravar(depois, 2000));
+
+    const auto s = db.carregarUltimo();
+    REQUIRE(s.turmas.size() == 1);
+    CHECK(s.turmas[0].idTurma == "1");
+    CHECK(s.atividades.empty());
+    CHECK(s.avaliacoes.empty());
+    CHECK(s.topicos.empty());
+
+    const auto fora = db.turmasForaDoPortal();
+    REQUIRE(fora.size() == 1);
+    CHECK(fora[0].idTurma == "2");
+    CHECK(fora[0].nome == "ADMINISTRACAO");
+
+    // Nada foi apagado: as linhas continuam la.
+    sqlite3* raw = nullptr;
+    REQUIRE(sqlite3_open(tmp.str().c_str(), &raw) == SQLITE_OK);
+    auto conta = [&](const char* sql) {
+        sqlite3_stmt* st = nullptr;
+        sqlite3_prepare_v2(raw, sql, -1, &st, nullptr);
+        sqlite3_step(st);
+        const int n = sqlite3_column_int(st, 0);
+        sqlite3_finalize(st);
+        return n;
+    };
+    CHECK(conta("SELECT COUNT(*) FROM turma") == 2);
+    CHECK(conta("SELECT COUNT(*) FROM atividade WHERE id_turma='2'") == 1);
+    CHECK(conta("SELECT COUNT(*) FROM avaliacao WHERE id_turma='2'") == 1);
+    CHECK(conta("SELECT COUNT(*) FROM topico WHERE id_turma='2'") == 1);
+    sqlite3_close(raw);
+}
+
+TEST_CASE("turma que volta ao portal volta a aparecer", "[database][trancada]") {
+    BancoTemp tmp;
+    store::Database db(tmp.str());
+    REQUIRE(db.migrar());
+    REQUIRE(db.gravar(comDuasTurmas(), 1000));
+    Snapshot so1;
+    so1.turmas = {turma("1", "COMPILADORES")};
+    REQUIRE(db.gravar(so1, 2000));
+    REQUIRE(db.carregarUltimo().turmas.size() == 1);
+
+    // Trancamento cancelado: ela reaparece com os dados de antes.
+    Snapshot ambas;
+    ambas.turmas = {turma("1", "COMPILADORES"), turma("2", "ADMINISTRACAO")};
+    REQUIRE(db.gravar(ambas, 3000));
+    const auto s = db.carregarUltimo();
+    CHECK(s.turmas.size() == 2);
+    CHECK(s.avaliacoes.size() == 1);
+    CHECK(db.turmasForaDoPortal().empty());
+}
+
+TEST_CASE("gravacao parcial sem turmas nao tranca ninguem", "[database][trancada]") {
+    // A janela da turma grava snapshots so com frequencia, notas, noticias...
+    // Lista de turmas vazia nao e "o aluno trancou tudo".
+    BancoTemp tmp;
+    store::Database db(tmp.str());
+    REQUIRE(db.migrar());
+    REQUIRE(db.gravar(comDuasTurmas(), 1000));
+
+    Snapshot parcial;
+    Frequencia f;
+    f.idTurma = "1";
+    parcial.frequencias = {f};
+    REQUIRE(db.gravar(parcial, 2000));
+
+    CHECK(db.carregarUltimo().turmas.size() == 2);
+    CHECK(db.turmasForaDoPortal().empty());
+}
+
+TEST_CASE("item sem turma identificada nao some com o filtro", "[database][trancada]") {
+    // Atividade do portal cujo nome de turma nao casou: id_turma vazio. O
+    // filtro esconde o que e de turma trancada, nunca o que e de turma nenhuma.
+    BancoTemp tmp;
+    store::Database db(tmp.str());
+    REQUIRE(db.migrar());
+    Snapshot s = comDuasTurmas();
+    Atividade solta = umaAtividade("Sem turma");
+    solta.atividadeId = "999";
+    solta.idTurma = "";
+    s.atividades.push_back(solta);
+    REQUIRE(db.gravar(s, 1000));
+
+    Snapshot so1;
+    so1.turmas = {turma("1", "COMPILADORES")};
+    REQUIRE(db.gravar(so1, 2000));
+
+    const auto lido = db.carregarUltimo();
+    REQUIRE(lido.atividades.size() == 1);
+    CHECK(lido.atividades[0].titulo == "Sem turma");
+}

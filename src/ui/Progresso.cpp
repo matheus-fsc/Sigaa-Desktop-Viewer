@@ -435,6 +435,9 @@ void PainelProgresso::atualizar() {
     if (!db.aberto() || !db.migrar()) return;
     Dados d;
     for (const auto& t : db.carregarUltimo().turmas) d.nomes[t.idTurma] = q(t.nome);
+    // O histórico cita turmas trancadas também: sem o nome delas, a linha
+    // mostraria o id cru.
+    for (const auto& t : db.turmasForaDoPortal()) d.nomes[t.idTurma] = q(t.nome);
     d.estudos = db.carregarRegistrosEstudo();
     d.desempenhos = db.carregarDesempenho();
     d.focos = db.carregarFocos();

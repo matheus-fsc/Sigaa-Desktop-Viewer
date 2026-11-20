@@ -799,6 +799,10 @@ bool Database::migrar() {
         {"ajuste_avaliacao", "descartada", "INTEGER NOT NULL DEFAULT 0"},
         // Por que um acesso foi recusado ("sem permissão de materiais").
         {"mcp_acesso", "motivo", "TEXT"},
+        // 0 = a turma saiu do portal (trancada, período encerrado). Ver
+        // `carregarUltimo` no cabeçalho. DEFAULT 1: um banco antigo não sabe
+        // de turma nenhuma fora do portal, e a próxima coleta acerta.
+        {"turma", "ativa", "INTEGER NOT NULL DEFAULT 1"},
     };
     for (const auto& c : kColunasTardias) {
         if (impl_->temColuna(c.tabela, c.nome)) continue;
@@ -811,6 +815,14 @@ bool Database::migrar() {
 
 // ---------------------------------------------------------------------------
 
+// Filtro das tabelas filhas em `carregarUltimo`: fora o que é de turma que
+// saiu do portal. NOT IN, e não IN das ativas: atividade e atualização vêm do
+// portal e podem ter id_turma vazio quando o nome não casou com nenhuma turma —
+// um IN as esconderia junto, e um prazo sumir da tela é o pior erro possível.
+// Os COALESCE pelo mesmo motivo: `NULL NOT IN (...)` é NULL, não verdadeiro.
+#define ATIVA " WHERE COALESCE(id_turma, '') NOT IN" \
+              " (SELECT COALESCE(id_turma, '') FROM turma WHERE ativa = 0)"
+
 Snapshot Database::carregarUltimo() {
     Snapshot s;
     if (!aberto()) return s;
@@ -819,7 +831,7 @@ Snapshot Database::carregarUltimo() {
 
     if (sqlite3_prepare_v2(impl_->db,
             "SELECT id_turma, front_end_id, codigo, nome, periodo, carga_horaria,"
-            " local, horario FROM turma", -1, &st, nullptr) == SQLITE_OK) {
+            " local, horario FROM turma WHERE ativa = 1", -1, &st, nullptr) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             Turma t;
             t.idTurma = txt(st, 0);
@@ -838,7 +850,7 @@ Snapshot Database::carregarUltimo() {
 
     if (sqlite3_prepare_v2(impl_->db,
             "SELECT atividade_id, id_turma, turma_nome, tipo, titulo, prazo, status"
-            " FROM atividade", -1, &st, nullptr) == SQLITE_OK) {
+            " FROM atividade" ATIVA, -1, &st, nullptr) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             Atividade a;
             a.atividadeId = txt(st, 0);
@@ -855,7 +867,7 @@ Snapshot Database::carregarUltimo() {
     st = nullptr;
 
     if (sqlite3_prepare_v2(impl_->db,
-            "SELECT hash, id_turma, turma_nome, data, texto FROM atualizacao",
+            "SELECT hash, id_turma, turma_nome, data, texto FROM atualizacao" ATIVA,
             -1, &st, nullptr) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             Atualizacao u;
@@ -872,7 +884,7 @@ Snapshot Database::carregarUltimo() {
 
     if (sqlite3_prepare_v2(impl_->db,
             "SELECT id_turma, descricao, turma_nome, quando, horario_bruto, fonte"
-            " FROM avaliacao", -1, &st, nullptr) == SQLITE_OK) {
+            " FROM avaliacao" ATIVA, -1, &st, nullptr) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             Avaliacao a;
             a.idTurma = txt(st, 0);
@@ -890,7 +902,7 @@ Snapshot Database::carregarUltimo() {
 
     if (sqlite3_prepare_v2(impl_->db,
             "SELECT id_turma, turma_nome, id_noticia, titulo, data, conteudo, autor"
-            " FROM noticia ORDER BY data DESC", -1, &st, nullptr) == SQLITE_OK) {
+            " FROM noticia" ATIVA " ORDER BY data DESC", -1, &st, nullptr) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             Noticia n;
             n.idTurma = txt(st, 0);
@@ -908,7 +920,7 @@ Snapshot Database::carregarUltimo() {
 
     if (sqlite3_prepare_v2(impl_->db,
             "SELECT id_arquivo, id_turma, turma_nome, titulo, descricao, topico"
-            " FROM arquivo", -1, &st, nullptr) == SQLITE_OK) {
+            " FROM arquivo" ATIVA, -1, &st, nullptr) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             ArquivoTurma a;
             a.idArquivo = txt(st, 0);
@@ -928,7 +940,7 @@ Snapshot Database::carregarUltimo() {
     // porque o .ics e o relatorio HTML leem o mesmo Snapshot.
     if (sqlite3_prepare_v2(impl_->db,
             "SELECT id_turma, nome, papel, turma_nome, email, matricula, curso,"
-            " departamento, formacao FROM participante"
+            " departamento, formacao FROM participante" ATIVA
             // papel DESC porque 'docente' > 'discente' em ordem alfabetica, e
             // e o professor que a tela precisa mostrar no topo.
             " ORDER BY id_turma, papel DESC, nome", -1, &st, nullptr) == SQLITE_OK) {
@@ -953,7 +965,7 @@ Snapshot Database::carregarUltimo() {
     // Ordenado pela data da aula: quem le isto quer a linha do tempo, e
     // ordenar depois em cada chamador seria repetir a mesma regra em N lugares.
     if (sqlite3_prepare_v2(impl_->db,
-            "SELECT id_turma, titulo, inicio, fim, conteudo FROM topico"
+            "SELECT id_turma, titulo, inicio, fim, conteudo FROM topico" ATIVA
             " ORDER BY inicio", -1, &st, nullptr) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             TopicoAula t;
@@ -976,7 +988,7 @@ Snapshot Database::carregarUltimo() {
     // consulta por turma dentro do laço.
     std::map<std::string, std::vector<DiaFrequencia>> diasPorTurma;
     if (sqlite3_prepare_v2(impl_->db,
-            "SELECT id_turma, data, situacao, faltas FROM frequencia_dia"
+            "SELECT id_turma, data, situacao, faltas FROM frequencia_dia" ATIVA
             " ORDER BY data", -1, &st, nullptr) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             DiaFrequencia d;
@@ -991,7 +1003,7 @@ Snapshot Database::carregarUltimo() {
 
     if (sqlite3_prepare_v2(impl_->db,
             "SELECT id_turma, turma_nome, presencas, aulas_com_registro,"
-            " aulas_pela_ch, tem_dados FROM frequencia", -1, &st, nullptr) == SQLITE_OK) {
+            " aulas_pela_ch, tem_dados FROM frequencia" ATIVA, -1, &st, nullptr) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             Frequencia f;
             f.idTurma = txt(st, 0);
@@ -1010,7 +1022,7 @@ Snapshot Database::carregarUltimo() {
     st = nullptr;
 
     // --- notas ---
-    if (sqlite3_prepare_v2(impl_->db, "SELECT id_turma, turma_nome, dados FROM notas", -1,
+    if (sqlite3_prepare_v2(impl_->db, "SELECT id_turma, turma_nome, dados FROM notas" ATIVA, -1,
                            &st, nullptr) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             Notas n;
@@ -1023,6 +1035,35 @@ Snapshot Database::carregarUltimo() {
     sqlite3_finalize(st);
 
     return s;
+}
+
+// ---------------------------------------------------------------------------
+
+#undef ATIVA
+
+std::vector<Turma> Database::turmasForaDoPortal() {
+    std::vector<Turma> out;
+    if (!aberto()) return out;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(impl_->db,
+            "SELECT id_turma, front_end_id, codigo, nome, periodo, carga_horaria,"
+            " local, horario FROM turma WHERE ativa = 0 ORDER BY periodo DESC, nome",
+            -1, &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            Turma t;
+            t.idTurma = txt(st, 0);
+            t.frontEndId = txt(st, 1);
+            t.codigo = txt(st, 2);
+            t.nome = txt(st, 3);
+            t.periodo = txt(st, 4);
+            t.cargaHoraria = sqlite3_column_int(st, 5);
+            t.local = txt(st, 6);
+            t.horario = txt(st, 7);
+            out.push_back(std::move(t));
+        }
+    }
+    sqlite3_finalize(st);
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -1072,6 +1113,23 @@ bool Database::gravar(const Snapshot& s, std::int64_t agora) {
     }
     sqlite3_finalize(st);
     st = nullptr;
+
+    // Quem veio nesta coleta tem ultimo_visto = agora; quem não veio, não.
+    // Recalcular a coluna inteira (em vez de só desligar as ausentes) é o que
+    // faz uma turma que VOLTA ao portal — trancamento cancelado — voltar à tela.
+    if (!s.turmas.empty()) {
+        if (sqlite3_prepare_v2(impl_->db,
+                "UPDATE turma SET ativa = (ultimo_visto = ?)", -1, &st, nullptr) != SQLITE_OK) {
+            impl_->erro = sqlite3_errmsg(impl_->db);
+            return rollback();
+        }
+        sqlite3_bind_int64(st, 1, agora);
+        const bool ok = sqlite3_step(st) == SQLITE_DONE;
+        if (!ok) impl_->erro = sqlite3_errmsg(impl_->db);
+        sqlite3_finalize(st);
+        st = nullptr;
+        if (!ok) return rollback();
+    }
 
     // --- atividades ---
     if (sqlite3_prepare_v2(impl_->db,

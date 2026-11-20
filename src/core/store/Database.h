@@ -120,9 +120,25 @@ public:
     int apagarTudoDoAgente(const std::string& origem);
 
     // Lê o último estado conhecido — a base de comparação do diff.
+    //
+    // Só das turmas ATIVAS: as que o portal listou na última coleta. Turma
+    // trancada (ou de um período que acabou) some do portal e, a partir daí,
+    // de tudo que lê daqui — painel, Estudo, acesso mobile, agentes. Os dados
+    // dela continuam no banco, e o material em <Documentos>/SIGAA/<Turma>/
+    // continua no disco: nada é apagado, só deixa de ser mostrado. Se ela
+    // voltar ao portal, volta sozinha.
     Snapshot carregarUltimo();
 
-    // Grava o snapshot novo (upsert), marcando `ultimo_visto`.
+    // As turmas que saíram do portal (ver acima), com os dados de cadastro.
+    // Para quem precisa do NOME de uma turma antiga — o histórico de estudo e
+    // o log dos agentes citam turmas pelo id, e o id de uma trancada não pode
+    // virar um número solto na tela.
+    std::vector<Turma> turmasForaDoPortal();
+
+    // Grava o snapshot novo (upsert), marcando `ultimo_visto`. Uma turma que
+    // estava no banco e não veio em `s.turmas` passa a fora do portal — mas só
+    // se `s.turmas` não estiver vazio: lista vazia é coleta quebrada, não o
+    // aluno trancando tudo (o diff já recusa gravar esse caso).
     bool gravar(const Snapshot& s, std::int64_t agora);
 
     // Quantos ciclos de sync já rodaram. Zero = primeira execução, e nesse

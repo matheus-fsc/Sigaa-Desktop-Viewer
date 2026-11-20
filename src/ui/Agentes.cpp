@@ -556,6 +556,9 @@ void PainelAgentes::atualizarAtividade() {
     if (!db.aberto() || !db.migrar()) return;
     std::map<std::string, QString> nomes;
     for (const auto& t : db.carregarUltimo().turmas) nomes[t.idTurma] = q(t.nome);
+    // O histórico cita turmas trancadas também: sem o nome delas, a linha
+    // mostraria o id cru.
+    for (const auto& t : db.turmasForaDoPortal()) nomes[t.idTurma] = q(t.nome);
     const auto log = db.ultimosAcessosMcp(100);
     atividade_->setRowCount(static_cast<int>(log.size()));
     for (int r = 0; r < static_cast<int>(log.size()); ++r) {
