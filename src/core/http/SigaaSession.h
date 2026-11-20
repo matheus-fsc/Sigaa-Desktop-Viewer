@@ -53,6 +53,10 @@ enum class PageKind {
     Portal,          // #formAtividades + #formAtualizacoesTurmas
     TurmaVirtual,    // #formAva (pagina inicial) ou #formAcoesTurma (abas)
     Login,           // form com user.login / user.senha
+    // Aviso pós-login (telaAvisoLogon.jsf): o SIGAA intercepta a entrada com
+    // um comunicado (CPA, avaliação, manutenção...) e um botão "Continuar".
+    // `login()` passa por ele sozinho; ver `passarAvisosDeLogon`.
+    AvisoLogon,
     SessaoExpirada,
     Desconhecida
 };
@@ -110,6 +114,20 @@ public:
 
     // --- classificação ----------------------------------------------------
     static PageKind classify(std::string_view html);
+
+    // O "clique" em Continuar de uma tela AvisoLogon: {action, corpo do POST}.
+    //
+    // Só aceita o aviso que é SÓ um aviso: um form para telaAvisoLogon.jsf com
+    // um botão submit e nenhum campo de senha. A mesma tela tem uma variante
+    // "Declaro que li e estou ciente", que pede a senha de novo para registrar
+    // um aceite (termo de uso, LGPD). Isso é o aluno concordando com algo, e
+    // não cabe ao app concordar por ele — nesse caso devolve nullopt e o login
+    // falha dizendo para entrar uma vez pelo navegador.
+    struct CliqueAviso {
+        std::string action;
+        std::string corpo;
+    };
+    static std::optional<CliqueAviso> continuarAviso(std::string_view html);
     // Lê "Tempo de Sessão: 00:25" do cabeçalho (RECON §1.7).
     static std::optional<int> minutosSessaoRestantes(std::string_view html);
 

@@ -142,6 +142,7 @@ std::string_view toString(PageKind k) {
         case PageKind::Portal:         return "Portal";
         case PageKind::TurmaVirtual:   return "TurmaVirtual";
         case PageKind::Login:          return "Login";
+        case PageKind::AvisoLogon:     return "AvisoLogon";
         case PageKind::SessaoExpirada: return "SessaoExpirada";
         default:                       return "Desconhecida";
     }
@@ -536,6 +537,46 @@ bool SigaaSession::login(std::string_view cpf, std::string_view senha, std::stri
     auto r = postForm("/sigaa/logar.do?dispatch=logOn", body);
     if (!r.ok()) return fail("falha de rede no login: " + (r.error.empty() ? "HTTP " + std::to_string(r.status) : r.error));
 
+    // AVISOS POS-LOGIN. Antes do portal o SIGAA pode intercalar telas de
+    // comunicado (telaAvisoLogon.jsf) com um "Continuar >>" — e pode haver
+    // mais de uma em fila, uma por comunicado ativo. Sao do sistema, nao do
+    // aluno: aparecem e somem a cada semestre sem aviso previo, e cada uma que
+    // surgia derrubava o login inteiro com "pagina inesperada".
+    //
+    // O limite nao e de cortesia: se o Continuar nao andar (form mudou, POST
+    // ignorado), sem ele o loop postaria o mesmo aviso para sempre.
+    constexpr int kMaxAvisos = 5;
+    int avisos = 0;
+    while (classify(r.body) == PageKind::AvisoLogon) {
+        if (avisos == kMaxAvisos) {
+            return fail("o SIGAA mostrou " + std::to_string(kMaxAvisos) +
+                        " avisos seguidos depois do login e nao saiu deles; "
+                        "entre uma vez pelo navegador e tente de novo");
+        }
+        const auto clique = continuarAviso(r.body);
+        if (!clique) {
+            return fail("o SIGAA pede uma confirmacao depois do login (termo ou "
+                        "declaracao com senha) que o app nao aceita por voce; "
+                        "entre uma vez pelo navegador, confirme, e tente de novo");
+        }
+        r = postForm(clique->action, clique->corpo);
+        if (!r.ok()) {
+            return fail("falha de rede ao passar o aviso pos-login: " +
+                        (r.error.empty() ? "HTTP " + std::to_string(r.status) : r.error));
+        }
+        ++avisos;
+    }
+
+    // Depois de um aviso, o SIGAA devolve o portal do vinculo — mas nao ha
+    // garantia de que seja o DISCENTE (servidor com vinculo de aluno cai no
+    // menu principal). Pedir o portal explicitamente custa uma requisicao, e
+    // so neste caminho raro.
+    if (avisos > 0 && classify(r.body) == PageKind::Desconhecida) {
+        r = get("/sigaa/verPortalDiscente.do");
+        if (!r.ok()) return fail("falha de rede indo ao portal depois do aviso: " +
+                                 (r.error.empty() ? "HTTP " + std::to_string(r.status) : r.error));
+    }
+
     switch (classify(r.body)) {
         case PageKind::Portal:
             impl_->autenticado = true;
@@ -544,14 +585,42 @@ bool SigaaSession::login(std::string_view cpf, std::string_view senha, std::stri
         case PageKind::Login:
             return fail("credenciais rejeitadas (voltou para a tela de login)");
         default:
-            // Pode ser tela de vinculo, termo de uso ou troca de senha —
-            // nao observadas nesta conta, mas possiveis (RECON §1.8).
+            // Pode ser tela de vinculo ou troca de senha — nao observadas
+            // nesta conta, mas possiveis (RECON §1.8). Avisos pos-login ja
+            // foram tratados acima.
             return fail("login nao caiu no portal; pagina inesperada ("
                         + std::string(toString(classify(r.body))) + ")");
     }
 }
 
 // ---------------------------------------------------------------------------
+
+std::optional<SigaaSession::CliqueAviso> SigaaSession::continuarAviso(std::string_view html) {
+    html::Document doc;
+    if (!doc.parse(html::toUtf8(html))) return std::nullopt;
+
+    for (const auto& node : doc.select("form")) {
+        if (node.attr("action").find("telaAvisoLogon") == std::string::npos) continue;
+        // Campo de senha = o form de "Declaro que li e estou ciente". Nunca.
+        if (!node.select("input[type=password]").empty()) continue;
+
+        // O browser manda o name=value do botao clicado junto com o form — e
+        // e por esse par que o JSF sabe QUAL acao disparar. parseForm pula
+        // submits de proposito (ninguem clicou neles), entao entra a mao.
+        html::Node botao;
+        for (const auto& b : node.select("input[type=submit]")) {
+            if (b.attr("name").empty()) continue;
+            if (!botao || b.attr("value").find("Continuar") != std::string::npos) botao = b;
+        }
+        if (!botao) continue;
+
+        auto form = jsf::parseForm(node);
+        if (!form) continue;
+        return CliqueAviso{form->action,
+                           form->buildPostBody({{botao.attr("name"), botao.attr("value")}})};
+    }
+    return std::nullopt;
+}
 
 PageKind SigaaSession::classify(std::string_view html) {
     // Ordem importa: expirada primeiro, senão uma página de erro que ainda
@@ -562,6 +631,11 @@ PageKind SigaaSession::classify(std::string_view html) {
     }
     if (contains(html, "user.senha") && contains(html, "user.login")) {
         return PageKind::Login;
+    }
+    // O action do form, e nao o texto do aviso: o texto muda a cada semestre
+    // (CPA, rematricula, manutencao), a tela que o serve nao.
+    if (contains(html, "/sigaa/telaAvisoLogon.jsf")) {
+        return PageKind::AvisoLogon;
     }
     // #formAva e a pagina inicial da Turma Virtual. As ABAS internas
     // (Participantes, por exemplo) nao tem esse form — so o menu lateral e a

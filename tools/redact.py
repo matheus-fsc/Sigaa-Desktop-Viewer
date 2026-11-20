@@ -101,6 +101,14 @@ RULES: list[tuple[str, re.Pattern[str], str]] = [
                 r"([^<>\s][^<>]*?)"
                 r"(\s*</p>)"),
      r"\g<1>ALUNO TESTE\g<3>"),
+    # O cabecalho das telas FORA do portal (aviso pos-login, caixa postal...)
+    # e outro: #info-usuario > p.usuario > <span title="NOME">NOME</span>. O
+    # nome aparece duas vezes, no title e no texto. Mesmo cuidado de ponto fixo
+    # da regra acima: os espacos ficam dentro dos grupos.
+    ("nome-em-info-usuario",
+     re.compile(r"(<p class=[\"']usuario[\"']>\s*<span title=[\"'])[^\"']*([\"']>\s*)"
+                r"[^<>\s][^<>]*?(\s*</span>)"),
+     r"\g<1>ALUNO TESTE\g<2>ALUNO TESTE\g<3>"),
     # --- aba Participantes ------------------------------------------------
     # Aqui os nomes nao sao UM (o do dono da conta), sao a TURMA INTEIRA: 31
     # colegas mais o professor, cada um com CPF, matricula e e-mail ao lado.

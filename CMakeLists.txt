@@ -476,6 +476,7 @@ if(BUILD_TESTING)
   add_executable(sigaa_tests
     tests/jsf_form_test.cpp
     tests/session_test.cpp
+    tests/login_test.cpp
     tests/html_encoding_test.cpp
     tests/diff_engine_test.cpp
     tests/ajustes_test.cpp
